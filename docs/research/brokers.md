@@ -46,3 +46,24 @@
 - [moomoo OpenAPI ガイド](https://www.moomoo.com/jp/learn/python-openapi-guide-for-us-stocks)
 - [SBI証券 先物・オプションAPI提供開始 (2018)](https://www.sbigroup.co.jp/news/pr/2018/0502_11078.html)
 - [証券会社のAPI比較 (証券会社比較なび)](https://crexgroup.com/ja/sec/knowledge-license/securities-company-api-guide/)
+
+## 追記: 海外の証券会社を直接使う場合
+
+| 候補 | 日本居住者 | API | 備考 |
+|---|---|---|---|
+| Interactive Brokers (海外法人 IB LLC) | **新規は日本法人 IBSJ に振り分け** (IB LLC は日本居住者不可とされる) | — | 実質「IBKR = IBSJ」。IBSJ は国内登録業者なので税・保護は国内扱い |
+| Alpaca | 国際口座を開ける可能性あり (公式の国別一覧なし・要問合せ) | ◎ 開発者向け REST、無料のペーパー口座 | 米国株のみ。米国法・ドル建て・W-8BEN。日本法人 AlpacaJapan は事業者向けインフラ |
+| Firstrade | 開設できるとの情報が多い | ✕ 公開の発注 API なし | 英語/中国語サポートのみ |
+| Charles Schwab | 日本居住者は原則不可とされる | — | |
+
+海外の未登録業者を使う場合の注意:
+- 日本居住者を相手に取引業を行うには原則として金融商品取引法の登録が必要。未登録業者は日本の投資者保護の対象外で、トラブル時は外国法で争うことになる
+- 税金は自分で確定申告。国内の特定口座・NISA は使えない。損失の繰越控除などの扱いが国内業者経由と異なる場合がある (要税理士確認)
+- 年末の国外財産が 5,000 万円超なら国外財産調書が必要。CRS により海外口座情報は国税庁に共有される
+- 送金・為替の手数料、米国源泉税 (配当)、相続時の手続きの煩雑さ
+
+### 追加出典
+- [Alpaca: 非米国居住者のライブ口座開設](https://alpaca.markets/learn/live-trading-account-non-us) / [Is Alpaca Trading Available in Japan? (BrokerChooser)](https://brokerchooser.com/broker-reviews/alpaca-trading-review/alpaca-trading-japan)
+- [IBKR Japan](https://www.interactivebrokers.co.jp/en/index.php?f=50707) / [IB LLC から IBSJ への移管 FAQ](https://ibkb.interactivebrokers.com/ja/node/4739)
+- [海外証券会社の選び方 (soico)](https://www.soico.jp/no1/news/securities/6787) / [Firstrade 口座開設 (ブログ)](https://www.nomadkazoku.com/firstrade-account-opening/)
+- [無登録で金融商品取引業等を行う者について (関東財務局)](https://lfb.mof.go.jp/kantou/rizai/pagekthp032000222.html)
