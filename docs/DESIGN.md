@@ -230,7 +230,7 @@ AI がどの銘柄を選んでも、以下は必ず適用される (`portfolio.p
 | 層 | 選定 |
 |----|------|
 | 言語 | TypeScript (strict, `noUncheckedIndexedAccess` 等) |
-| 実行環境 | Node.js 22 (型ストリップで .ts を直接実行) |
+| 実行環境 | Node.js 22 (型ストリップで .ts を直接実行)。**aqua で v22.23.4 に固定**（`aqua.yaml` + チェックサム）、`.npmrc` の engine-strict で不一致を拒否 |
 | 検証 | Zod (LLM 出力・設定・ワークフロー定義。LLM に渡す JSON Schema も同じ定義から生成) |
 | 保存 | SQLite (`node:sqlite`) |
 | テスト | Vitest |

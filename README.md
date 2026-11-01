@@ -87,13 +87,34 @@ schedule:
 3. 注文を承認するとペーパー口座で約定する。承認しなければ 12 時間で自動的に却下扱い
 4. 「4 確度」で AI とルールの差を見る。実効標本が 100 を超え、下限が 50% を上回り、ルールに勝ったら次の段階を検討する
 
-## 使い方 (CLI)
+## セットアップ
 
-Node.js 22.18 以上。
+Node.js（npm 同梱）は [aqua](https://aquaproj.github.io/) でバージョンを固定して入れる（`aqua.yaml`: Node.js v22.23.4、チェックサム検証あり）。
 
 ```bash
-npm install
-npm run check                       # 型チェック + テスト
+# 1) aqua をインストール（初回のみ）
+#    macOS:  brew install aquaproj/aqua/aqua
+#    Linux:  インストーラのチェックサムを確かめてから実行
+curl -sSfL -O https://raw.githubusercontent.com/aquaproj/aqua-installer/v4.1.1/aqua-installer
+echo "c0acde4802a1edd8b8201fd4cc1f0e52700cd4feb875f9c9793381b5b0ca2065  aqua-installer" | sha256sum -c -
+chmod +x aqua-installer && ./aqua-installer && rm aqua-installer
+
+#    PATH に aqua のディレクトリを追加（~/.bashrc や ~/.zshrc に）
+export PATH="${AQUA_ROOT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/aquaproj-aqua}/bin:$PATH"
+
+# 2) リポジトリで Node.js / npm を入れて依存を入れる
+aqua i -l          # aqua.yaml のバージョンの node / npm / npx
+node --version     # v22.23.4
+npm ci             # .npmrc の engine-strict で、合わない Node では止まる
+npm run check      # 型チェック + テスト + UI ビルド
+```
+
+- バージョンを上げるときは `aqua.yaml` を書き換えて `aqua update-checksum` を実行し、`aqua-checksums.json` も一緒にコミットする
+- Alpine など musl 環境の Node はチェックサム未登録（開発環境から取得できなかったため）。必要なら musl の環境で `aqua update-checksum` を実行する
+
+## 使い方 (CLI)
+
+```bash
 
 # オフラインデモ (API キー不要・無料。疑似モデル + 合成価格なので成績に意味はない)
 npm run stockai -- run workflows/demo-rules.yaml --from 2026-05-04 --to 2026-10-30 --step 5 --fake
