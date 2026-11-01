@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Services } from "../services.ts";
-import { endOfDay, today, type IsoDate } from "../util/dates.ts";
+import { endOfDay, toIsoDate, type IsoDate } from "../util/dates.ts";
 import { sha256, stableStringify } from "../util/hash.ts";
 import { WaitingForInput, type NodeContext } from "./context.ts";
 import type { NodeRegistry } from "./registry.ts";
@@ -24,6 +24,8 @@ export interface EngineOptions {
   registry: NodeRegistry;
   store: RunStore;
   onEvent?: (runId: string, e: RunEvent) => void;
+  /** Wall clock (defaults to real time). A run is "live" when its date is the clock's date. */
+  clock?: () => Date;
 }
 
 /**
@@ -33,9 +35,11 @@ export interface EngineOptions {
  */
 export class Engine {
   readonly #o: EngineOptions;
+  readonly #clock: () => Date;
 
   constructor(opts: EngineOptions) {
     this.#o = opts;
+    this.#clock = opts.clock ?? (() => new Date());
   }
 
   validate(spec: WorkflowSpec): void {
@@ -45,7 +49,7 @@ export class Engine {
 
   async run(spec: WorkflowSpec, opts: { asOf?: IsoDate; runId?: string } = {}): Promise<RunResult> {
     this.validate(spec);
-    const asOf = opts.asOf ?? today();
+    const asOf = opts.asOf ?? toIsoDate(this.#clock());
     const runId = opts.runId ?? `${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)}-${spec.name}-${randomUUID().slice(0, 6)}`;
     this.#o.store.createRun(runId, spec.name, asOf, JSON.stringify(spec));
     return this.#execute(spec, runId, asOf, {});
@@ -69,8 +73,8 @@ export class Engine {
 
   async #execute(spec: WorkflowSpec, runId: string, asOf: IsoDate, prior: Record<string, NodeRunRow>): Promise<RunResult> {
     const { registry, store, services } = this.#o;
-    const live = asOf === today();
-    const now = live ? new Date() : endOfDay(asOf);
+    const live = asOf === toIsoDate(this.#clock());
+    const now = live ? this.#clock() : endOfDay(asOf);
     const runCreatedAt = new Date(store.getRun(runId)!.createdAt);
     const values = new Map<string, Record<string, unknown>>();
     const results: Record<string, NodeRunRow> = {};

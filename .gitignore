@@ -6,3 +6,5 @@ config/config.yaml
 .env
 dist/
 coverage/
+deploy/ibkr/.env
+deploy/ibkr/secrets/

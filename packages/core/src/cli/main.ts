@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import type { Judgment } from "../ai/judge.ts";
 import { loadConfig } from "../config.ts";
 import type { Scorecard } from "../eval/scorecard.ts";
+import type { OrderTicket } from "../execution/broker.ts";
 import type { AccountState, Fill } from "../execution/paper.ts";
 import { builtinRegistry } from "../nodes/index.ts";
 import { Services } from "../services.ts";
@@ -115,7 +116,8 @@ function printHighlights(spec: WorkflowSpec, r: Outputs): void {
       if (decl.type === "Judgments" && cfg.use === "decide.ai") printJudgments(id, v as Record<string, Judgment>);
       else if (decl.type === "Proposals" && cfg.use === "gate.approval") printOrders(id, v as Proposal[]);
       else if (decl.type === "Fills") printFills(id, v as Fill[]);
-      else if (decl.type === "Account" && cfg.use === "broker.paper") printAccount(v as AccountState);
+      else if (decl.type === "Orders") printBrokerOrders(id, v as OrderTicket[]);
+      else if (decl.type === "Account" && (cfg.use === "broker.paper" || cfg.use === "portfolio.ibkrAccount")) printAccount(v as AccountState);
       else if (decl.type === "Scorecard") printScorecard(v as Scorecard);
     }
   }
@@ -153,6 +155,19 @@ function printFills(id: string, fs: Fill[]): void {
   if (!fs.length) return;
   console.log(`\n${c.bold(`${id} — fills`)}`);
   console.log(table(["side", "ticker", "shares", "price", "fee"], fs.map((f) => [f.side, f.ticker, String(f.shares), num(f.price, 1), num(f.fee, 0)]), { right: [2, 3, 4] }));
+}
+
+function printBrokerOrders(id: string, os: OrderTicket[]): void {
+  if (!os.length) return;
+  const st = (s: string) => (s === "submitted" ? c.green(s) : s === "blocked" || s === "error" ? c.red(s) : c.dim(s));
+  console.log(`\n${c.bold(`${id} — broker orders`)}`);
+  console.log(
+    table(
+      ["status", "side", "ticker", "shares", "limit", "broker id", "ref / message"],
+      os.map((o) => [st(o.status), o.side, o.ticker, String(o.shares), num(o.limitPrice, 2), o.brokerOrderId === null ? "—" : String(o.brokerOrderId), `${o.ref}  ${c.dim(o.message)}`]),
+      { right: [3, 4] },
+    ),
+  );
 }
 
 function printAccount(a: AccountState): void {

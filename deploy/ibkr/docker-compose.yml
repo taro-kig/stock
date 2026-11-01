@@ -1,0 +1,29 @@
+# IB Gateway (headless, auto-restarting) for stockai.
+# Image: https://github.com/gnzsnz/ib-gateway-docker (IB Gateway + IBC). Pin a version you have tested.
+# The TWS API is published on 127.0.0.1 only — never expose 4001/4002 to the network.
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: always
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD_FILE: /run/secrets/tws_password
+      TRADING_MODE: ${TRADING_MODE:-paper}          # paper | live
+      READ_ONLY_API: "no"                            # stockai needs to place orders
+      # Daily restart keeps the session alive; IBKR still asks for 2FA about once a week.
+      AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-11:59 PM}
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+      TWS_ACCEPT_INCOMING: accept
+      EXISTING_SESSION_DETECTED_ACTION: primary
+      TIME_ZONE: Asia/Tokyo
+      TZ: Asia/Tokyo
+    secrets:
+      - tws_password
+    ports:
+      - "127.0.0.1:4001:4003"   # live
+      - "127.0.0.1:4002:4004"   # paper
+
+secrets:
+  tws_password:
+    file: ./secrets/tws_password

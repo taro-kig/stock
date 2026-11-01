@@ -1,6 +1,9 @@
 import { join } from "node:path";
 import type { AppConfig } from "./config.ts";
 import { PredictionStore } from "./eval/predictions.ts";
+import { FakeBroker, type BrokerClient } from "./execution/broker.ts";
+import { IbkrClient, IbkrConfig } from "./execution/ibkr.ts";
+import { BrokerLedger } from "./execution/ledger.ts";
 import { PaperBook } from "./execution/paper.ts";
 import { CostTracker } from "./harness/budget.ts";
 import { LLMCache } from "./harness/cache.ts";
@@ -22,6 +25,8 @@ export interface ServicesOptions {
   /** Defaults to <dataDir>/stockai.sqlite. ":memory:" for tests. */
   dbPath?: string;
   env?: NodeJS.ProcessEnv;
+  /** Override how broker connections are made (tests). */
+  brokerFactory?: () => Promise<BrokerClient>;
 }
 
 /** Lazily-built shared dependencies handed to every node via its context. */
@@ -29,7 +34,10 @@ export class Services {
   readonly config: AppConfig;
   readonly fake: boolean;
   readonly dbPath: string;
-  readonly #env: NodeJS.ProcessEnv;
+  readonly env: NodeJS.ProcessEnv;
+  readonly #brokerFactory: (() => Promise<BrokerClient>) | undefined;
+  #fakeBroker?: FakeBroker;
+  #ledger?: BrokerLedger;
   #db?: Db;
   #budget?: CostTracker;
   #caller?: StructuredCaller;
@@ -44,7 +52,8 @@ export class Services {
     this.config = config;
     this.fake = opts.fake ?? false;
     this.dbPath = opts.dbPath ?? join(config.dataDir, "stockai.sqlite");
-    this.#env = opts.env ?? process.env;
+    this.env = opts.env ?? process.env;
+    this.#brokerFactory = opts.brokerFactory;
   }
 
   get db(): Db {
@@ -72,6 +81,24 @@ export class Services {
   get predictions(): PredictionStore {
     return (this.#predictions ??= new PredictionStore(this.db));
   }
+  get brokerLedger(): BrokerLedger {
+    return (this.#ledger ??= new BrokerLedger(this.db));
+  }
+  get ibkrConfig(): IbkrConfig {
+    return this.config.ibkr ?? IbkrConfig.parse({});
+  }
+
+  /** A fresh broker connection; the caller closes it. --fake uses an in-memory paper broker. */
+  async brokerClient(): Promise<BrokerClient> {
+    if (this.#brokerFactory) return this.#brokerFactory();
+    if (this.fake) {
+      const b = (this.#fakeBroker ??= new FakeBroker());
+      return { account: () => b.account(), openOrderRefs: () => b.openOrderRefs(), placeLimitOrder: (r, a) => b.placeLimitOrder(r, a), close: async () => {} };
+    }
+    if (!this.config.ibkr) throw new Error("config.ibkr is not set (see docs/ibkr.md)");
+    return IbkrClient.connect(this.config.ibkr);
+  }
+
   get risk() {
     return this.config.risk;
   }
@@ -80,18 +107,18 @@ export class Services {
     if (this.#tier1) return this.#tier1;
     if (this.fake) return (this.#tier1 = [new FakeProvider("fake-a", heuristicResponder), new FakeProvider("fake-b", heuristicResponder)]);
     if (!this.config.models) throw new Error("config.models is required (or run with --fake)");
-    return (this.#tier1 = this.config.models.tier1.map((s) => buildProvider(s, this.#env)));
+    return (this.#tier1 = this.config.models.tier1.map((s) => buildProvider(s, this.env)));
   }
 
   tier2(): LLMProvider | undefined {
     if (this.fake || !this.config.models?.tier2) return undefined;
-    return buildProvider(this.config.models.tier2, this.#env);
+    return buildProvider(this.config.models.tier2, this.env);
   }
 
   redTeam(): LLMProvider | undefined {
     if (this.fake) return new FakeProvider("fake-red", heuristicResponder);
     const spec = this.config.models?.redTeam ?? this.config.models?.tier2;
-    return spec ? buildProvider(spec, this.#env) : undefined;
+    return spec ? buildProvider(spec, this.env) : undefined;
   }
 
   /** Today's LLM spend so far (0 if nothing has touched the budget yet). */

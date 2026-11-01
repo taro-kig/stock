@@ -44,3 +44,15 @@ risk:
   maxPositions: 6
   maxSectorWeight: 0.35
   lotSize: 100
+
+# Interactive Brokers via IB Gateway (docs/ibkr.md). Used by workflows/ibkr-paper.yaml.
+ibkr:
+  host: 127.0.0.1
+  port: 4002              # IB Gateway: 4002 = paper, 4001 = live
+  clientId: 17
+  mode: paper             # live additionally needs accountId + STOCKAI_LIVE_TRADING=yes-i-understand
+  # accountId: DU1234567  # recommended: refuses to run if the gateway is logged into another account
+  market: jp              # jp -> TSEJ/JPY, us -> SMART/USD (per-ticker overrides under `contracts`)
+  limitOffsetBps: 50      # buy limit = close +0.5%, sell limit = close -0.5%, rounded to the tick grid
+  maxOrderValue: 2000000  # hard cap per buy order (account currency)
+  maxOrdersPerRun: 6

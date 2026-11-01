@@ -1,5 +1,6 @@
 import type { Judgment } from "../ai/judge.ts";
 import type { Scorecard } from "../eval/scorecard.ts";
+import type { OrderTicket } from "../execution/broker.ts";
 import type { AccountState, Fill } from "../execution/paper.ts";
 import type { EventRecord, Document } from "../signals/models.ts";
 import type { Match } from "../signals/prefilter.ts";
@@ -26,6 +27,7 @@ export interface PortTypes {
   Account: AccountState;
   Proposals: Proposal[];
   Fills: Fill[];
+  Orders: OrderTicket[];
   Scorecard: Scorecard;
   Count: number;
 }
@@ -33,5 +35,5 @@ export type PortType = keyof PortTypes;
 
 export const PORT_TYPES = [
   "Documents", "Matches", "Events", "Prices", "Factors", "Scores", "Judgments",
-  "Account", "Proposals", "Fills", "Scorecard", "Count",
+  "Account", "Proposals", "Fills", "Orders", "Scorecard", "Count",
 ] as const satisfies readonly PortType[];

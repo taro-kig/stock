@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { IbkrConfig } from "./execution/ibkr.ts";
 import { ModelSpec } from "./llm/factory.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
@@ -41,6 +42,8 @@ export const AppConfig = z.strictObject({
     })
     .prefault({}),
   risk: RiskConfig.prefault({}),
+  /** Interactive Brokers via IB Gateway (docs/ibkr.md). */
+  ibkr: IbkrConfig.optional(),
 });
 export type AppConfig = z.output<typeof AppConfig>;
 

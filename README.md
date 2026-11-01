@@ -22,12 +22,13 @@ packages/core/src/
   signals/    RSS, 重複除去, 銘柄辞書, イベント抽出, イベントスコア, テクニカル指標
   ai/         AI 売買判断 (資料作成, 読み取りチェック, 反対役)
   strategy/   ファクター, スコア合成, リスク制限, リバランス提案
-  execution/  ペーパー口座
+  execution/  ペーパー口座, IBKR クライアント, 発注前ガード, 注文・ポジション台帳
   eval/       判断の記録と採点 (scorecard)
   workflow/   エンジン (型付きポート, 検証, キャッシュ, 承認, 再生, イベントログ)
   nodes/      組み込みノード (stockai nodes で一覧)
   cli/        CLI
-workflows/    daily-ai / daily-rules (本番), demo-ai / demo-rules (オフラインデモ)
+workflows/    daily-ai / daily-rules (本番), ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
+deploy/ibkr/  IB Gateway の Docker 構成
 config/       config.example.yaml
 ```
 
@@ -51,6 +52,9 @@ npm run stockai -- run workflows/daily-ai.yaml
 npm run stockai -- approve <runId> approve      # または --reject
 npm run stockai -- resume <runId>
 
+# IBKR ペーパー口座 (IB Gateway が必要: docs/ibkr.md)
+npm run stockai -- run workflows/ibkr-paper.yaml
+
 npm run stockai -- runs                          # 実行履歴
 npm run stockai -- show <runId>                  # ノード状態・判断・注文・採点
 npm run stockai -- nodes                         # ノード一覧 (--json でポート/パラメータの JSON Schema)
@@ -59,5 +63,6 @@ npm run stockai -- graph workflows/daily-ai.yaml # ノード UI 用のグラフ 
 
 ## ステータス
 
-Phase 1 完了 (TypeScript 版コア + ワークフロー + AI 判断 + ペーパー執行 + 採点)。
-次は Web UI (TUI 風の画面 → ノード UI)。実際の発注機能はまだ無い。本リポジトリは投資助言ではない。
+Phase 1.5 完了 (TypeScript 版コア + ワークフロー + AI 判断 + ペーパー執行 + 採点 + IBKR 接続)。
+IBKR 接続は疑似ブローカーでテスト済みだが、実機の IB Gateway ではまだ確認していない ([docs/ibkr.md](docs/ibkr.md) のチェックリスト)。
+次は Web UI (TUI 風の画面 → ノード UI)。本リポジトリは投資助言ではない。
