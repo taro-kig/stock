@@ -27,10 +27,11 @@ IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブロ�
 
 1. ウィブル証券で口座を開設する
 2. 開発者サイトで **API の利用申請**（個人）→ 審査後にアプリを作成し **App Key / App Secret** を発行（発行時に SMS 認証と取引パスワード）。**API キーの初期有効期間は 45 日**なので、期限前の更新を忘れないこと
-3. 環境変数を設定（ファイルに書かない）
+3. キーをリポジトリ直下の `.env`（git 管理外・`chmod 600`）に書く。書き方は README の「API キーの設定」
 
    ```bash
-   export WEBULL_APP_KEY=...  WEBULL_APP_SECRET=...
+   WEBULL_APP_KEY=...
+   WEBULL_APP_SECRET=...
    ```
 
 4. `config/config.yaml` の `webull:`（例は `config/config.example.yaml`）

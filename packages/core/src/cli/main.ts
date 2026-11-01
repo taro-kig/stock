@@ -19,6 +19,7 @@ import { assertIsoDate, weekdays } from "../util/dates.ts";
 import { Engine, type RunResult } from "../workflow/engine.ts";
 import type { NodeRunRow } from "../workflow/runStore.ts";
 import { loadWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec } from "../workflow/spec.ts";
+import { loadDotEnv } from "../util/env.ts";
 import { c, money, num, pct, status, table } from "./format.ts";
 
 const HELP = `stockai — mid-term AI trading workflows
@@ -43,6 +44,8 @@ Usage:
 Options:
   --config PATH   default config/config.yaml (falls back to config/config.example.yaml)
   --fake          offline heuristic models: no API keys, no cost`;
+
+for (const w of loadDotEnv().warnings) console.error(`warning: ${w}`);
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,

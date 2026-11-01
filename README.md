@@ -112,6 +112,29 @@ npm run check      # 型チェック + テスト + UI ビルド
 - バージョンを上げるときは `aqua.yaml` を書き換えて `aqua update-checksum` を実行し、`aqua-checksums.json` も一緒にコミットする
 - Alpine など musl 環境の Node はチェックサム未登録（開発環境から取得できなかったため）。必要なら musl の環境で `aqua update-checksum` を実行する
 
+## API キーの設定
+
+キーはリポジトリ直下の **`.env`**（git 管理外）に書く。CLI と Web サーバーが起動時に自動で読み込む。
+
+```bash
+cp .env.example .env
+chmod 600 .env        # 自分だけが読めるように（緩いと起動時に警告）
+$EDITOR .env          # GEMINI_API_KEY=... / DEEPSEEK_API_KEY=... などを記入
+```
+
+| 変数 | 用途 | 取得先 |
+|---|---|---|
+| `GEMINI_API_KEY` | Gemini（イベント抽出・判断） | Google AI Studio |
+| `DEEPSEEK_API_KEY` | DeepSeek（多数決の2つ目） | DeepSeek Platform |
+| `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | 別ベンダーを試す場合 | 各社のコンソール |
+| `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` | ウィブル証券 | 開発者サイトで申請（[docs/webull.md](docs/webull.md)） |
+| `STOCKAI_WEB_TOKEN` | Web UI を外部から開く場合のみ | 自分で決めた長いランダム文字列 |
+
+- シェルで `export` した値があればそちらが優先される
+- どの変数をどのモデルに使うかは `config/config.yaml` の `apiKeyEnv` で変えられる
+- **本番発注のスイッチ `STOCKAI_LIVE_TRADING` は `.env` からは読まない**（書いても無視して警告）。本番で動かすときだけ、そのシェルで明示的に設定する
+- キーをチャット・Issue・コミットに貼らない。漏れたら各社のコンソールですぐ無効化して作り直す
+
 ## 使い方 (CLI)
 
 ```bash
@@ -120,9 +143,8 @@ npm run check      # 型チェック + テスト + UI ビルド
 npm run stockai -- run workflows/demo-rules.yaml --from 2026-05-04 --to 2026-10-30 --step 5 --fake
 npm run stockai -- run workflows/demo-ai.yaml    --from 2026-05-04 --to 2026-10-30 --step 5 --fake
 
-# 本番 (要 API キー)。daily-ai は承認ゲートで止まる
+# 本番 (要 API キー: 上の「API キーの設定」)。daily-ai は承認ゲートで止まる
 cp config/config.example.yaml config/config.yaml
-export GEMINI_API_KEY=... DEEPSEEK_API_KEY=...
 npm run stockai -- run workflows/daily-rules.yaml
 npm run stockai -- run workflows/daily-ai.yaml
 npm run stockai -- approve <runId> approve      # または --reject

@@ -37,7 +37,8 @@ export async function postJsonWithRetry(
       lastErr = `HTTP ${res.status}: ${text}`;
     } catch (e) {
       if (e instanceof LLMError) throw e;
-      lastErr = String(e);
+      const cause = e instanceof Error && e.cause instanceof Error ? `: ${e.cause.message}` : "";
+      lastErr = `${e instanceof Error ? e.message : String(e)}${cause} (${new URL(url).host})`;
     }
     if (attempt < maxAttempts - 1) await sleep(baseDelayMs * 2 ** attempt);
   }

@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { builtinRegistry, loadConfig, Services } from "@stockai/core";
+import { builtinRegistry, loadConfig, loadDotEnv, Services } from "@stockai/core";
+
+for (const w of loadDotEnv().warnings) console.error(`warning: ${w}`);
 import { createApp } from "./app.ts";
 
 const { values: opt } = parseArgs({

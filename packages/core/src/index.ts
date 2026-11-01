@@ -13,3 +13,4 @@ export type { AccountState, Fill } from "./execution/paper.ts";
 export type { OrderTicket } from "./execution/broker.ts";
 export type { Proposal } from "./strategy/portfolio.ts";
 export { today, toIsoDate, type IsoDate } from "./util/dates.ts";
+export { loadDotEnv } from "./util/env.ts";

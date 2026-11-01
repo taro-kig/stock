@@ -200,7 +200,9 @@ export class WebullClient implements BrokerClient {
     const ts = this.#now().toISOString().replace(/\.\d{3}Z$/, "Z");
     const { headers } = signRequest({ host: this.#cfg.endpoint, path, query: opts.query, bodyText, appKey: this.#key, appSecret: this.#secret, timestamp: ts, nonce: this.#nonce() });
     const qs = opts.query && Object.keys(opts.query).length ? `?${new URLSearchParams(opts.query).toString()}` : "";
-    const res = await this.#fetch(`https://${this.#cfg.endpoint}${path}${qs}`, {
+    let res: Response;
+    try {
+      res = await this.#fetch(`https://${this.#cfg.endpoint}${path}${qs}`, {
       method,
       headers: {
         ...headers,
@@ -211,7 +213,11 @@ export class WebullClient implements BrokerClient {
       },
       ...(bodyText !== undefined ? { body: bodyText } : {}),
       signal: AbortSignal.timeout(this.#cfg.timeoutMs),
-    });
+      });
+    } catch (e) {
+      const cause = e instanceof Error ? ((e.cause as Error | undefined)?.message ?? e.message) : String(e);
+      throw new Error(`cannot reach Webull at ${this.#cfg.endpoint} (${method} ${path}): ${cause}`);
+    }
     const text = await res.text();
     let json: unknown = text;
     try {
