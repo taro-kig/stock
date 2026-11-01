@@ -6,7 +6,7 @@ AI に渡す権限は、判断を全件記録して答え合わせした **実�
 
 **既定は米国株**（価格 Twelve Data・開示 SEC EDGAR・英語ニュース）。日本株用の設定も残している。
 
-設計: **[docs/DESIGN.md](docs/DESIGN.md)** ・ 米国株: **[docs/us.md](docs/us.md)** ・ プロンプトと評価: **[docs/prompts.md](docs/prompts.md)**
+設計: **[docs/DESIGN.md](docs/DESIGN.md)** ・ 米国株: **[docs/us.md](docs/us.md)** ・ プロンプトと評価: **[docs/prompts.md](docs/prompts.md)** ・ MCP: **[docs/mcp.md](docs/mcp.md)**
 
 ![overview](docs/images/overview.png)
 
@@ -32,7 +32,7 @@ packages/core/src/
   workflow/   エンジン (型付きポート, 検証, キャッシュ, 承認, 再生, イベントログ)
   nodes/      組み込みノード (stockai nodes で一覧)
   cli/        CLI
-apps/web/     Web UI (React + Vite) と API サーバー (node:http, SSE, 実行キュー, スケジューラ)
+apps/web/     Web UI (React + Vite) と API サーバー (node:http, SSE, 実行キュー, スケジューラ), MCP サーバー (/mcp と stdio)
 workflows/    daily-ai / daily-rules (米国株), daily-jp-ai / daily-jp-rules (日本株), webull-us / webull-jp (ウィブル証券),
               ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
 deploy/ibkr/  IB Gateway の Docker 構成
@@ -82,6 +82,15 @@ npm run web:server & npm run web:ui   # 開発: Vite (http://127.0.0.1:5173) + A
 
 - 既定で `127.0.0.1` のみで待ち受ける。他の端末から使う場合は `STOCKAI_WEB_TOKEN` を設定して `--host 0.0.0.0`（トークンなしでは起動を拒否）。初回は `http://host:4317/?token=...` で開く
 - 実行はキューで1つずつ処理。進行状況はサーバーからリアルタイムに反映される
+
+## MCP（Claude から操作する）
+
+Claude Desktop / Claude Code から stockai を操作できる（[docs/mcp.md](docs/mcp.md)）。
+「今日の判断をまとめて」「先月分を再生してルールと比べて」「決算イベントだけ見るワークフローを作って」など。
+
+- Web サーバーを動かしていれば `http://127.0.0.1:4317/mcp`（Claude Code: `claude mcp add --transport http stockai http://127.0.0.1:4317/mcp`）
+- Claude Desktop は stdio（`apps/web/server/mcp-stdio.ts` を設定ファイルに書く）
+- ツール: 状況・実行・判断・確度の読み取り、ワークフローの検証・保存・実行・無効化。**注文の承認ツールと API キーへのアクセスは無い**（承認は Web 画面で人が行う）。`--read-only` で読み取りだけにできる
 
 ## 日次運用（確度の記録）
 

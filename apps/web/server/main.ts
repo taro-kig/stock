@@ -15,6 +15,8 @@ const { values: opt } = parseArgs({
     port: { type: "string", default: "4317" },
     workflows: { type: "string", default: "workflows" },
     "no-schedule": { type: "boolean", default: false },
+    "no-mcp": { type: "boolean", default: false },
+    "mcp-read-only": { type: "boolean", default: false },
   },
 });
 
@@ -38,10 +40,12 @@ const app = createApp({
   staticDir: join(import.meta.dirname, "..", "dist"),
   ...(token ? { token } : {}),
   schedule: !opt["no-schedule"],
+  mcp: opt["no-mcp"] ? false : { readOnly: opt["mcp-read-only"] },
 });
 app.server.listen(Number(opt.port), opt.host, () => {
   const sched = app.scheduler.status();
   console.log(`stockai web  http://${opt.host}:${opt.port}${opt.fake ? "  [FAKE models]" : ""}`);
+  if (!opt["no-mcp"]) console.log(`  MCP          http://${opt.host}:${opt.port}/mcp${opt["mcp-read-only"] ? "  (read-only)" : ""}`);
   console.log(sched.length ? sched.map((x) => `  schedule ${x.at} ${x.workflow} next ${x.nextAt ?? "—"}`).join("\n") : "  no schedule (config.schedule)");
 });
 const stop = () => void app.close().then(() => process.exit(0));

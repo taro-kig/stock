@@ -4,6 +4,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve } from "node:path";
 import { Engine, parseWorkflow, settingDefs, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
 import { discoverWorkflows, equitySeries, latestScorecard, ranToday, runDetail, summary, workflowInfo, type WorkflowFile } from "./views.ts";
@@ -18,6 +20,8 @@ export interface AppOptions {
   token?: string;
   schedule?: boolean;
   clock?: () => Date;
+  /** MCP endpoint at /mcp (default on). readOnly drops the save / run / enable-disable tools. */
+  mcp?: { readOnly?: boolean } | false;
 }
 
 export interface App {
@@ -28,9 +32,18 @@ export interface App {
   sweepWaiting(minAgeMs?: number): string[];
   /** Queue a run; resolves with its id immediately. */
   startRun(file: string, asOf?: string): string;
+  /** Save an uploaded workflow YAML as is (validation problems → draft). */
+  importWorkflow(yaml: string, overwrite: boolean): ImportResult;
+  /** Switch a workflow off (no runs from schedule, UI, CLI, MCP) or back on. */
+  setWorkflowDisabled(name: string, disabled: boolean, note?: string): { name: string; disabled: { since: string; note: string } | null };
+  workflows(): WorkflowFile[];
+  overview(): Overview;
   close(): Promise<void>;
 }
 
+export { HttpError };
+
+/** An error with an HTTP status; its message is safe to show to the user. */
 class HttpError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -50,14 +63,14 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(json);
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, limit = 64_000): Promise<Record<string, unknown>> {
   // JSON-only POSTs: a cross-site form cannot send application/json without a CORS preflight, which we never allow.
   if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "content-type must be application/json");
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
     size += (c as Buffer).length;
-    if (size > 64_000) throw new HttpError(413, "body too large");
+    if (size > limit) throw new HttpError(413, "body too large");
     chunks.push(c as Buffer);
   }
   if (!chunks.length) return {};
@@ -147,6 +160,32 @@ export function createApp(o: AppOptions): App {
     sweeper.unref();
   }
 
+  function importWorkflow(text: string, overwrite: boolean): ImportResult {
+    if (!text.trim()) throw new HttpError(400, "yaml must be a non-empty string");
+    let spec: WorkflowSpec;
+    try {
+      spec = parseWorkflow(text);
+    } catch (e) {
+      if (e instanceof WorkflowError) throw new HttpError(422, `YAML を読めません: ${e.problems.join("; ")}`);
+      throw new HttpError(422, `YAML を読めません: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const existing = workflows().find((w) => w.name === spec.name);
+    const file = existing?.file ?? join(o.workflowsDir, `${spec.name}.yaml`);
+    if (!resolve(file).startsWith(resolve(o.workflowsDir))) throw new HttpError(400, "refusing to write outside the workflows directory");
+    if ((existing || existsSync(file)) && !overwrite) throw new HttpError(409, `ワークフロー ${spec.name} は既にあります（上書きするには overwrite: true）`);
+    if (existsSync(file)) copyFileSync(file, `${file}.bak`);
+    // Keep the uploaded text as is (comments survive), with a trailing newline.
+    writeFileSync(file, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+    return { name: spec.name, file, created: !existing, problems: validateWorkflow(spec, registry) };
+  }
+
+  function setWorkflowDisabled(name: string, disabled: boolean, note = "") {
+    if (!workflows().some((w) => w.name === name)) throw new HttpError(404, `unknown workflow ${name}`);
+    s.runStore.setDisabled(name, disabled, note.slice(0, 200), clock());
+    broadcast({ type: "workflow_state", workflow: name, disabled });
+    return { name, disabled: s.runStore.disabled(name) };
+  }
+
   function overview(): Overview {
     const runs = s.runStore.listRuns(200);
     const budget = s.budget;
@@ -182,14 +221,40 @@ export function createApp(o: AppOptions): App {
     createReadStream(file).pipe(res);
   }
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const path = url.pathname;
-    if (!path.startsWith("/api/")) return serveStatic(req, res, path);
-    if (o.token && req.headers["x-stockai-token"] !== o.token && url.searchParams.get("token") !== o.token) throw new HttpError(401, "token required");
+  function authorize(req: IncomingMessage, url: URL): void {
+    const bearer = /^Bearer (.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1];
+    if (o.token && req.headers["x-stockai-token"] !== o.token && bearer !== o.token && url.searchParams.get("token") !== o.token) throw new HttpError(401, "token required");
     // Without a token the server is local-only: refuse other Host names so a web page cannot
     // reach it through DNS rebinding (it holds API keys and can approve orders).
     if (!o.token && !isLocalHost(req.headers.host)) throw new HttpError(403, "non-local Host header (set STOCKAI_WEB_TOKEN to serve other hosts)");
+  }
+
+  /** Stateless Streamable HTTP: one MCP server per request, JSON responses. */
+  async function handleMcp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (o.mcp === false) throw new HttpError(404, "MCP is disabled on this server");
+    authorize(req, url);
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST", "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed (stateless server: POST only)" }, id: null }));
+      return;
+    }
+    const body = await readJson(req, 512_000);
+    const mcp = buildMcpServer({ app: self!, services: s, registry, readOnly: o.mcp?.readOnly ?? false });
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    res.on("close", () => {
+      void transport.close();
+      void mcp.close();
+    });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, body);
+  }
+
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const path = url.pathname;
+    if (path === "/mcp") return handleMcp(req, res, url);
+    if (!path.startsWith("/api/")) return serveStatic(req, res, path);
+    authorize(req, url);
     const m = (re: RegExp) => path.match(re);
     let g: RegExpMatchArray | null;
 
@@ -219,31 +284,13 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "POST" && path === "/api/workflows/import") {
       const body = await readJson(req);
-      const text = body["yaml"];
-      if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "yaml must be a non-empty string");
-      let spec: WorkflowSpec;
-      try {
-        spec = parseWorkflow(text);
-      } catch (e) {
-        if (e instanceof WorkflowError) throw new HttpError(422, `YAML を読めません: ${e.problems.join("; ")}`);
-        throw new HttpError(422, `YAML を読めません: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      const existing = workflows().find((w) => w.name === spec.name);
-      const file = existing?.file ?? join(o.workflowsDir, `${spec.name}.yaml`);
-      if (!resolve(file).startsWith(resolve(o.workflowsDir))) throw new HttpError(400, "refusing to write outside the workflows directory");
-      if ((existing || existsSync(file)) && body["overwrite"] !== true) throw new HttpError(409, `ワークフロー ${spec.name} は既にあります（上書きするには overwrite: true）`);
-      if (existsSync(file)) copyFileSync(file, `${file}.bak`);
-      // Keep the uploaded text as is (comments survive), with a trailing newline.
-      writeFileSync(file, text.endsWith("\n") ? text : `${text}\n`, "utf8");
-      return send(res, existing ? 200 : 201, { name: spec.name, file, created: !existing, problems: validateWorkflow(spec, registry) } satisfies ImportResult);
+      if (typeof body["yaml"] !== "string") throw new HttpError(400, "yaml must be a non-empty string");
+      const r = importWorkflow(body["yaml"], body["overwrite"] === true);
+      return send(res, r.created ? 201 : 200, r);
     }
     if (req.method === "POST" && (g = m(/^\/api\/workflows\/([\w-]+)\/(disable|enable)$/))) {
-      const name = g[1]!;
-      if (!workflows().some((w) => w.name === name)) throw new HttpError(404, `unknown workflow ${name}`);
       const body = await readJson(req);
-      s.runStore.setDisabled(name, g[2] === "disable", typeof body["note"] === "string" ? body["note"].slice(0, 200) : "", clock());
-      broadcast({ type: "workflow_state", workflow: name, disabled: g[2] === "disable" });
-      return send(res, 200, { name, disabled: s.runStore.disabled(name) });
+      return send(res, 200, setWorkflowDisabled(g[1]!, g[2] === "disable", typeof body["note"] === "string" ? body["note"] : ""));
     }
     if (req.method === "POST" && (g = m(/^\/api\/workflows\/([\w-]+)\/run$/))) {
       const body = await readJson(req);
@@ -333,8 +380,8 @@ export function createApp(o: AppOptions): App {
     });
   });
 
-  return {
-    server, queue, scheduler, startRun, sweepWaiting,
+  const self: App = {
+    server, queue, scheduler, startRun, sweepWaiting, importWorkflow, setWorkflowDisabled, workflows, overview,
     async close() {
       scheduler.stop();
       if (sweeper) clearInterval(sweeper);
@@ -342,4 +389,5 @@ export function createApp(o: AppOptions): App {
       await new Promise<void>((r) => server.close(() => r()));
     },
   };
+  return self;
 }
