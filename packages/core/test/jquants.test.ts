@@ -67,7 +67,7 @@ describe("data.pricesJQuants", () => {
   const ctx = (env: NodeJS.ProcessEnv) => ({
     asOf: "2026-11-02",
     log: () => {},
-    services: { env, config: { market: { benchmark: undefined } }, watchlist: { tickers: ["7203"] } },
+    services: { env, config: { market: { benchmark: undefined } }, watchlist: { tickers: ["7203"] }, heldTickers: () => ({}) },
   });
 
   it("refuses to run without a key", async () => {

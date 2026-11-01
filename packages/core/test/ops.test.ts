@@ -182,3 +182,29 @@ describe("node cache and config changes", () => {
 it("example configs still load", () => {
   for (const f of ["config/config.example.yaml", "config/config.jp.example.yaml"]) expect(() => loadConfig(join(ROOT, f))).not.toThrow();
 });
+
+describe("held positions outside the watchlist", () => {
+  it("keep getting prices and factors (stops, valuation) but are never bought again", async () => {
+    const { builtinRegistry } = await import("../src/nodes/index.ts");
+    const s = new Services(AppConfig.parse({ market: { currency: "USD", benchmark: "SPY" }, watchlist: { AAPL: { name: "Apple", sector: "tech" } }, risk: { lotSize: 1 } }), { fake: true, dbPath: ":memory:" });
+    s.paperBook.ensure("p", 100_000, "USD");
+    s.db.prepare("INSERT INTO paper_positions VALUES (?,?,?,?,?,?,?)").run("p", "MSFT", 10, 400, 410, "tech", "2026-06-01");
+    expect(s.heldTickers()).toEqual({ MSFT: "tech" });
+    const engine = new Engine({ services: s, registry: builtinRegistry(), store: s.runStore });
+    const spec = parseWorkflow(`name: t
+nodes:
+  prices:  { use: data.pricesSynthetic, params: { seed: 1 } }
+  factors: { use: signal.factors, in: { prices: prices } }
+  account: { use: portfolio.account, params: { account: p }, in: { prices: prices } }
+  decide:  { use: decide.rules, in: { scores: score, factors: factors } }
+  score:   { use: signal.score, in: { factors: factors } }
+  propose: { use: portfolio.propose, in: { judgments: decide, factors: factors, account: account } }
+`);
+    const r = await engine.run(spec, { asOf: "2026-10-30" });
+    expect(Object.keys(r.output<Record<string, unknown>>("prices", "prices")).sort()).toEqual(["AAPL", "MSFT", "SPY"]);
+    expect(r.output<{ rows: Record<string, { sector: string }> }>("factors", "factors").rows["MSFT"]?.sector).toBe("tech");
+    const proposals = r.output<Array<{ action: string; ticker: string; price: number }>>("propose", "proposals");
+    expect(proposals.some((x) => x.action === "buy" && x.ticker === "MSFT")).toBe(false);
+    for (const x of proposals.filter((y) => y.ticker === "MSFT")) expect(x.price).not.toBe(400); // priced at the market, not the entry
+  });
+});

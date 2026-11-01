@@ -45,16 +45,19 @@ export const factorsNode = defineNode({
   title: "Price factors",
   category: "signal",
   description: "Momentum 12-1, relative strength, trend, ATR, volatility, 20-day return and distance from the 52-week high per ticker. No LLM.",
-  version: 2, // v2: ret20, fromHigh52
+  version: 3, // v2: ret20, fromHigh52 · v3: also held tickers that left the watchlist
   cache: "daily",
   params: z.object({ benchmark: z.string().optional(), relDays: z.number().int().positive().default(126) }),
   inputs: { prices: { type: "Prices" } },
   outputs: { factors: { type: "Factors" } },
   async run(ctx, p, i) {
     const w = ctx.services.watchlist;
-    const watched = Object.fromEntries(Object.entries(i.prices).filter(([t]) => t in w.entries || t === (p.benchmark ?? ctx.services.config.market.benchmark)));
+    const held = ctx.services.heldTickers();
+    const watched = Object.fromEntries(
+      Object.entries(i.prices).filter(([t]) => t in w.entries || t in held || t === (p.benchmark ?? ctx.services.config.market.benchmark)),
+    );
     return {
-      factors: computeFactors(watched, ctx.asOf, (t) => ({ name: w.name(t), sector: w.sector(t) }), {
+      factors: computeFactors(watched, ctx.asOf, (t) => ({ name: w.name(t), sector: t in w.entries ? w.sector(t) : (held[t] ?? "unknown") }), {
         benchmark: p.benchmark ?? ctx.services.config.market.benchmark,
         relDays: p.relDays,
       }),

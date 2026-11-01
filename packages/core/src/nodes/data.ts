@@ -8,10 +8,10 @@ import { addDays, weekdays, type IsoDate } from "../util/dates.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
-/** Watchlist tickers plus the configured benchmark. */
-function universe(ctx: NodeContext): string[] {
+/** Watchlist tickers, anything still held (even if removed from the watchlist) and the benchmark. */
+export function universe(ctx: NodeContext): string[] {
   const b = ctx.services.config.market.benchmark;
-  return [...new Set([...ctx.services.watchlist.tickers, ...(b ? [b] : [])])];
+  return [...new Set([...ctx.services.watchlist.tickers, ...Object.keys(ctx.services.heldTickers()), ...(b ? [b] : [])])];
 }
 
 /** Parses "Date,Open,High,Low,Close,Volume" CSV (any column order, case-insensitive). */

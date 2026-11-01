@@ -100,6 +100,19 @@ export class Services {
     return (this.#watchlist ??= new Watchlist(this.config.watchlist));
   }
 
+  /**
+   * Tickers held in any paper or broker account, with their sector. They stay in the price
+   * universe even after leaving the watchlist, so stops, valuation and exits keep working.
+   */
+  heldTickers(): Record<string, string> {
+    void this.paperBook; // make sure both tables exist
+    void this.brokerLedger;
+    const rows = this.db
+      .prepare("SELECT ticker, sector FROM paper_positions WHERE shares > 0 UNION SELECT ticker, sector FROM broker_positions")
+      .all() as Array<{ ticker: string; sector: string | null }>;
+    return Object.fromEntries(rows.map((r) => [r.ticker, r.sector ?? "unknown"]));
+  }
+
   /** Fingerprint of the loaded config: part of every node cache key, so edits never serve stale results. */
   get configHash(): string {
     return (this.#configHash ??= sha256(stableStringify(this.config)));

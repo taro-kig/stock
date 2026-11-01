@@ -28,7 +28,7 @@ export const proposeNode = defineNode({
   category: "risk",
   description:
     "Turns judgments into orders under hard limits: ATR sizing, lot rounding, max weight/positions/sector, stops, drawdown kill switch. The AI decides what; these rules decide how much.",
-  version: 2, // v2: no buy-back of a name sold in the same rebalance
+  version: 3, // v2: no buy-back of a name sold in the same rebalance · v3: new entries only from the watchlist
   cache: "inputs",
   params: z.object({
     topN: z.number().int().positive().default(5),
@@ -60,7 +60,8 @@ export const proposeNode = defineNode({
         scores, candidates, positions: i.account.positions, equity: i.account.equity, mode: i.account.mode,
         regimeOk,
         thesisBroken: held.filter((t) => js[t]?.stance === "bearish"),
-        eligible: Object.keys(js).filter(isBuy),
+        // held names that left the watchlist are still managed (stops, exits) but never bought again
+        eligible: Object.keys(js).filter((t) => isBuy(t) && t in ctx.services.watchlist.entries),
         // don't churn holdings the decision layer is not negative on (or did not judge)
         keep: held.filter((t) => js[t]?.stance !== "bearish"),
       },
