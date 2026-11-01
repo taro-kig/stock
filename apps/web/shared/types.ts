@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { AccountState, Fill, Judgment, NodeDescription, OrderTicket, Proposal, Scorecard, SettingStatus } from "@stockai/core";
+import type { AccountState, Fill, Judgment, NodeDescription, OrderTicket, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -49,12 +49,16 @@ export interface Highlights {
   orders?: OrderTicket[];
   account?: AccountState;
   scorecard?: Scorecard;
+  /** Proposed (or applied) watchlist changes from universe.review / universe.apply. */
+  universe?: { node: string; applied: boolean; changes: UniverseChanges };
 }
 
 export interface WaitingGate {
   node: string;
   message: string;
   proposals: Proposal[];
+  /** Set for universe.apply gates: watchlist changes instead of orders. */
+  changes?: UniverseChanges;
 }
 
 export interface RunDetail {

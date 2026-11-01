@@ -22,7 +22,7 @@ type Drag =
 
 const CATEGORY_JA: Record<string, string> = {
   source: "情報源", filter: "フィルタ", llm: "LLM", data: "データ", signal: "シグナル",
-  decision: "判断", risk: "リスク", gate: "承認", execution: "執行", eval: "評価",
+  decision: "判断", risk: "リスク", gate: "承認", execution: "執行", eval: "評価", universe: "銘柄",
 };
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");

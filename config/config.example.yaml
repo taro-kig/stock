@@ -105,3 +105,5 @@ backup:
 schedule:
   - { workflow: workflows/daily-rules.yaml, at: "06:40", days: [2, 3, 4, 5, 6] }
   - { workflow: workflows/daily-ai.yaml, at: "06:45", days: [2, 3, 4, 5, 6] }
+  # Watchlist review: runs every Saturday, proposes at most every 28 days, waits for approval.
+  - { workflow: workflows/universe-review.yaml, at: "10:10", days: [6] }

@@ -34,7 +34,7 @@ let configPath = opt.config ?? "config/config.yaml";
 if (!opt.config && !existsSync(configPath)) configPath = "config/config.example.yaml";
 const config = loadConfig(configPath);
 const settings = new SettingsStore({ path: join(config.dataDir, "settings.sqlite"), shellKeys: dotenv.shellKeys });
-const services = new Services(config, { fake: opt.fake, settings });
+const services = new Services(config, { fake: opt.fake, settings, configPath });
 const registry = builtinRegistry();
 const app = createApp({ services, registry, workflowsDir: opt.workflows, configPath, schedule: false, mcp: false }); // not listening: only its queue and helpers
 

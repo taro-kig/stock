@@ -1,0 +1,7 @@
+name: universe-review
+description: "米国株のウォッチリスト見直し（週1回動き、提案は28日に1回）: AI が追加候補（SEC と売買代金で確認）と削除候補（売買代金・データ・ニュース・判断）を出し、人が承認したら config.yaml に反映。"
+nodes:
+  prices: { use: data.pricesTwelveData, ui: { x: 0, y: 0 } }
+  # themes: 空なら「今のセクターの偏りを補う」。例: [サイバーセキュリティ, 高配当・連続増配]
+  review: { use: universe.review, in: { prices: prices }, params: { addCount: 5, maxRemove: 3, minDaysBetween: 28 }, ui: { x: 260, y: 0 } }
+  apply:  { use: universe.apply, in: { changes: review }, params: { mode: manual }, ui: { x: 520, y: 0 } }

@@ -10,6 +10,7 @@ import { extractEvents } from "./llm.ts";
 import { accountNode, proposeNode } from "./portfolio.ts";
 import { eventHistory, eventScoreNode, factorsNode, scoreNode } from "./signals.ts";
 import { fixtureSource, rssSource, secFilings } from "./sources.ts";
+import { universeApply, universeReview } from "./universe.ts";
 
 export function builtinRegistry(): NodeRegistry {
   return new NodeRegistry().register(
@@ -23,5 +24,6 @@ export function builtinRegistry(): NodeRegistry {
     approvalGate,
     paperBroker, ibkrBroker, webullBroker,
     recordPredictions, scorecardNode,
+    universeReview, universeApply,
   );
 }

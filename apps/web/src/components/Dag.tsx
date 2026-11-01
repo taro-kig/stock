@@ -25,7 +25,7 @@ export type Orientation = "LR" | "TB";
 export const CATEGORY_HUE: Record<string, string> = {
   source: "var(--pt-Documents)", filter: "var(--pt-Matches)", llm: "var(--pt-Events)", data: "var(--pt-Prices)",
   signal: "var(--pt-Factors)", decision: "var(--pt-Judgments)", risk: "var(--pt-Account)", gate: "var(--wait)",
-  execution: "var(--pt-Fills)", eval: "var(--pt-Scorecard)",
+  execution: "var(--pt-Fills)", eval: "var(--pt-Scorecard)", universe: "var(--pt-UniverseChanges)",
 };
 
 function computeLayers(nodes: DagNode[], edges: DagEdge[]): Record<string, number> {

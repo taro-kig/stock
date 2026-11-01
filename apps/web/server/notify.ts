@@ -71,7 +71,21 @@ export class RunNotifier {
     const head = `${run.workflow} · ${run.asOf}`;
     const money = (x: number) => (Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : x.toFixed(2));
 
-    if (run.status === "waiting" && this.#wants("approval")) {
+    const changes = d.waiting.find((g) => g.changes)?.changes;
+    if (run.status === "waiting" && changes && this.#wants("approval")) {
+      const n: Notice = {
+        title: `🗂 ウォッチリストの見直し: 追加 ${changes.add.length} / 削除 ${changes.remove.length}`,
+        description: "Web 画面の「3 承認」で承認・却下してください。",
+        tone: "warn",
+        fields: [
+          ...changes.add.slice(0, 12).map((a) => ({ name: `+ ${a.ticker} ${a.name} (${a.sector})`, value: a.reason || "—" })),
+          ...changes.remove.slice(0, 8).map((r) => ({ name: `− ${r.ticker} ${r.name}${r.held ? "（保有中）" : ""}`, value: r.reasons.join("\n") || "—" })),
+        ],
+      };
+      const url = this.#link(`approvals/${runId}`);
+      if (url) n.url = url;
+      if (await this.#once(runId, "approval", n)) sent.push("approval");
+    } else if (run.status === "waiting" && this.#wants("approval")) {
       const orders = d.waiting.flatMap((g) => g.proposals);
       const broken = d.nodes.filter((x) => x.status === "failed" || x.status === "fallback").map((x) => x.id);
       const n: Notice = {

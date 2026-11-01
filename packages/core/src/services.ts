@@ -39,6 +39,8 @@ export interface ServicesOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Keys entered in the web UI; changes apply without a restart. */
   settings?: SettingsStore;
+  /** The config file loaded (watchlist edits are written back to it, or to config.yaml next to an example). */
+  configPath?: string;
 }
 
 /** Lazily-built shared dependencies handed to every node via its context. */
@@ -49,6 +51,7 @@ export class Services {
   readonly env: NodeJS.ProcessEnv;
   readonly fetch: typeof fetch;
   readonly settings: SettingsStore | undefined;
+  readonly configPath: string | undefined;
   readonly sleep: (ms: number) => Promise<void>;
   readonly #brokerFactory: ((kind: BrokerKind) => Promise<BrokerClient>) | undefined;
   readonly #fakeBrokers = new Map<BrokerKind, FakeBroker>();
@@ -74,6 +77,7 @@ export class Services {
     this.fetch = opts.fetchImpl ?? ((input, init) => fetch(input, init));
     this.sleep = opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
     this.settings = opts.settings;
+    this.configPath = opts.configPath;
     // API clients read their key when built: rebuild them after a key changes.
     this.settings?.onChange(() => {
       this.#tier1 = undefined;

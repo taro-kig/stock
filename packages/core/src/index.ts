@@ -20,3 +20,6 @@ export { discordPayload, isDiscordWebhookUrl, sendDiscord, type Notice, type Not
 export { backupDir, backupDue, backupStatus, listBackups, runBackup, selectKept, type BackupFile, type BackupStatus } from "./util/backup.ts";
 export { editableConfigPath, saveWatchlist, WatchlistInput } from "./util/configFile.ts";
 export { namesMatch, SECTORS, SIZES, suggestTickers, SuggestRequest, verify, type Candidate, type SuggestResult } from "./universe/suggest.ts";
+export { additionDates, applyWatchlistPatch, logWatchlistChange, watchlistHistory, type UniverseAdd, type UniverseChanges, type UniverseRemove, type WatchlistChangeRow, type WatchlistPatch } from "./universe/watchlist.ts";
+export { secListings, type Listing } from "./universe/suggest.ts";
+export { SecClient } from "./data/sec.ts";

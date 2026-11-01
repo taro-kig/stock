@@ -62,6 +62,90 @@ export function Approvals({ overview, param, toast }: { overview: Overview | und
     );
   }
 
+  const decisionRow = (
+    <div className="btn-row">
+      <button className={`btn ${armed === "approve" ? "primary" : ""}`} disabled={busy} onClick={() => void decide("approve")}>
+        {armed === "approve" ? "もう一度で承認を確定" : "承認"} <kbd>a</kbd>
+      </button>
+      <button className={`btn danger`} disabled={busy} onClick={() => void decide("reject")} style={armed === "reject" ? { background: "var(--fail)", color: "var(--bg)" } : undefined}>
+        {armed === "reject" ? "もう一度で却下を確定" : "却下"} <kbd>x</kbd>
+      </button>
+      <input className="input" style={{ flex: 1, minWidth: "24ch" }} placeholder="メモ（任意・記録に残ります）" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+      <span className="faint">誤操作防止のため2回押しで確定 · <Kbd>Esc</Kbd> 取消</span>
+    </div>
+  );
+  const switcher = gates.length > 1 && (
+    <div className="btn-row">
+      {gates.map((g, i) => (
+        <button key={g.run.runId} className="btn" aria-pressed={g === sel} style={g === sel ? { borderColor: "var(--wait)" } : undefined} onClick={() => navigate("approvals", g.run.runId)}>
+          <Status s="waiting" label={false} />{g.run.workflow} {g.run.asOf}<span className="faint"> {i + 1}/{gates.length}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const ch = sel.gate.changes;
+  if (ch) {
+    const usd = (x: number | null | undefined) => (x == null ? "—" : x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : `$${Math.round(x / 1e6)}M`);
+    return (
+      <div className="stack">
+        {switcher}
+        <Pane title="ウォッチリストの見直し" aux={`${sel.run.workflow} · ${sel.run.asOf} · ${ago(sel.run.createdAt)}`} className="alert">
+          <div style={{ display: "flex", gap: "5ch", flexWrap: "wrap", alignItems: "end" }}>
+            <div><div className="label">追加</div><div className="big-count up">{ch.add.length}</div></div>
+            <div><div className="label">削除</div><div className="big-count down">{ch.remove.length}</div></div>
+          </div>
+          {ch.add.length > 0 && (
+            <>
+              <hr className="rule" />
+              <table className="t">
+                <thead><tr><th>追加</th><th>名前</th><th>セクター</th><th>理由（AI）</th><th className="num">売買代金/日</th></tr></thead>
+                <tbody>
+                  {ch.add.map((a) => (
+                    <tr key={a.ticker}>
+                      <td><b className="up">+ {a.ticker}</b></td>
+                      <td>{a.name}{a.listing && <div className="faint">{a.listing.name} · {a.listing.exchange}</div>}</td>
+                      <td className="dim">{a.sector}</td>
+                      <td className="fg2">{a.reason}</td>
+                      <td className="num">{usd(a.avgDollarVolume)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          {ch.remove.length > 0 && (
+            <>
+              <hr className="rule" />
+              <table className="t">
+                <thead><tr><th>削除</th><th>名前</th><th>理由</th></tr></thead>
+                <tbody>
+                  {ch.remove.map((r) => (
+                    <tr key={r.ticker}>
+                      <td><b className="down">− {r.ticker}</b></td>
+                      <td>{r.name}{r.held && <div className="warn">保有中（外しても損切り・売却の管理は続きます）</div>}</td>
+                      <td className="fg2">{r.reasons.map((x) => <div key={x}>{x}</div>)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          {ch.notes.length > 0 && (
+            <>
+              <hr className="rule" />
+              <div className="label">メモ</div>
+              {ch.notes.map((n) => <div key={n} className="dim">· {n}</div>)}
+            </>
+          )}
+          <hr className="rule" />
+          {decisionRow}
+          <p className="faint">承認すると config.yaml のウォッチリストに反映されます（直前の版は .bak）。一部だけ採用したい場合は却下して、設定画面で編集してください。</p>
+        </Pane>
+      </div>
+    );
+  }
+
   const ps = sel.gate.proposals;
   const buys = ps.filter((p) => p.action === "buy");
   const sells = ps.filter((p) => p.action === "sell");
@@ -74,15 +158,7 @@ export function Approvals({ overview, param, toast }: { overview: Overview | und
 
   return (
     <div className="stack">
-      {gates.length > 1 && (
-        <div className="btn-row">
-          {gates.map((g, i) => (
-            <button key={g.run.runId} className="btn" aria-pressed={g === sel} style={g === sel ? { borderColor: "var(--wait)" } : undefined} onClick={() => navigate("approvals", g.run.runId)}>
-              <Status s="waiting" label={false} />{g.run.workflow} {g.run.asOf}<span className="faint"> {i + 1}/{gates.length}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {switcher}
 
       <Pane title="承認待ち" aux={`${sel.run.workflow} · 基準日 ${sel.run.asOf} · ${ago(sel.run.createdAt)}`} className="alert">
         <div style={{ display: "flex", gap: "5ch", flexWrap: "wrap", alignItems: "end" }}>
@@ -94,16 +170,7 @@ export function Approvals({ overview, param, toast }: { overview: Overview | und
         <hr className="rule" />
         <OrdersTable items={ps} names={names} />
         <hr className="rule" />
-        <div className="btn-row">
-          <button className={`btn ${armed === "approve" ? "primary" : ""}`} disabled={busy} onClick={() => void decide("approve")}>
-            {armed === "approve" ? "もう一度で承認を確定" : "承認"} <kbd>a</kbd>
-          </button>
-          <button className={`btn danger`} disabled={busy} onClick={() => void decide("reject")} style={armed === "reject" ? { background: "var(--fail)", color: "var(--bg)" } : undefined}>
-            {armed === "reject" ? "もう一度で却下を確定" : "却下"} <kbd>x</kbd>
-          </button>
-          <input className="input" style={{ flex: 1, minWidth: "24ch" }} placeholder="メモ（任意・記録に残ります）" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
-          <span className="faint">誤操作防止のため2回押しで確定 · <Kbd>Esc</Kbd> 取消</span>
-        </div>
+        {decisionRow}
       </Pane>
 
       <Pane title="この注文の根拠" aux={detail.data?.highlights.judgments?.source === "ai" ? "AI 合議" : "ルール"}>

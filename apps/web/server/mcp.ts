@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { parseWorkflow, validateWorkflow, WorkflowError, type NodeRegistry, type Services } from "@stockai/core";
+import {
+  additionDates, applyWatchlistPatch, parseWorkflow, SECTORS, SecClient, secListings, validateWorkflow, verify, watchlistHistory, WorkflowError,
+  type NodeRegistry, type Services,
+} from "@stockai/core";
 import type { App } from "./app.ts";
 import { latestScorecard, runDetail, summary, workflowInfo } from "./views.ts";
 
@@ -56,6 +59,11 @@ const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 export function buildMcpServer(o: McpOptions): McpServer {
   const { app, services: s, registry } = o;
   const server = new McpServer({ name: "stockai", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+  const listingsOrThrow = async () => {
+    const ua = s.env["SEC_USER_AGENT"];
+    if (!ua) throw new Error("SEC_USER_AGENT is not set on the stockai server (settings screen): tickers cannot be verified");
+    return secListings(s, new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep }));
+  };
   const findWorkflow = (name: string) => {
     const w = app.workflows().find((x) => x.name === name);
     if (!w) throw new Error(`unknown workflow ${name} (have: ${app.workflows().map((x) => x.name).join(", ")})`);
@@ -140,7 +148,10 @@ export function buildMcpServer(o: McpOptions): McpServer {
           id: n.id, type: n.type, status: n.status, ms: Math.round(n.durationMs), error: n.error, metrics: n.metrics,
           ...(includeNodeSummaries ? { summary: n.summary } : {}),
         })),
-        waitingForApproval: d.waiting.map((g) => ({ node: g.node, message: g.message, orders: g.proposals, howToApprove: "the user approves in the web UI (tab 3)" })),
+        waitingForApproval: d.waiting.map((g) => ({
+          node: g.node, message: g.message, orders: g.proposals, ...(g.changes ? { watchlistChanges: g.changes } : {}),
+          howToApprove: "the user approves in the web UI (tab 3)",
+        })),
         highlights: d.highlights,
         names: d.names,
       };
@@ -155,6 +166,50 @@ export function buildMcpServer(o: McpOptions): McpServer {
       annotations: READ,
     },
     guard(() => latestScorecard(s) ?? { message: "no graded predictions yet" }),
+  );
+
+  server.registerTool(
+    "get_watchlist",
+    {
+      title: "Get watchlist",
+      description:
+        "The stocks stockai watches and may buy (ticker, name used to match news, aliases, sector), the benchmark, sector counts, stocks still held but no longer watched, when/why each was added, and recent watchlist changes.",
+      annotations: READ,
+    },
+    guard(() => {
+      const w = s.config.watchlist;
+      const sectors: Record<string, number> = {};
+      for (const e of Object.values(w)) sectors[e.sector] = (sectors[e.sector] ?? 0) + 1;
+      const held = s.heldTickers();
+      return {
+        market: s.config.market,
+        watchlist: w,
+        sectorCounts: sectors,
+        heldButNotWatched: Object.keys(held).filter((t) => !(t in w)),
+        addedWhen: additionDates(s),
+        recentChanges: watchlistHistory(s, 20),
+        sectors: SECTORS,
+        editable: Boolean(s.configPath),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "verify_tickers",
+    {
+      title: "Verify tickers (SEC)",
+      description:
+        "Checks US tickers against the SEC's current list of listed companies: exists, listed on NYSE/Nasdaq, and the company name matches. Use it before proposing or adding stocks. Needs SEC_USER_AGENT on the server.",
+      inputSchema: { candidates: z.array(z.object({ ticker: z.string(), name: z.string().describe("company name as commonly written") })).min(1).max(40) },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    },
+    guard(async ({ candidates }: { candidates: Array<{ ticker: string; name: string }> }) => {
+      const listings = await listingsOrThrow();
+      return candidates.map((c) => {
+        const v = verify({ ticker: c.ticker, name: c.name, aliases: [], sector: "tech", reason: "" }, listings, new Set());
+        return { ticker: v.ticker, ok: v.status === "ok", problem: v.problem, official: v.listing, inWatchlist: v.ticker in s.config.watchlist };
+      });
+    }),
   );
 
   server.registerTool(
@@ -201,6 +256,28 @@ export function buildMcpServer(o: McpOptions): McpServer {
     }),
   );
 
+  server.registerPrompt(
+    "find_stocks",
+    {
+      title: "銘柄を探す",
+      description: "テーマに合う米国株を一緒に探して、確認してからウォッチリストに加える",
+      argsSchema: { theme: z.string().describe("例: サイバーセキュリティ、電力需要の増加で恩恵を受ける会社") },
+    },
+    ({ theme }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text:
+            `stockai のウォッチリストに加える米国株を一緒に探したい。テーマ: ${theme}\n` +
+            "1) get_watchlist で今の銘柄とセクターの偏りを確認。2) テーマに合う NYSE / Nasdaq 上場の米国企業を、流動性の高いものを中心に 10 社ほど挙げ、それぞれ何をしている会社か・テーマとの関係を日本語で短く説明（ETF・ADR・OTC は除く）。" +
+            "3) verify_tickers で全部確認し、通らなかったものは外す。4) 私がどれを加えるか選んだら、内容（ティッカー・ニュース照合用の名前・セクター・理由）を確認してから update_watchlist。" +
+            "米国株に詳しくないので、専門用語は少なめに。売買の推奨はしないこと。",
+        },
+      }],
+    }),
+  );
+
   if (o.readOnly) return server;
 
   // ── write ───────────────────────────────────────────────────
@@ -228,6 +305,38 @@ export function buildMcpServer(o: McpOptions): McpServer {
     guard(({ name, asOf }: { name: string; asOf?: string | undefined }) => {
       const w = findWorkflow(name);
       return { runId: app.startRun(w.file, asOf), status: "queued", next: "call get_run with this runId" };
+    }),
+  );
+
+  server.registerTool(
+    "update_watchlist",
+    {
+      title: "Update watchlist",
+      description:
+        "Adds (or updates) and removes watchlist stocks, writing config.yaml (comments kept, previous version in .bak) and applying at once. Every added ticker must pass the SEC check, otherwise nothing is changed. Removing a held stock stops new buys only; its stops and exits keep working. Confirm the list with the user before calling.",
+      inputSchema: {
+        add: z.array(z.object({
+          ticker: z.string(),
+          name: z.string().describe("name as written in news headlines (no Inc.), used to match news"),
+          aliases: z.array(z.string()).max(4).default([]),
+          sector: z.enum(SECTORS),
+          reason: z.string().max(200).describe("why, in one sentence (stored in the change log)"),
+        })).max(25).default([]),
+        remove: z.array(z.object({ ticker: z.string(), reason: z.string().max(200) })).max(25).default([]),
+        note: z.string().max(300).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    guard(async (a: { add: Array<{ ticker: string; name: string; aliases: string[]; sector: string; reason: string }>; remove: Array<{ ticker: string; reason: string }>; note?: string | undefined }) => {
+      if (!a.add.length && !a.remove.length) throw new Error("nothing to change");
+      if (a.add.length) {
+        const listings = await listingsOrThrow();
+        const bad = a.add
+          .map((x) => verify({ ...x, sector: x.sector as (typeof SECTORS)[number] }, listings, new Set()))
+          .filter((v) => v.status !== "ok");
+        if (bad.length) throw new Error(`not changed: ${bad.map((v) => `${v.ticker}: ${v.problem}`).join("; ")}`);
+      }
+      return applyWatchlistPatch(s, a, "mcp", a.note ?? "via MCP");
     }),
   );
 

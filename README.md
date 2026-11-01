@@ -94,6 +94,7 @@ npm run web:server & npm run web:ui   # 開発: Vite (http://127.0.0.1:5173) + A
   「今すぐバックアップ」または `npm run stockai -- backup`。別のディスクや同期フォルダに置くなら `backup.dir`。API キー（settings.sqlite）は既定では含めない
 - **ウォッチリスト**: 銘柄・名前・別名・セクター・ベンチマークを画面で編集。`config/config.yaml` に書き戻す（コメントや他の設定は残り、直前の版は `.bak`）。
   `config.example.yaml` で起動している場合は初回の保存で `config/config.yaml` を作る。保存した時点から次の実行に反映され、再起動は不要
+- **Claude と会話して銘柄を選ぶ**（MCP の「銘柄を探す」）と、**月1回の見直しワークフロー**（`universe-review`: 追加・削除の候補を出して承認待ち → 承認で反映）もある（[docs/us.md](docs/us.md)）
 - **AI に銘柄を探してもらう**（米国株）: テーマを選ぶと AI が候補と理由を出し、SEC の上場企業リストで実在・取引所・社名を確認。選んだものだけ一覧に加わる（[docs/us.md](docs/us.md)）
 
 ## MCP（Claude から操作する）

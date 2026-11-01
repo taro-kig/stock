@@ -68,6 +68,7 @@
   --pt-Documents: #8fb8ff; --pt-Matches: #7fd1c7; --pt-Events: #c79bf2; --pt-Prices: #f2c14e;
   --pt-Factors: #f5a25d; --pt-Scores: #ffd27f; --pt-Judgments: #ff9db5; --pt-Account: #9ad48a;
   --pt-Proposals: #ffb547; --pt-Fills: #7fd18b; --pt-Orders: #7fd18b; --pt-Scorecard: #6cc4d9; --pt-Count: #858b97;
+  --pt-UniverseChanges: #e8a0f0;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

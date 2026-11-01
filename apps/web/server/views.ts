@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   loadWorkflow, toGraph, toIsoDate, validateWorkflow, WorkflowSpec,
   type AccountState, type Fill, type Judgment, type NodeRegistry, type NodeRunRow, type OrderTicket, type Proposal, type RunRow, type Scorecard, type Services,
+  type UniverseChanges,
 } from "@stockai/core";
 import type { EquitySeries, Highlights, NodeView, RunDetail, RunSummary, WaitingGate, WorkflowInfo } from "../shared/types.ts";
 
@@ -113,6 +114,21 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
           const ref = cfg.in["proposals"]?.split(".") ?? [];
           const src = rows[ref[0] ?? ""];
           waiting.push({ node: id, message: row.error ?? "awaiting approval", proposals: artifact<Proposal[]>(s, src, ref[1] ?? "proposals") ?? [] });
+        }
+        break;
+      }
+      case "universe.review": {
+        const c = artifact<UniverseChanges>(s, row, "changes");
+        if (c && !h.universe) h.universe = { node: id, applied: false, changes: c };
+        break;
+      }
+      case "universe.apply": {
+        const c = artifact<UniverseChanges>(s, row, "changes");
+        if (c) h.universe = { node: id, applied: true, changes: c };
+        if (row?.status === "waiting") {
+          const ref = cfg.in["changes"]?.split(".") ?? [];
+          const pending = artifact<UniverseChanges>(s, rows[ref[0] ?? ""], ref[1] ?? "changes");
+          waiting.push({ node: id, message: row.error ?? "awaiting approval", proposals: [], ...(pending ? { changes: pending } : {}) });
         }
         break;
       }

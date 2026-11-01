@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { backupDue, backupStatus, editableConfigPath, Engine, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { backupDue, backupStatus, editableConfigPath, Engine, logWatchlistChange, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -429,7 +429,14 @@ export function createApp(o: AppOptions): App {
         const msg = e instanceof Error && "issues" in e ? (e as { issues: Array<{ path: PropertyKey[]; message: string }> }).issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
         throw new HttpError(400, msg);
       }
+      const before = s.config.watchlist;
       s.updateWatchlist(r.config.watchlist, r.config.market.benchmark ?? "");
+      logWatchlistChange(
+        s, "ui",
+        Object.keys(r.config.watchlist).filter((t) => !(t in before)).map((t) => ({ ticker: t, name: r.config.watchlist[t]!.name, reason: "" })),
+        Object.keys(before).filter((t) => !(t in r.config.watchlist)).map((t) => ({ ticker: t, reason: "" })),
+        "", clock(),
+      );
       broadcast({ type: "config_changed" });
       return send(res, 200, { ok: true, file: r.file, created: r.created, tickers: Object.keys(r.config.watchlist).length });
     }

@@ -7,6 +7,7 @@ import type { Match } from "../signals/prefilter.ts";
 import type { Prices } from "../signals/technical.ts";
 import type { FactorTable } from "../strategy/factors.ts";
 import type { Proposal } from "../strategy/portfolio.ts";
+import type { UniverseChanges } from "../universe/watchlist.ts";
 
 /**
  * The data types that flow along workflow edges. Port types are checked when a
@@ -30,10 +31,11 @@ export interface PortTypes {
   Orders: OrderTicket[];
   Scorecard: Scorecard;
   Count: number;
+  UniverseChanges: UniverseChanges;
 }
 export type PortType = keyof PortTypes;
 
 export const PORT_TYPES = [
   "Documents", "Matches", "Events", "Prices", "Factors", "Scores", "Judgments",
-  "Account", "Proposals", "Fills", "Orders", "Scorecard", "Count",
+  "Account", "Proposals", "Fills", "Orders", "Scorecard", "Count", "UniverseChanges",
 ] as const satisfies readonly PortType[];

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -139,3 +139,68 @@ describe("MCP over HTTP (/mcp)", () => {
     expect((await rpc(off, "initialize", init)).status).toBe(404);
   });
 });
+
+describe("MCP watchlist tools", () => {
+  async function setup(env: Record<string, string> = { SEC_USER_AGENT: "stockai me@example.com" }) {
+    const dir = mkdtempSync(join(tmpdir(), "mcp-wl-"));
+    const configPath = join(dir, "config.yaml");
+    copyFileSync(join(ROOT, "config/config.example.yaml"), configPath);
+    const sec = { fields: ["cik", "name", "ticker", "exchange"], data: [[1730168, "Broadcom Inc.", "AVGO", "Nasdaq"], [1, "Some Otc Co", "OTCX", "OTC"], [320193, "Apple Inc.", "AAPL", "Nasdaq"]] };
+    const services = new Services(loadConfig(configPath), {
+      fake: true, dbPath: ":memory:", configPath, env, sleep: async () => undefined,
+      fetchImpl: async () => new Response(JSON.stringify(sec)),
+    });
+    const registry = builtinRegistry();
+    app = createApp({ services, registry, workflowsDir: workflowsDir(), configPath });
+    const server = buildMcpServer({ app, services, registry });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const c = new Client({ name: "t", version: "0" });
+    await c.connect(ct);
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = await c.callTool({ name, arguments: args });
+      const text = (r.content as Array<{ text: string }>)[0]!.text;
+      return { isError: r.isError === true, text, json: () => JSON.parse(text) as any };
+    };
+    return { call, c, configPath, services };
+  }
+
+  it("reads the watchlist and verifies tickers against the SEC list", async () => {
+    const { call, c } = await setup();
+    const w = (await call("get_watchlist")).json();
+    expect(Object.keys(w.watchlist)).toContain("NVDA");
+    expect(w.sectorCounts.tech).toBeGreaterThan(0);
+    const v = (await call("verify_tickers", { candidates: [{ ticker: "avgo", name: "Broadcom" }, { ticker: "OTCX", name: "Some Otc" }, { ticker: "AVGO", name: "CrowdStrike" }, { ticker: "AAPL", name: "Apple" }] })).json();
+    expect(v.map((x: { ok: boolean }) => x.ok)).toEqual([true, false, false, true]);
+    expect(v[3].inWatchlist).toBe(true);
+    expect((await c.listPrompts()).prompts.map((p) => p.name)).toContain("find_stocks");
+  });
+
+  it("adds only verified tickers (all or nothing), removes, and logs the change", async () => {
+    const { call, configPath, services } = await setup();
+    const before = readFileSync(configPath, "utf8");
+    const bad = await call("update_watchlist", { add: [{ ticker: "AVGO", name: "Broadcom", sector: "semis", reason: "AI 向け半導体" }, { ticker: "ZZZZ", name: "Nothing", sector: "tech", reason: "x" }] });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/ZZZZ/);
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+    const ok = await call("update_watchlist", { add: [{ ticker: "AVGO", name: "Broadcom", sector: "semis", reason: "AI 向け半導体" }], remove: [{ ticker: "XOM", reason: "エネルギーは対象外にしたい" }], note: "テスト" });
+    expect(ok.json()).toMatchObject({ added: ["AVGO"], removed: ["XOM"] });
+    const cfg = loadConfig(configPath);
+    expect(cfg.watchlist["AVGO"]).toMatchObject({ name: "Broadcom", sector: "semis" });
+    expect(cfg.watchlist["XOM"]).toBeUndefined();
+    expect(services.watchlist.tickers).toContain("AVGO");
+    const w = (await call("get_watchlist")).json();
+    expect(w.recentChanges[0]).toMatchObject({ source: "mcp", added: [{ ticker: "AVGO", reason: "AI 向け半導体" }], removed: [{ ticker: "XOM" }] });
+    expect(w.addedWhen.AVGO.source).toBe("mcp");
+  });
+
+  it("refuses to add without SEC verification, and is absent in read-only mode", async () => {
+    const { call } = await setup({});
+    const r = await call("update_watchlist", { add: [{ ticker: "AVGO", name: "Broadcom", sector: "semis", reason: "x" }] });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/SEC_USER_AGENT/);
+    const ro = await client(true);
+    expect((await ro.c.listTools()).tools.map((t) => t.name)).not.toContain("update_watchlist");
+  });
+});
+

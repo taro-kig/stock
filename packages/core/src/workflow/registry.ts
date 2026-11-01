@@ -21,7 +21,7 @@ export type OutputValues<O extends PortDecls> = { [K in keyof O]: PortTypes[O[K]
  */
 export type CachePolicy = "none" | "inputs" | "daily";
 
-export const NODE_CATEGORIES = ["source", "filter", "llm", "data", "signal", "decision", "risk", "gate", "execution", "eval"] as const;
+export const NODE_CATEGORIES = ["source", "filter", "llm", "data", "signal", "decision", "risk", "gate", "execution", "eval", "universe"] as const;
 export type NodeCategory = (typeof NODE_CATEGORIES)[number];
 
 export interface NodeDef<P extends z.ZodObject, I extends PortDecls, O extends PortDecls> {

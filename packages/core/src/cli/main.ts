@@ -91,7 +91,7 @@ function services(): Services {
   const config = loadConfig(path);
   // Keys saved from the web UI's settings screen (shell > settings > .env).
   const settings = new SettingsStore({ path: join(config.dataDir, "settings.sqlite"), shellKeys: dotenv.shellKeys });
-  return new Services(config, { fake: opt.fake, settings });
+  return new Services(config, { fake: opt.fake, settings, configPath: path });
 }
 
 const engineFor = (s: Services) => new Engine({ services: s, registry: builtinRegistry(), store: s.runStore });
