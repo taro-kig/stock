@@ -33,6 +33,7 @@ packages/core/src/
   nodes/      組み込みノード (stockai nodes で一覧)
   cli/        CLI
 apps/web/     Web UI (React + Vite) と API サーバー (node:http, SSE, 実行キュー, スケジューラ), MCP サーバー (/mcp と stdio)
+prompts/      画面で作ったプロンプトの版 (<用途>/<版>.md)
 workflows/    daily-ai / daily-rules (米国株), daily-jp-ai / daily-jp-rules (日本株), webull-us / webull-jp (ウィブル証券),
               ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
 deploy/ibkr/  IB Gateway の Docker 構成
@@ -52,6 +53,7 @@ config/       config.example.yaml (米国株), config.jp.example.yaml (日本株
 | 5 フロー | ワークフローのグラフ、今日 / 過去日付での実行、**ノードエディタ**（`e` 編集 / `n` 新規）、**YAML のアップロード**（`u` またはドラッグ＆ドロップ）、**無効化 / 有効化**（`d`） |
 | 6 ノード | ノードの一覧（ポート型・パラメータ） |
 | 7 設定 | **API キーの入力**（Gemini / DeepSeek / Twelve Data / SEC / Webull …）。保存先と、各キーがどこから来ているか（設定画面 / .env / シェル）を表示 |
+| 8 プロンプト | **プロンプトの版管理**: 組み込み / 自作の版、新しい版の作成（指示文の編集・差分）、正解データでの評価、切り替え（[docs/prompts.md](docs/prompts.md)） |
 
 | 承認 | 確度 |
 |---|---|

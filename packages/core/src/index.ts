@@ -23,3 +23,8 @@ export { namesMatch, SECTORS, SIZES, suggestTickers, SuggestRequest, verify, typ
 export { additionDates, applyWatchlistPatch, logWatchlistChange, watchlistHistory, type UniverseAdd, type UniverseChanges, type UniverseRemove, type WatchlistChangeRow, type WatchlistPatch } from "./universe/watchlist.ts";
 export { secListings, type Listing } from "./universe/suggest.ts";
 export { SecClient } from "./data/sec.ts";
+export { FAMILY_LABELS, PROMPT_FAMILIES, PromptRegistry, UnknownPrompt, validVersionName, type PromptFamily, type PromptInfo } from "./prompts/registry.ts";
+export { defaultGoldenSet, defaultVersions, EVALUABLE, runPromptEval, type PromptEvalRequest } from "./prompts/evaluate.ts";
+export type { EvalReport } from "./eval/promptEval.ts";
+export { PromptStore, type EvalJob, type EvalJobStatus, type PromptSwitch } from "./prompts/store.ts";
+export { editConfig, saveConfigValue } from "./util/configFile.ts";

@@ -15,7 +15,7 @@ export const recordPredictions = defineNode({
   async run(ctx, p, i) {
     const label = p.label ?? ctx.workflow;
     const count = ctx.services.predictions.record(
-      Object.values(i.judgments).map((j) => ({ label, asOf: ctx.asOf, ticker: j.ticker, stance: j.stance, conviction: j.conviction, status: j.status, runId: ctx.runId })),
+      Object.values(i.judgments).map((j) => ({ label, asOf: ctx.asOf, ticker: j.ticker, stance: j.stance, conviction: j.conviction, status: j.status, runId: ctx.runId, prompt: j.prompt ?? null })),
     );
     return { count };
   },

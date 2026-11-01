@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
-export const VIEWS = ["overview", "runs", "approvals", "scorecard", "workflows", "nodes", "settings", "editor"] as const;
+export const VIEWS = ["overview", "runs", "approvals", "scorecard", "workflows", "nodes", "settings", "prompts", "editor"] as const;
 export type View = (typeof VIEWS)[number];
 /** Views with a numbered tab (the editor is opened from a workflow). */
-export const TABS = ["overview", "runs", "approvals", "scorecard", "workflows", "nodes", "settings"] as const satisfies readonly View[];
+export const TABS = ["overview", "runs", "approvals", "scorecard", "workflows", "nodes", "settings", "prompts"] as const satisfies readonly View[];
 
 export interface Route {
   view: View;

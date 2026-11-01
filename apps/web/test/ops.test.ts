@@ -143,3 +143,61 @@ describe("AI ticker suggestions", () => {
   });
 });
 
+
+describe("prompts API", () => {
+  async function startUs() {
+    const dir = mkdtempSync(join(tmpdir(), "stockai-prompts-"));
+    const cfgPath = join(dir, "config.yaml");
+    copyFileSync(join(ROOT, "config/config.example.yaml"), cfgPath);
+    const wf = join(dir, "wf");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(wf);
+    writeFileSync(join(wf, "pinned.yaml"), "name: pinned\nnodes:\n  p: { use: data.pricesSynthetic }\n  f: { use: signal.factors, in: { prices: p } }\n  s: { use: signal.score, in: { factors: f } }\n  d: { use: decide.ai, in: { factors: f, scores: s }, params: { promptVersion: judge-v2 } }\n");
+    const config = loadConfig(cfgPath);
+    (config as { promptsDir: string }).promptsDir = join(dir, "prompts");
+    const services = new Services(config, { fake: true, dbPath: ":memory:", configPath: cfgPath });
+    app = createApp({ services, registry: builtinRegistry(), workflowsDir: wf, configPath: cfgPath });
+    await new Promise<void>((r) => app!.server.listen(0, "127.0.0.1", () => r()));
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    const call = async <T>(method: string, path: string, body?: unknown) => {
+      const res = await fetch(base + path, { method, headers: { "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+      return { status: res.status, body: (await res.json()) as T };
+    };
+    return { call, services, cfgPath, dir };
+  }
+  type View = { families: Array<{ family: string; active: string; evaluable: boolean; versions: Array<{ version: string; usedBy: string[]; builtin: boolean }>; evals: Array<{ id: number; status: string; summary: Array<{ version: string; accuracy: number | null }> }> }>; switches: Array<{ from: string; to: string }> };
+
+  it("lists versions with where they are used, creates a version, evaluates it and switches to it", async () => {
+    const { call, services, cfgPath } = await startUs();
+    let v = (await call<View>("GET", "/api/prompts")).body;
+    const judge = v.families.find((f) => f.family === "judge")!;
+    expect(judge.active).toBe("judge-v1");
+    expect(judge.versions.find((x) => x.version === "judge-v1")!.usedBy).toEqual(["config"]);
+    expect(judge.versions.find((x) => x.version === "judge-v2")!.usedBy).toEqual(["pinned"]);
+    expect(v.families.find((f) => f.family === "universe")!.evaluable).toBe(false);
+
+    const text = "あなたは慎重な運用担当者である。根拠が弱ければ neutral を選ぶ。".repeat(2);
+    const created = await call<{ version: string; base: string }>("POST", "/api/prompts/event", { version: "event-us-v1-my1", parent: "event-us-v1", system: text, description: "test" });
+    expect(created.status).toBe(201);
+    expect(created.body.base).toBe("event-us-v1");
+    expect((await call("POST", "/api/prompts/event", { version: "event-us-v1-my1", parent: "event-us-v1", system: text })).status).toBe(400);
+
+    const ev = await call<{ id: number }>("POST", "/api/prompts/event/eval", { versions: ["event-us-v1", "event-us-v1-my1"], models: ["fake-a"], budgetUsd: 0.1 });
+    expect(ev.status).toBe(202);
+    await app!.queue.idle();
+    v = (await call<View>("GET", "/api/prompts")).body;
+    const job = v.families.find((f) => f.family === "event")!.evals[0]!;
+    expect(job).toMatchObject({ id: ev.body.id, status: "done" });
+    expect(job.summary.map((x) => x.version)).toEqual(["event-us-v1", "event-us-v1-my1"]);
+    expect((await call<{ report: { rows: unknown[] } }>("GET", `/api/prompts/evals/${ev.body.id}`)).body.report.rows).toHaveLength(2);
+    expect((await call("POST", "/api/prompts/universe/eval", { versions: ["universe-v1"] })).status).toBe(400);
+
+    const sw = await call<{ changed: boolean }>("PUT", "/api/prompts/event/active", { version: "event-us-v1-my1" });
+    expect(sw.body.changed).toBe(true);
+    expect(services.config.prompts.event).toBe("event-us-v1-my1");
+    expect(loadConfig(cfgPath).prompts.event).toBe("event-us-v1-my1");
+    expect(readFileSync(cfgPath, "utf8")).toContain("# H5: hard daily cap");
+    expect((await call<View>("GET", "/api/prompts")).body.switches[0]).toMatchObject({ from: "event-us-v1", to: "event-us-v1-my1" });
+    expect((await call("PUT", "/api/prompts/event/active", { version: "event-nope" })).status).toBe(400);
+  });
+});

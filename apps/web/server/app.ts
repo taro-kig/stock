@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { backupDue, backupStatus, editableConfigPath, Engine, logWatchlistChange, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
+import { backupDue, backupStatus, defaultGoldenSet, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { ImportResult, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
@@ -107,6 +107,7 @@ export function createApp(o: AppOptions): App {
     onEvent: (runId: string, event: RunEvent) => broadcast({ type: "run_event", runId, event }),
   });
   const queue = new RunQueue();
+  s.promptStore.failStale(clock());
   const notifier = new RunNotifier(s, registry, clock);
 
   function backupNow(): BackupFile {
@@ -215,6 +216,82 @@ export function createApp(o: AppOptions): App {
     s.runStore.setDisabled(name, disabled, note.slice(0, 200), clock());
     broadcast({ type: "workflow_state", workflow: name, disabled });
     return { name, disabled: s.runStore.disabled(name) };
+  }
+
+  const CONFIG_KEY: Record<PromptFamily, "event" | "judge" | "redTeam" | "universe"> = { event: "event", judge: "judge", redteam: "redTeam", universe: "universe" };
+
+  /** Which workflows pin a prompt version in a node (instead of using config.prompts). */
+  function promptUsage(): Record<PromptFamily, Record<string, string[]>> {
+    const out: Record<PromptFamily, Record<string, string[]>> = { event: {}, judge: {}, redteam: {}, universe: {} };
+    const add = (f: PromptFamily, v: unknown, wf: string) => {
+      if (typeof v !== "string") return;
+      (out[f][v] ??= []).includes(wf) || out[f][v]!.push(wf);
+    };
+    for (const w of workflows()) {
+      for (const n of Object.values(w.spec?.nodes ?? {})) {
+        if (n.use === "llm.extractEvents" || n.use === "signal.eventHistory") add("event", n.params["promptVersion"], w.name);
+        if (n.use === "decide.ai") {
+          add("judge", n.params["promptVersion"], w.name);
+          add("redteam", n.params["redTeamVersion"], w.name);
+        }
+        if (n.use === "universe.review") add("universe", n.params["promptVersion"], w.name);
+      }
+    }
+    return out;
+  }
+
+  function promptsView(): PromptsView {
+    const usage = promptUsage();
+    return {
+      families: PROMPT_FAMILIES.map((family) => {
+        const active = s.config.prompts[CONFIG_KEY[family]];
+        return {
+          family, label: FAMILY_LABELS[family], configKey: CONFIG_KEY[family], active,
+          evaluable: EVALUABLE.includes(family),
+          goldenSet: EVALUABLE.includes(family) ? defaultGoldenSet(s, family) : null,
+          versions: s.prompts.list(family).map((p) => ({ ...p, usedBy: [...(p.version === active ? ["config"] : []), ...(usage[family][p.version] ?? [])] })),
+          evals: s.promptStore.evals(family, 10),
+        };
+      }),
+      switches: s.promptStore.switches(30),
+      models: s.fake ? ["fake-a", "fake-b"] : s.modelNames(),
+      editable: Boolean(o.configPath),
+      fake: s.fake,
+    };
+  }
+
+  function switchPrompt(family: PromptFamily, version: string, source: string) {
+    s.prompts.info(family, version); // must exist
+    if (!o.configPath) throw new HttpError(404, "this server was started without a config file");
+    const key = CONFIG_KEY[family];
+    const from = s.config.prompts[key];
+    if (from === version) return { family, active: version, changed: false };
+    const r = saveConfigValue(o.configPath, ["prompts", key], version);
+    s.setPrompt(key, version);
+    s.promptStore.logSwitch({ at: clock().toISOString(), family, from, to: version, source });
+    broadcast({ type: "config_changed" });
+    return { family, active: version, changed: true, file: r.file };
+  }
+
+  function startPromptEval(family: PromptFamily, versions: string[], models: string[], ensemble: boolean, budgetUsd: number): number {
+    if (!EVALUABLE.includes(family)) throw new HttpError(400, `${FAMILY_LABELS[family]}には正解データが無いので評価できません（実運用の確度で比べてください）`);
+    for (const v of versions) s.prompts.info(family, v);
+    if (!versions.length) throw new HttpError(400, "versions must not be empty");
+    const id = s.promptStore.createEval({ family, versions, models, ensemble, budgetUsd }, clock());
+    broadcast({ type: "prompt_eval", id, status: "queued" });
+    void queue
+      .enqueue(`eval ${family} ${versions.join(",")}`, async () => {
+        s.promptStore.setEval(id, "running", {}, clock());
+        broadcast({ type: "prompt_eval", id, status: "running" });
+        const report = await runPromptEval(s, { family, versions, ...(models.length ? { models } : {}), ensemble, budgetUsd });
+        s.promptStore.setEval(id, "done", { report }, clock());
+        broadcast({ type: "prompt_eval", id, status: "done" });
+      })
+      .catch((e: unknown) => {
+        s.promptStore.setEval(id, "failed", { error: e instanceof Error ? e.message : String(e) }, clock());
+        broadcast({ type: "prompt_eval", id, status: "failed" });
+      });
+    return id;
   }
 
   function overview(): Overview {
@@ -405,6 +482,36 @@ export function createApp(o: AppOptions): App {
         const budget = e instanceof Error && e.name === "BudgetExceeded";
         throw new HttpError(budget ? 429 : 400, e instanceof Error ? e.message : String(e));
       }
+    }
+    if (req.method === "GET" && path === "/api/prompts") return send(res, 200, promptsView());
+    if (req.method === "GET" && (g = m(/^\/api\/prompts\/evals\/(\d+)$/))) {
+      const r = s.promptStore.evalReport(Number(g[1]));
+      if (!r) throw new HttpError(404, "unknown evaluation");
+      return send(res, 200, r);
+    }
+    if ((g = m(/^\/api\/prompts\/(event|judge|redteam|universe)(\/active|\/eval)?$/))) {
+      const family = g[1] as PromptFamily;
+      const body = await readJson(req);
+      try {
+        if (req.method === "POST" && !g[2]) {
+          const info = s.prompts.create(family, {
+            version: String(body["version"] ?? ""), parent: String(body["parent"] ?? ""), system: String(body["system"] ?? ""),
+            description: typeof body["description"] === "string" ? body["description"] : "",
+          }, clock());
+          return send(res, 201, info);
+        }
+        if (req.method === "PUT" && g[2] === "/active") return send(res, 200, switchPrompt(family, String(body["version"] ?? ""), "ui"));
+        if (req.method === "POST" && g[2] === "/eval") {
+          const versions = Array.isArray(body["versions"]) ? body["versions"].map(String) : [];
+          const models = Array.isArray(body["models"]) ? body["models"].map(String) : [];
+          const budgetUsd = Math.min(5, Math.max(0.01, Number(body["budgetUsd"] ?? 0.3)));
+          return send(res, 202, { id: startPromptEval(family, versions, models, body["ensemble"] === true, budgetUsd) });
+        }
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, e instanceof Error ? e.message : String(e));
+      }
+      throw new HttpError(405, "method not allowed");
     }
     if (req.method === "GET" && path === "/api/config/watchlist") {
       return send(res, 200, {

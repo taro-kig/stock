@@ -3,7 +3,7 @@ import { checkEvidence } from "../harness/grounding.ts";
 import type { StructuredCaller } from "../harness/structured.ts";
 import type { LLMProvider } from "../llm/types.ts";
 import { docText, EventExtraction, type Document } from "./models.ts";
-import { EVENT_PROMPT_VERSION, EVENT_PROMPTS, type EventPromptVersion } from "./prompts.ts";
+import { EVENT_PROMPT_VERSION, EVENT_PROMPTS, type EventPrompt } from "./prompts.ts";
 
 export interface ExtractionContext {
   doc: Document;
@@ -57,14 +57,16 @@ export function shouldEscalateEvent(values: EventExtraction[], ctx: ExtractionCo
 
 export class EventExtractor {
   readonly #ensemble: Ensemble<typeof EventExtraction, ExtractionContext>;
-  readonly version: EventPromptVersion;
+  readonly version: string;
+  readonly #prompt: EventPrompt;
 
   constructor(
     caller: StructuredCaller,
     members: readonly LLMProvider[],
-    opts: { quorum?: number; escalation?: LLMProvider | undefined; promptVersion?: EventPromptVersion } = {},
+    opts: { quorum?: number; escalation?: LLMProvider | undefined; prompt?: EventPrompt & { version: string } } = {},
   ) {
-    this.version = opts.promptVersion ?? EVENT_PROMPT_VERSION;
+    this.version = opts.prompt?.version ?? EVENT_PROMPT_VERSION;
+    this.#prompt = opts.prompt ?? EVENT_PROMPTS[EVENT_PROMPT_VERSION];
     this.#ensemble = new Ensemble({
       caller,
       members,
@@ -80,7 +82,7 @@ export class EventExtractor {
 
   async extract(ctx: ExtractionContext): Promise<EnsembleResult<EventExtraction>> {
     const res = await this.#ensemble.run(
-      { schemaName: "EventExtraction", system: EVENT_PROMPTS[this.version].system, user: EVENT_PROMPTS[this.version].user(ctx.doc, ctx.candidates), promptVersion: this.version },
+      { schemaName: "EventExtraction", system: this.#prompt.system, user: this.#prompt.user(ctx.doc, ctx.candidates), promptVersion: this.version },
       ctx,
     );
     // the conservative ticker intersection can come out empty -> no signal

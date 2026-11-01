@@ -12,14 +12,19 @@ export const extractEvents = defineNode({
     "Turns each document into a structured event with the harness: schema validation, grounded quotes, cross-vendor voting, escalation, cache and budget cap.",
   version: 1,
   cache: "inputs",
-  params: z.object({ quorum: z.number().int().min(1).optional() }),
+  params: z.object({
+    quorum: z.number().int().min(1).optional(),
+    /** Prompt version for this workflow (default: config.prompts.event). signal.eventHistory must use the same. */
+    promptVersion: z.string().optional(),
+  }),
   inputs: { matches: { type: "Matches" } },
   outputs: { events: { type: "Events" } },
   fallback: () => ({ events: [] }),
   async run(ctx, p, i) {
     const s = ctx.services;
-    const version = s.config.prompts.event;
-    const extractor = new EventExtractor(s.caller, s.tier1(), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.tier2(), promptVersion: version });
+    const prompt = s.prompts.event(p.promptVersion ?? s.config.prompts.event);
+    const version = prompt.version;
+    const extractor = new EventExtractor(s.caller, s.tier1(), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.tier2(), prompt });
     const events: EventRecord[] = [];
     for (const { doc, candidates } of i.matches) {
       s.docStore.saveDocument(doc);

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { buildDossier, Judge, type Judgment } from "../ai/judge.ts";
-import { JUDGE_PROMPTS } from "../ai/prompts.ts";
 import { BudgetExceeded } from "../harness/budget.ts";
 import { rankTickers } from "../strategy/scoring.ts";
 import { defineNode } from "../workflow/registry.ts";
@@ -44,6 +43,9 @@ export const aiDecide = defineNode({
     maxCandidates: z.number().int().positive().default(10),
     quorum: z.number().int().min(1).optional(),
     redTeam: z.boolean().default(true),
+    /** Prompt versions for this workflow (default: config.prompts.judge / redTeam). Two workflows with different versions = a live A/B test. */
+    promptVersion: z.string().optional(),
+    redTeamVersion: z.string().optional(),
   }),
   inputs: {
     factors: { type: "Factors" },
@@ -55,14 +57,15 @@ export const aiDecide = defineNode({
   fallback: () => ({ judgments: {} }),
   async run(ctx, p, i) {
     const s = ctx.services;
+    const judgePrompt = s.prompts.judge(p.promptVersion ?? s.config.prompts.judge);
     const judge = new Judge(s.caller, s.tier1(), {
       quorum: p.quorum ?? s.config.harness.quorum,
       escalation: s.tier2(),
       redTeam: p.redTeam ? s.redTeam() : undefined,
-      promptVersion: s.config.prompts.judge,
-      redTeamVersion: s.config.prompts.redTeam,
+      prompt: judgePrompt,
+      redTeamPrompt: s.prompts.redTeam(p.redTeamVersion ?? s.config.prompts.redTeam),
     });
-    const variant = JUDGE_PROMPTS[s.config.prompts.judge].dossier;
+    const variant = judgePrompt.dossier;
     const ranked = rankTickers(i.scores).filter((t) => i.factors.rows[t]);
     const held = Object.keys(i.account?.positions ?? {});
     const candidates = [...new Set([...ranked.slice(0, p.maxCandidates), ...held.filter((t) => i.factors.rows[t])])];

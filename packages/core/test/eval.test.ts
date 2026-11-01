@@ -11,6 +11,10 @@ import { LLMError } from "../src/llm/types.ts";
 import { EventExtractor } from "../src/signals/extractor.ts";
 import { EventExtraction } from "../src/signals/models.ts";
 import { EVENT_PROMPTS } from "../src/signals/prompts.ts";
+import { PromptRegistry } from "../src/prompts/registry.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const events = loadEventSet(resolve(ROOT, "examples/golden/events.yaml"));
@@ -113,11 +117,13 @@ describe("evalEvents / evalJudge", () => {
 
 describe("prompt versions", () => {
   it("are selectable in config and reach the model", async () => {
-    expect(AppConfig.parse({ watchlist: {} }).prompts).toEqual({ event: "event-v1", judge: "judge-v1", redTeam: "redteam-v1" });
-    expect(() => AppConfig.parse({ watchlist: {}, prompts: { event: "event-v9" } })).toThrow();
+    expect(AppConfig.parse({ watchlist: {} }).prompts).toEqual({ event: "event-v1", judge: "judge-v1", redTeam: "redteam-v1", universe: "universe-v1" });
+    // any well-formed name passes the config (user versions live in prompts/); unknown ones fail when used
+    expect(() => AppConfig.parse({ watchlist: {}, prompts: { event: "judge-v1" } })).toThrow();
+    expect(() => new PromptRegistry(mkdtempSync(join(tmpdir(), "p-"))).event("event-v9")).toThrow(/unknown event prompt version "event-v9"/);
     let seen = "";
     const spy = new FakeProvider("spy", (req) => ((seen = req.system), heuristicResponder(req)));
-    const ex = new EventExtractor(new StructuredCaller(), [spy], { quorum: 1, promptVersion: "event-v2" });
+    const ex = new EventExtractor(new StructuredCaller(), [spy], { quorum: 1, prompt: { version: "event-v2", ...EVENT_PROMPTS["event-v2"] } });
     await ex.extract({ doc: { source: "s", url: "u", title: "架空精機が上方修正", body: "通期の営業利益を50億円から60億円に上方修正する。", publishedAt: null, fetchedAt: "2026-01-01T00:00:00Z", sourceWeight: 1, alsoSeenIn: [] }, candidates: { X101: "架空精機" }, priority: new Set() });
     expect(seen.startsWith(EVENT_PROMPTS["event-v2"].system)).toBe(true);
     expect(seen).toContain("## eventType の判定基準");

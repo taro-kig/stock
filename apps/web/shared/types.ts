@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { AccountState, Fill, Judgment, NodeDescription, OrderTicket, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
+import type { AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -121,7 +121,8 @@ export type StreamEvent =
   | { type: "queued"; runId: string; workflow: string }
   | { type: "run_event"; runId: string; event: Record<string, unknown> }
   | { type: "workflow_state"; workflow: string; disabled: boolean }
-  | { type: "config_changed" };
+  | { type: "config_changed" }
+  | { type: "prompt_eval"; id: number; status: string };
 
 export interface SettingsView {
   /** False when the server was started without a settings store (tests, embedded use). */
@@ -146,4 +147,31 @@ export interface WatchlistView {
   /** Where edits are saved (config/config.yaml; created from the example on first save). */
   file: string | null;
   loadedFrom: string | null;
+}
+
+export interface PromptVersionView extends PromptInfo {
+  /** "config" (the default for every workflow) and/or workflows that pin this version in a node. */
+  usedBy: string[];
+}
+
+export interface PromptFamilyView {
+  family: PromptFamily;
+  label: string;
+  /** Key under `prompts:` in config.yaml. */
+  configKey: string;
+  active: string;
+  /** Has a golden set (event, judge); the others are compared on live results. */
+  evaluable: boolean;
+  goldenSet: string | null;
+  versions: PromptVersionView[];
+  evals: EvalJob[];
+}
+
+export interface PromptsView {
+  families: PromptFamilyView[];
+  switches: PromptSwitch[];
+  models: string[];
+  /** Switching writes config.yaml; false when the server has no config path. */
+  editable: boolean;
+  fake: boolean;
 }

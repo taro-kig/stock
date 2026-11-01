@@ -1,13 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import type { NodeDescription } from "@stockai/core";
-import type { StreamEvent } from "../../shared/types.ts";
+import type { PromptsView, StreamEvent } from "../../shared/types.ts";
 import { get, onStream, post, put, useApi } from "../api.ts";
 import { CATEGORY_HUE } from "../components/Dag.tsx";
 import { PortType } from "../components/ui.tsx";
 import { GLYPH } from "../format.ts";
 import { navigate } from "../router.ts";
 import * as M from "./model.ts";
-import { ParamsForm } from "./ParamsForm.tsx";
+import { ParamsForm, type Choices } from "./ParamsForm.tsx";
+
+/** Prompt-version params become dropdowns of the versions that exist. */
+function promptChoices(use: string, prompts: PromptsView | undefined): Choices | undefined {
+  if (!prompts) return undefined;
+  const fam = (f: string) => {
+    const v = prompts.families.find((x) => x.family === f);
+    return v ? { options: v.versions.map((x) => x.version), defaultLabel: `既定（config: ${v.active}）` } : undefined;
+  };
+  const out: Choices = {};
+  const set = (k: string, f: string) => {
+    const c = fam(f);
+    if (c) out[k] = c;
+  };
+  if (use === "llm.extractEvents" || use === "signal.eventHistory") set("promptVersion", "event");
+  if (use === "decide.ai") {
+    set("promptVersion", "judge");
+    set("redTeamVersion", "redteam");
+  }
+  if (use === "universe.review") set("promptVersion", "universe");
+  return Object.keys(out).length ? out : undefined;
+}
 
 type Sel = { kind: "node"; id: string } | { kind: "edge"; to: M.PortRef } | null;
 interface ViewBox {
@@ -37,6 +58,7 @@ function problemNode(p: string, spec: M.Spec): string | null {
 
 export function Editor({ name, toast }: { name: string | null; toast: (m: string, err?: boolean) => void }) {
   const catalogQ = useApi<NodeDescription[]>("/api/nodes");
+  const promptsQ = useApi<PromptsView>("/api/prompts");
   const catalog: M.Catalog = useMemo(() => new Map((catalogQ.data ?? []).map((d) => [d.type, d])), [catalogQ.data]);
   const isNew = name === null;
 
@@ -511,6 +533,7 @@ export function Editor({ name, toast }: { name: string | null; toast: (m: string
         <aside className="ed-inspector">
           {sel?.kind === "node" && selNode ? (
             <NodeInspector
+              prompts={promptsQ.data}
               key={sel.id}
               id={sel.id}
               node={selNode}
@@ -592,6 +615,7 @@ function NodeInspector(props: {
   onRename: (to: string) => string | null;
   onSelectNode: (id: string) => void;
   onDelete: () => void;
+  prompts?: PromptsView | undefined;
 }) {
   const { id, node, def, spec, catalog } = props;
   const [idText, setIdText] = useState(id);
@@ -660,7 +684,7 @@ function NodeInspector(props: {
       })}
 
       <h4>パラメータ</h4>
-      <ParamsForm key={id} schema={def?.paramsSchema} values={node.params} onSet={(k, v) => props.onCommit(M.setParam(spec, id, k, v))} />
+      <ParamsForm key={id} schema={def?.paramsSchema} values={node.params} onSet={(k, v) => props.onCommit(M.setParam(spec, id, k, v))} choices={promptChoices(node.use, props.prompts)} />
 
       <h4>実行時の扱い</h4>
       <label className="ed-field">

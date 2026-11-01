@@ -12,13 +12,17 @@ export const eventHistory = defineNode({
   description: "Accepted events learned in the lookback window up to now (point-in-time), merged with today's.",
   version: 1,
   cache: "daily",
-  params: z.object({ lookbackDays: z.number().positive().default(90) }),
+  params: z.object({
+    lookbackDays: z.number().positive().default(90),
+    /** Same as llm.extractEvents' promptVersion (default: config.prompts.event). */
+    promptVersion: z.string().optional(),
+  }),
   inputs: { today: { type: "Events", optional: true } },
   outputs: { events: { type: "Events" } },
   async run(ctx, p, i) {
     const since = new Date(ctx.now.getTime() - p.lookbackDays * 86_400_000);
     const byHash = new Map<string, EventRecord>();
-    for (const e of [...ctx.services.docStore.acceptedEvents(since, ctx.now, ctx.services.config.prompts.event), ...(i.today ?? [])]) {
+    for (const e of [...ctx.services.docStore.acceptedEvents(since, ctx.now, p.promptVersion ?? ctx.services.config.prompts.event), ...(i.today ?? [])]) {
       if (new Date(e.learnedAt) <= ctx.now) byHash.set(e.docHash, e);
     }
     return { events: [...byHash.values()].sort((a, b) => a.learnedAt.localeCompare(b.learnedAt)) };

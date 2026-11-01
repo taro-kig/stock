@@ -30,6 +30,8 @@ export interface LabelCard {
   meanExcessBullish: number | null;
   meanExcessBearish: number | null;
   byConviction: Array<{ bucket: string; graded: number; hitRate: number | null }>;
+  /** The same numbers per prompt version (switching prompts must not blur the record). */
+  byPrompt: Array<{ prompt: string; total: number; first: IsoDate; last: IsoDate; graded: number; nEff: number; hitRateEff: number | null; wilsonLow: number | null }>;
   promotion: { eligible: boolean; reason: string };
 }
 
@@ -152,6 +154,15 @@ export function buildScorecard(preds: readonly Prediction[], prices: Prices, asO
       byConviction: buckets.map(([bucket, f]) => {
         const gs = g.filter((x) => f(x.conviction));
         return { bucket, graded: gs.length, hitRate: rate(gs) };
+      }),
+      byPrompt: [...new Set(ps.map((p) => p.prompt ?? "—"))].map((prompt) => {
+        const sub = ps.filter((p) => (p.prompt ?? "—") === prompt);
+        const gs = grade(sub, prices, horizon, benchmark);
+        const es = nonOverlapping(gs, horizon);
+        return {
+          prompt, total: sub.length, first: sub[0]!.asOf, last: sub.at(-1)!.asOf, graded: gs.length, nEff: es.length,
+          hitRateEff: rate(es), wilsonLow: wilsonLower(es.filter((x) => x.hit).length, es.length),
+        };
       }),
       promotion: { eligible: false, reason: "" },
     };

@@ -14,6 +14,8 @@ import { FakeProvider } from "./llm/fake.ts";
 import { heuristicResponder } from "./llm/heuristic.ts";
 import type { LLMProvider } from "./llm/types.ts";
 import { PriceStore } from "./data/priceStore.ts";
+import { PromptRegistry } from "./prompts/registry.ts";
+import { PromptStore } from "./prompts/store.ts";
 import { DocStore } from "./signals/docStore.ts";
 import { Watchlist } from "./signals/prefilter.ts";
 import { openDb, type Db } from "./util/db.ts";
@@ -65,6 +67,8 @@ export class Services {
   #paper?: PaperBook;
   #predictions?: PredictionStore;
   #prices?: PriceStore;
+  #prompts?: PromptRegistry;
+  #promptStore?: PromptStore;
   #configHash?: string | undefined;
   #tier1?: LLMProvider[];
 
@@ -136,6 +140,22 @@ export class Services {
   get predictions(): PredictionStore {
     return (this.#predictions ??= new PredictionStore(this.db));
   }
+  /** Prompt versions (built-in + user). */
+  get prompts(): PromptRegistry {
+    return (this.#prompts ??= new PromptRegistry(this.config.promptsDir));
+  }
+
+  /** Prompt switches and evaluation jobs. */
+  get promptStore(): PromptStore {
+    return (this.#promptStore ??= new PromptStore(this.db));
+  }
+
+  /** Switch a prompt version while running (from the prompts screen). */
+  setPrompt(key: keyof AppConfig["prompts"], version: string): void {
+    (this.config as { prompts: AppConfig["prompts"] }).prompts = { ...this.config.prompts, [key]: version };
+    this.#configHash = undefined;
+  }
+
   /** Local copy of downloaded daily bars (data.pricesTwelveData). */
   get priceStore(): PriceStore {
     return (this.#prices ??= new PriceStore(this.db));

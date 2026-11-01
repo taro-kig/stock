@@ -4,13 +4,31 @@
  * Runs without the LLM cache (fresh answers) and with its own budget cap.
  */
 import { buildDossier, TradeJudgment, validateJudgment, type Stance } from "../ai/judge.ts";
-import { JUDGE_PROMPTS, type JudgePromptVersion } from "../ai/prompts.ts";
+import { JUDGE_PROMPTS, type DossierVariant } from "../ai/prompts.ts";
 import { BudgetExceeded, CostTracker, type Pricing } from "../harness/budget.ts";
 import { StructuredCaller } from "../harness/structured.ts";
 import type { LLMProvider } from "../llm/types.ts";
 import { EventExtractor, validateEvent } from "../signals/extractor.ts";
 import { EventExtraction, type EventRecord } from "../signals/models.ts";
-import { EVENT_PROMPTS, type EventPromptVersion } from "../signals/prompts.ts";
+import { EVENT_PROMPTS, type EventPrompt } from "../signals/prompts.ts";
+
+/** A prompt to evaluate: a built-in version name, or a resolved version (e.g. a user version from the registry). */
+export type EventPromptArg = string | (EventPrompt & { version: string });
+export type JudgePromptArg = string | { version: string; system: string; dossier: DossierVariant };
+
+function asEvent(v: EventPromptArg): EventPrompt & { version: string } {
+  if (typeof v !== "string") return v;
+  const p = EVENT_PROMPTS[v as keyof typeof EVENT_PROMPTS];
+  if (!p) throw new Error(`unknown built-in event prompt ${v}`);
+  return { version: v, ...p };
+}
+
+function asJudge(v: JudgePromptArg): { version: string; system: string; dossier: DossierVariant } {
+  if (typeof v !== "string") return v;
+  const p = JUDGE_PROMPTS[v as keyof typeof JUDGE_PROMPTS];
+  if (!p) throw new Error(`unknown built-in judge prompt ${v}`);
+  return { version: v, ...p };
+}
 import type { FactorRow } from "../strategy/factors.ts";
 import { openDb } from "../util/db.ts";
 import type { EventCase, EventGoldenSet, JudgeCase, JudgeGoldenSet } from "./golden.ts";
@@ -121,14 +139,15 @@ function giveUp(error: string | undefined, row: ModelRow, consecutive: number): 
 
 const docOf = (c: EventCase) => ({ ...c.doc, url: `golden:${c.id}`, fetchedAt: "2026-01-01T00:00:00.000Z", sourceWeight: 1, alsoSeenIn: [] });
 
-export async function evalEvents(set: EventGoldenSet, versions: EventPromptVersion[], o: EvalOptions): Promise<EvalReport> {
+export async function evalEvents(set: EventGoldenSet, prompts: EventPromptArg[], o: EvalOptions): Promise<EvalReport> {
   const report: EvalReport = {
     task: "events", set: set.name, createdAt: new Date().toISOString(),
     reviewedShare: set.cases.filter((c) => c.reviewed).length / set.cases.length, rows: [], ensemble: [], stoppedByBudget: false,
   };
   try {
-    for (const version of versions) {
-      const prompt = EVENT_PROMPTS[version];
+    for (const arg of prompts) {
+      const prompt = asEvent(arg);
+      const version = prompt.version;
       for (const model of o.models) {
         const { caller, budget } = tracker(o);
         const row: ModelRow = { version, model: model.name, n: set.cases.length, schemaOk: 0, accepted: 0, correct: 0, accuracy: 0, fields: {}, costUsd: 0, inputTokens: 0, outputTokens: 0, failures: [] };
@@ -160,7 +179,7 @@ export async function evalEvents(set: EventGoldenSet, versions: EventPromptVersi
       }
       if (o.ensemble) {
         const { caller, budget } = tracker(o);
-        const ex = new EventExtractor(caller, o.ensemble.members, { quorum: o.ensemble.quorum, escalation: o.ensemble.escalation, promptVersion: version });
+        const ex = new EventExtractor(caller, o.ensemble.members, { quorum: o.ensemble.quorum, escalation: o.ensemble.escalation, prompt });
         const row: EnsembleRow = { version, members: o.ensemble.members.map((m) => m.name).join("+"), n: set.cases.length, accepted: 0, correctAccepted: 0, precision: 0, coverage: 0, costUsd: 0, failures: [] };
         for (const c of set.cases) {
           o.onProgress?.(`${version} ensemble ${c.id}`);
@@ -184,7 +203,7 @@ export async function evalEvents(set: EventGoldenSet, versions: EventPromptVersi
   return report;
 }
 
-export function judgeCaseDossier(c: JudgeCase, version: JudgePromptVersion) {
+export function judgeCaseDossier(c: JudgeCase, prompt: JudgePromptArg) {
   const row: FactorRow = { lastDate: "2026-01-01", ...c.row };
   const events: EventRecord[] = c.events.map((e, i) => ({
     docHash: `${c.id}-${i}`, title: e.evidence, url: "", source: "golden", learnedAt: `${e.date}T06:00:00.000Z`, agreement: 1, sourceWeight: 1, nSources: 1,
@@ -193,16 +212,18 @@ export function judgeCaseDossier(c: JudgeCase, version: JudgePromptVersion) {
   const position = c.held
     ? { ticker: c.row.ticker, shares: 100, entryPrice: c.held.entryPrice, highestClose: Math.max(c.held.entryPrice, c.row.close), sector: c.row.sector, entryDate: "2025-12-01", daysHeld: c.held.daysHeld }
     : undefined;
-  return buildDossier({ row, asOf: "2026-01-01", rank: c.rank, universe: c.universe, events, position }, JUDGE_PROMPTS[version].dossier);
+  return buildDossier({ row, asOf: "2026-01-01", rank: c.rank, universe: c.universe, events, position }, asJudge(prompt).dossier);
 }
 
-export async function evalJudge(set: JudgeGoldenSet, versions: JudgePromptVersion[], o: EvalOptions): Promise<EvalReport> {
+export async function evalJudge(set: JudgeGoldenSet, prompts: JudgePromptArg[], o: EvalOptions): Promise<EvalReport> {
   const report: EvalReport = {
     task: "judge", set: set.name, createdAt: new Date().toISOString(),
     reviewedShare: set.cases.filter((c) => c.reviewed).length / set.cases.length, rows: [], ensemble: [], stoppedByBudget: false,
   };
   try {
-    for (const version of versions) {
+    for (const arg of prompts) {
+      const prompt = asJudge(arg);
+      const version = prompt.version;
       for (const model of o.models) {
         const { caller, budget } = tracker(o);
         const row: ModelRow = { version, model: model.name, n: set.cases.length, schemaOk: 0, accepted: 0, correct: 0, accuracy: 0, fields: {}, costUsd: 0, inputTokens: 0, outputTokens: 0, failures: [] };
@@ -211,8 +232,8 @@ export async function evalJudge(set: JudgeGoldenSet, versions: JudgePromptVersio
         let unreachable = 0;
         for (const c of set.cases) {
           o.onProgress?.(`${version} ${model.name} ${c.id}`);
-          const dossier = judgeCaseDossier(c, version);
-          const r = await caller.call(model, TradeJudgment, { schemaName: "TradeJudgment", system: JUDGE_PROMPTS[version].system, user: dossier.text, promptVersion: version });
+          const dossier = judgeCaseDossier(c, prompt);
+          const r = await caller.call(model, TradeJudgment, { schemaName: "TradeJudgment", system: prompt.system, user: dossier.text, promptVersion: version });
           if (!r.value) {
             row.failures.push({ id: c.id, reason: r.error ?? "no output" });
             if (giveUp(r.error, row, ++unreachable)) break;

@@ -21,17 +21,14 @@ export function editableConfigPath(loadedFrom: string): string {
   return basename(loadedFrom).includes(".example.") ? join(dirname(loadedFrom), "config.yaml") : loadedFrom;
 }
 
+type YamlDoc = ReturnType<typeof parseDocument>;
+
 /**
- * Replaces `watchlist` (and optionally `market.benchmark`) in a config file, keeping every
- * other line and comment. The result is validated before anything is written; the previous
- * file is kept as .bak and the new one is written atomically.
+ * Edits the config file in place, keeping every other line and comment: the result is
+ * validated before anything is written, the previous file is kept as .bak and the new
+ * one is written atomically. An *.example.yaml is never touched (config.yaml is created).
  */
-export function saveWatchlist(
-  loadedFrom: string,
-  watchlist: z.input<typeof WatchlistInput>,
-  benchmark?: string,
-): { file: string; created: boolean; config: AppConfig } {
-  const wl = WatchlistInput.parse(watchlist);
+export function editConfig(loadedFrom: string, mutate: (doc: YamlDoc) => void): { file: string; created: boolean; config: AppConfig } {
   const target = editableConfigPath(loadedFrom);
   const created = target !== loadedFrom && !existsSync(target);
   if (target !== loadedFrom && !created) {
@@ -39,23 +36,7 @@ export function saveWatchlist(
   }
   const doc = parseDocument(readFileSync(created ? loadedFrom : target, "utf8"));
   if (doc.errors.length) throw new Error(`cannot parse ${target}: ${doc.errors[0]!.message}`);
-
-  const map = new YAMLMap();
-  for (const [ticker, e] of Object.entries(wl).sort(([a], [b]) => a.localeCompare(b))) {
-    const entry = doc.createNode({ name: e.name, ...(e.aliases.length ? { aliases: e.aliases } : {}), sector: e.sector });
-    entry.flow = true;
-    map.set(doc.createNode(ticker), entry);
-  }
-  const old = doc.get("watchlist", true);
-  if (isMap(old) && old.commentBefore) map.commentBefore = old.commentBefore;
-  doc.set("watchlist", map);
-  if (benchmark !== undefined) {
-    const b = benchmark.trim();
-    if (b && !/^[A-Z0-9][A-Z0-9.-]{0,9}$/.test(b)) throw new Error("benchmark: A-Z, 0-9, '.', '-'");
-    if (b) doc.setIn(["market", "benchmark"], b);
-    else doc.deleteIn(["market", "benchmark"]);
-  }
-
+  mutate(doc);
   const parsed = AppConfig.safeParse(doc.toJS());
   if (!parsed.success) throw new Error(`invalid config after edit: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const text = doc.toString({ lineWidth: 0 });
@@ -64,4 +45,35 @@ export function saveWatchlist(
   writeFileSync(tmp, text, "utf8");
   renameSync(tmp, target);
   return { file: target, created, config: parsed.data };
+}
+
+/** Replaces `watchlist` (and optionally `market.benchmark`). */
+export function saveWatchlist(
+  loadedFrom: string,
+  watchlist: z.input<typeof WatchlistInput>,
+  benchmark?: string,
+): { file: string; created: boolean; config: AppConfig } {
+  const wl = WatchlistInput.parse(watchlist);
+  if (benchmark !== undefined && benchmark.trim() && !/^[A-Z0-9][A-Z0-9.-]{0,9}$/.test(benchmark.trim())) throw new Error("benchmark: A-Z, 0-9, '.', '-'");
+  return editConfig(loadedFrom, (doc) => {
+    const map = new YAMLMap();
+    for (const [ticker, e] of Object.entries(wl).sort(([a], [b]) => a.localeCompare(b))) {
+      const entry = doc.createNode({ name: e.name, ...(e.aliases.length ? { aliases: e.aliases } : {}), sector: e.sector });
+      entry.flow = true;
+      map.set(doc.createNode(ticker), entry);
+    }
+    const old = doc.get("watchlist", true);
+    if (isMap(old) && old.commentBefore) map.commentBefore = old.commentBefore;
+    doc.set("watchlist", map);
+    if (benchmark !== undefined) {
+      const b = benchmark.trim();
+      if (b) doc.setIn(["market", "benchmark"], b);
+      else doc.deleteIn(["market", "benchmark"]);
+    }
+  });
+}
+
+/** Sets one value, e.g. ["prompts", "judge"] = "judge-v2". */
+export function saveConfigValue(loadedFrom: string, path: string[], value: string | number | boolean) {
+  return editConfig(loadedFrom, (doc) => doc.setIn(path, value));
 }

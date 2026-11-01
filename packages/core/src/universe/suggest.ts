@@ -39,8 +39,10 @@ const Suggestion = z.object({
 });
 
 export const SUGGEST_PROMPT_VERSION = "universe-v1";
+/** Built-in prompts for ticker suggestions (user versions live in prompts/universe/). */
+export const UNIVERSE_PROMPTS: Record<string, { system: string }> = {};
 
-const SYSTEM = `あなたは米国株に詳しいアナリストの補助として、テーマに合う銘柄の候補を挙げる。売買の推奨ではなく、観察対象（ウォッチリスト）の候補選び。
+export const UNIVERSE_V1_SYSTEM = `あなたは米国株に詳しいアナリストの補助として、テーマに合う銘柄の候補を挙げる。売買の推奨ではなく、観察対象（ウォッチリスト）の候補選び。
 規則:
 - NYSE または Nasdaq に上場している、米国の事業会社の普通株だけ（ETF・投資信託・ADR・SPAC・OTC 銘柄は除く）。
 - ティッカーは正確に。自信がない会社は挙げない。合併・上場廃止・社名変更があった会社は最新の状態で。
@@ -49,6 +51,7 @@ const SYSTEM = `あなたは米国株に詳しいアナリストの補助とし�
 - 「除外」に挙がっているティッカーは出さない。
 - name はニュースの見出しで使われる通称（"Inc." などは付けない）。reason は日本語で、テーマとの関係を具体的に1文。
 - 規模の希望: large = 時価総額 $10B 以上 / mid = $2B〜$10B / small = $300M〜$2B / any = 指定なし。`;
+UNIVERSE_PROMPTS["universe-v1"] = { system: UNIVERSE_V1_SYSTEM };
 
 export interface Listing {
   ticker: string;
@@ -150,7 +153,7 @@ function provider(s: Services): LLMProvider {
   return p;
 }
 
-export async function suggestTickers(s: Services, req: SuggestRequest, now: Date = new Date()): Promise<SuggestResult> {
+export async function suggestTickers(s: Services, req: SuggestRequest, now: Date = new Date(), promptVersion?: string): Promise<SuggestResult> {
   if (s.config.market.currency !== "USD") throw new Error("銘柄探しは米国株の設定（market.currency: USD）でのみ使えます");
   const r = SuggestRequest.parse(req);
   const exclude = new Set([...s.watchlist.tickers, ...(s.config.market.benchmark ? [s.config.market.benchmark] : [])].map(normTicker));
@@ -160,7 +163,8 @@ export async function suggestTickers(s: Services, req: SuggestRequest, now: Date
   const user =
     `# 銘柄探し\nテーマ: ${r.theme}\n規模の希望: ${r.size}\n候補数: ${want}\n` +
     `除外: ${[...exclude].sort().join(", ") || "なし"}\n参考: 今のウォッチリストのセクター構成 ${JSON.stringify(sectorCounts(s))}`;
-  const out = await s.caller.call(p, Suggestion, { schemaName: "UniverseSuggestion", system: SYSTEM, user, promptVersion: SUGGEST_PROMPT_VERSION });
+  const prompt = s.prompts.universe(promptVersion ?? s.config.prompts.universe ?? SUGGEST_PROMPT_VERSION);
+  const out = await s.caller.call(p, Suggestion, { schemaName: "UniverseSuggestion", system: prompt.system, user, promptVersion: prompt.version });
   if (!out.value) throw new Error(`model gave no usable answer: ${out.error ?? "unknown"}`);
 
   let listings: Map<string, Listing> | null = null;

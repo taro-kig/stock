@@ -481,3 +481,16 @@ select.input { padding-right: 0.5ch; }
 .chip.on { border-color: var(--accent); color: var(--accent); }
 .suggest-result { border-left: 2px solid var(--accent); padding-left: 1.5ch; }
 .suggest-result td { vertical-align: top; }
+
+/* ── prompts ────────────────────────────────────────────────── */
+.prompt-text { margin: 0; padding: calc(var(--lh) * 0.5) 1.5ch; background: var(--bg-1); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; color: var(--fg-2); font: inherit; line-height: var(--lh); }
+.prompt-text.diff .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.prompt-text.diff .del { color: var(--fail); background: color-mix(in srgb, var(--fail) 8%, transparent); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--fail) 50%, transparent); }
+.prompt-text.diff .same { color: var(--faint); }
+.prompt-edit { width: 100%; min-height: 50vh; height: auto; padding: calc(var(--lh) * 0.5) 1.5ch; line-height: var(--lh); resize: vertical; font: inherit; white-space: pre-wrap; }
+.eval-form { display: grid; gap: 4px; margin-bottom: calc(var(--lh) * 0.5); }
+.eval-form .label { display: inline-block; width: 8ch; }
+.check { display: inline-flex; align-items: center; gap: 0.5ch; margin-right: 2ch; color: var(--fg-2); cursor: pointer; }
+.eval-fail summary { cursor: pointer; color: var(--fg-2); }
+.eval-fail > div { padding-left: 2ch; }
+.prompt-text.diff .gap { color: var(--faint); text-align: center; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); margin: 2px 0; }

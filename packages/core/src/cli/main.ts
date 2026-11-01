@@ -7,10 +7,8 @@ import type { OrderTicket } from "../execution/broker.ts";
 import { WebullClient } from "../execution/webull.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { JUDGE_PROMPT_VERSIONS, type JudgePromptVersion } from "../ai/prompts.ts";
-import { loadEventSet, loadJudgeSet } from "../eval/golden.ts";
-import { evalEvents, evalJudge, type EvalReport } from "../eval/promptEval.ts";
-import { EVENT_PROMPT_VERSIONS, type EventPromptVersion } from "../signals/prompts.ts";
+import type { EvalReport } from "../eval/promptEval.ts";
+import { runPromptEval } from "../prompts/evaluate.ts";
 import type { AccountState, Fill } from "../execution/paper.ts";
 import { builtinRegistry } from "../nodes/index.ts";
 import { Services } from "../services.ts";
@@ -293,30 +291,16 @@ function printEval(r: EvalReport): void {
 async function cmdEval(task: string): Promise<void> {
   if (task !== "events" && task !== "judge") throw new Error("usage: stockai eval events|judge");
   const s = services();
-  const pick = <T extends string>(all: readonly T[], csv: string | undefined, fallback: T[]): T[] => {
-    if (!csv) return fallback;
-    const want = csv.split(",").map((x) => x.trim()).filter(Boolean);
-    const bad = want.filter((w) => !all.includes(w as T));
-    if (bad.length) throw new Error(`unknown version(s) ${bad.join(", ")} (have: ${all.join(", ")})`);
-    return want as T[];
-  };
-  const names = opt.models?.split(",").map((x) => x.trim()).filter(Boolean);
-  const models = s.allModels(names);
-  if (!models.length) throw new Error(`no models to evaluate (configured: ${s.modelNames().join(", ")})`);
-  if (opt.ensemble && models.length < 2 && !s.fake) throw new Error("--ensemble needs the production pair (tier1) with keys for both; run without --ensemble to score one model");
-  // US config (USD) → English golden set and US prompt versions by default.
-  const us = s.config.market.currency === "USD";
-  const common = {
-    models, pricing: s.fake ? Object.fromEntries(models.map((m) => [m.model, [0, 0] as const])) : s.config.pricing,
-    budgetUsd: Number(opt.budget), maxRetries: s.config.harness.maxRetries,
-    onProgress: (m: string) => process.stderr.isTTY && process.stderr.write(`\r\x1b[2K${c.dim(m)}`),
-  };
-  const report = task === "events"
-    ? await evalEvents(loadEventSet(opt.set ?? (us ? "examples/golden/events-us.yaml" : "examples/golden/events.yaml")), pick<EventPromptVersion>(EVENT_PROMPT_VERSIONS, opt.versions, EVENT_PROMPT_VERSIONS.filter((v) => v.startsWith("event-us") === us)), {
-        ...common,
-        ensemble: opt.ensemble ? { members: s.tier1(), quorum: s.config.harness.quorum, escalation: s.tier2() } : undefined,
-      })
-    : await evalJudge(loadJudgeSet(opt.set ?? "examples/golden/judge.yaml"), pick<JudgePromptVersion>(JUDGE_PROMPT_VERSIONS, opt.versions, [...JUDGE_PROMPT_VERSIONS]), common);
+  const list = (csv: string | undefined) => csv?.split(",").map((x) => x.trim()).filter(Boolean);
+  const report = await runPromptEval(s, {
+    family: task === "events" ? "event" : "judge",
+    ...(list(opt.versions) ? { versions: list(opt.versions)! } : {}),
+    ...(list(opt.models) ? { models: list(opt.models)! } : {}),
+    ensemble: opt.ensemble,
+    budgetUsd: Number(opt.budget),
+    ...(opt.set ? { set: opt.set } : {}),
+    onProgress: (m: string) => void (process.stderr.isTTY && process.stderr.write(`\r\x1b[2K${c.dim(m)}`)),
+  });
   if (process.stderr.isTTY) process.stderr.write("\r\x1b[2K");
   const dir = join(s.config.dataDir, "evals");
   mkdirSync(dir, { recursive: true });
