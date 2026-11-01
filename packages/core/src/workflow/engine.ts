@@ -48,6 +48,8 @@ export class Engine {
   }
 
   async run(spec: WorkflowSpec, opts: { asOf?: IsoDate; runId?: string } = {}): Promise<RunResult> {
+    const off = this.#o.store.disabled(spec.name);
+    if (off) throw new WorkflowDisabled(spec.name, off.since);
     this.validate(spec);
     const asOf = opts.asOf ?? toIsoDate(this.#clock());
     const runId = opts.runId ?? `${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)}-${spec.name}-${randomUUID().slice(0, 6)}`;
@@ -221,4 +223,13 @@ export class Engine {
 
 function summaries(out: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, summarize(v)]));
+}
+
+export class WorkflowDisabled extends Error {
+  override name = "WorkflowDisabled";
+  readonly workflow: string;
+  constructor(workflow: string, since: string) {
+    super(`workflow ${workflow} is disabled (since ${since}); enable it to run`);
+    this.workflow = workflow;
+  }
 }

@@ -460,3 +460,9 @@ select.input { padding-right: 0.5ch; }
 .setting-input { flex: 1; min-width: 32ch; }
 .setting a { color: var(--info); text-decoration: none; }
 .setting a:hover { text-decoration: underline; }
+
+/* ── workflow upload / disabled ─────────────────────────────── */
+.badge.off { color: var(--dim); margin-left: 1ch; }
+.disabled-row { opacity: 0.6; }
+.split-list.dropping { outline: 1px dashed var(--accent); outline-offset: -4px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.drop-hint { margin: 0 2ch calc(var(--lh) * 0.5); padding: calc(var(--lh) * 0.5) 1ch; border: 1px dashed var(--accent); color: var(--accent); text-align: center; }

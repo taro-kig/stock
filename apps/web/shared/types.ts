@@ -75,6 +75,8 @@ export interface WorkflowInfo {
   problems: string[];
   nodeCount: number;
   lastRun: RunSummary | null;
+  /** Set when the workflow is switched off (no scheduled, manual or CLI runs). */
+  disabled: { since: string; note: string } | null;
 }
 
 export interface ScheduleItem {
@@ -84,6 +86,7 @@ export interface ScheduleItem {
   days: number[];
   nextAt: string | null;
   ranToday: RunSummary | null;
+  disabled: boolean;
 }
 
 export interface EquitySeries {
@@ -112,11 +115,20 @@ export type NodeCatalog = NodeDescription[];
 export type StreamEvent =
   | { type: "hello"; now: string }
   | { type: "queued"; runId: string; workflow: string }
-  | { type: "run_event"; runId: string; event: Record<string, unknown> };
+  | { type: "run_event"; runId: string; event: Record<string, unknown> }
+  | { type: "workflow_state"; workflow: string; disabled: boolean };
 
 export interface SettingsView {
   /** False when the server was started without a settings store (tests, embedded use). */
   available: boolean;
   path: string | null;
   items: SettingStatus[];
+}
+
+export interface ImportResult {
+  name: string;
+  file: string;
+  created: boolean;
+  /** Validation problems: the file is saved as a draft but cannot run until fixed. */
+  problems: string[];
 }

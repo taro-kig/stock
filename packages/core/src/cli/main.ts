@@ -32,6 +32,8 @@ Usage:
   stockai run <workflow.yaml> [--as-of DATE]     run once (default: today)
   stockai run <workflow.yaml> --from D --to D [--step N]   replay past weekdays
   stockai resume <runId>                         continue a paused/failed run
+  stockai disable <workflow> [--note TEXT]       stop a workflow from running (schedule, UI, CLI); name or .yaml path
+  stockai enable <workflow>                      allow it again
   stockai approve <runId> <node> [--reject] [--note TEXT]
   stockai runs [--limit N] [--workflow NAME]     recent runs
   stockai show <runId> [--json]                  node table + key outputs
@@ -414,6 +416,15 @@ async function main(): Promise<void> {
         return;
       }
       throw new Error("usage: stockai webull auth|check");
+    }
+    case "disable":
+    case "enable": {
+      const ref = args[0];
+      if (!ref) throw new Error(`usage: stockai ${cmd} <workflow name or .yaml>`);
+      const name = existsSync(ref) ? loadWorkflow(ref).name : ref;
+      const s = services();
+      s.runStore.setDisabled(name, cmd === "disable", opt.note);
+      return void console.log(cmd === "disable" ? `${c.yellow("⏸")} ${name} を無効にしました（スケジュール・画面・CLI から実行されません）` : `${c.green("▶")} ${name} を有効にしました`);
     }
     case "settings": {
       const s = services();

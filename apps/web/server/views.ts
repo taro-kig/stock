@@ -44,6 +44,7 @@ export function workflowInfo(w: WorkflowFile, s: Services, registry: NodeRegistr
     problems: w.spec ? validateWorkflow(w.spec, registry) : [w.error ?? "unreadable"],
     nodeCount: w.spec ? Object.keys(w.spec.nodes).length : 0,
     lastRun: last ? summary(last) : null,
+    disabled: s.runStore.disabled(w.name),
   };
 }
 

@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { Engine, settingDefs, stringifyWorkflow, toGraph, validateWorkflow, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
+import { Engine, parseWorkflow, settingDefs, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
 import { discoverWorkflows, equitySeries, latestScorecard, ranToday, runDetail, summary, workflowInfo, type WorkflowFile } from "./views.ts";
@@ -100,6 +100,8 @@ export function createApp(o: AppOptions): App {
     const w = workflows().find((x) => resolve(x.file) === resolve(file));
     if (!w?.spec) throw new HttpError(404, `workflow file not found or invalid: ${file}`);
     const spec = w.spec;
+    const off = s.runStore.disabled(spec.name);
+    if (off) throw new HttpError(409, `${spec.name} は無効になっています（${off.since.slice(0, 10)} から）。有効にしてから実行してください`);
     const runId = newRunId(spec.name);
     broadcast({ type: "queued", runId, workflow: spec.name });
     void queue.enqueue(`${spec.name} ${asOf ?? "today"}`, () => engine.run(spec, { runId, ...(asOf ? { asOf } : {}) })).catch(() => undefined);
@@ -110,7 +112,18 @@ export function createApp(o: AppOptions): App {
     const wf = workflows().find((w) => resolve(w.file) === resolve(e.workflow));
     return { ...e, file: e.workflow, workflow: wf?.name ?? e.workflow };
   });
-  const scheduler = new Scheduler(scheduleEntries, { trigger: (f) => startRun(f), ranToday: (w) => ranToday(s, w, clock), clock });
+  const scheduler = new Scheduler(scheduleEntries, {
+    trigger: (f) => {
+      try {
+        startRun(f);
+      } catch (e) {
+        console.error(`schedule: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    ranToday: (w) => ranToday(s, w, clock),
+    isDisabled: (w) => s.runStore.disabled(w) !== null,
+    clock,
+  });
 
   /** A gate only checks its timeout when it runs, so waiting runs are resumed now and then. */
   const resuming = new Set<string>();
@@ -203,6 +216,34 @@ export function createApp(o: AppOptions): App {
       writeFileSync(file, stringifyWorkflow(spec), "utf8");
       // invalid graphs may be saved as drafts; runs refuse them until fixed
       return send(res, 200, { file, problems: validateWorkflow(spec, registry) });
+    }
+    if (req.method === "POST" && path === "/api/workflows/import") {
+      const body = await readJson(req);
+      const text = body["yaml"];
+      if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "yaml must be a non-empty string");
+      let spec: WorkflowSpec;
+      try {
+        spec = parseWorkflow(text);
+      } catch (e) {
+        if (e instanceof WorkflowError) throw new HttpError(422, `YAML を読めません: ${e.problems.join("; ")}`);
+        throw new HttpError(422, `YAML を読めません: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const existing = workflows().find((w) => w.name === spec.name);
+      const file = existing?.file ?? join(o.workflowsDir, `${spec.name}.yaml`);
+      if (!resolve(file).startsWith(resolve(o.workflowsDir))) throw new HttpError(400, "refusing to write outside the workflows directory");
+      if ((existing || existsSync(file)) && body["overwrite"] !== true) throw new HttpError(409, `ワークフロー ${spec.name} は既にあります（上書きするには overwrite: true）`);
+      if (existsSync(file)) copyFileSync(file, `${file}.bak`);
+      // Keep the uploaded text as is (comments survive), with a trailing newline.
+      writeFileSync(file, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+      return send(res, existing ? 200 : 201, { name: spec.name, file, created: !existing, problems: validateWorkflow(spec, registry) } satisfies ImportResult);
+    }
+    if (req.method === "POST" && (g = m(/^\/api\/workflows\/([\w-]+)\/(disable|enable)$/))) {
+      const name = g[1]!;
+      if (!workflows().some((w) => w.name === name)) throw new HttpError(404, `unknown workflow ${name}`);
+      const body = await readJson(req);
+      s.runStore.setDisabled(name, g[2] === "disable", typeof body["note"] === "string" ? body["note"].slice(0, 200) : "", clock());
+      broadcast({ type: "workflow_state", workflow: name, disabled: g[2] === "disable" });
+      return send(res, 200, { name, disabled: s.runStore.disabled(name) });
     }
     if (req.method === "POST" && (g = m(/^\/api\/workflows\/([\w-]+)\/run$/))) {
       const body = await readJson(req);

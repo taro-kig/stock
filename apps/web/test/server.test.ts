@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { request } from "node:http";
 import { builtinRegistry, loadConfig, Services, SettingsStore } from "@stockai/core";
-import type { Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
+import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent, WorkflowInfo } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -246,5 +246,60 @@ describe("scheduler", () => {
     expect(await status("evil.example:4317")).toBe(403);
     expect(await status(`localhost:${new URL(base).port}`)).toBe(200);
     expect(await status(`127.0.0.1:${new URL(base).port}`)).toBe(200);
+  });
+
+  it("imports a workflow from YAML: keeps comments, refuses silent overwrites, reports problems", async () => {
+    const { api, post } = await start();
+    const yaml = readFileSync(join(ROOT, "workflows/demo-rules.yaml"), "utf8")
+      .replace("name: demo-rules", "name: uploaded")
+      .replace("examples/fixtures/news.json", join(ROOT, "examples/fixtures/news.json"));
+    const created = await post<ImportResult>("/api/workflows/import", { yaml: `# my comment\n${yaml}` });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ name: "uploaded", created: true, problems: [] });
+    expect(readFileSync(created.body.file, "utf8")).toContain("# my comment");
+    expect((await api<WorkflowInfo[]>("/api/workflows")).body.map((w) => w.name)).toContain("uploaded");
+
+    const again = await post<{ error: string }>("/api/workflows/import", { yaml });
+    expect(again.status).toBe(409);
+    const over = await post<ImportResult>("/api/workflows/import", { yaml, overwrite: true });
+    expect(over.status).toBe(200);
+    expect(over.body.created).toBe(false);
+    expect(readFileSync(`${over.body.file}.bak`, "utf8")).toContain("# my comment");
+
+    expect((await post("/api/workflows/import", { yaml: "name: Bad Name\nnodes: {}\n" })).status).toBe(422);
+    expect((await post("/api/workflows/import", { yaml: "nodes: [" })).status).toBe(422);
+    const draft = await post<ImportResult>("/api/workflows/import", { yaml: "name: draft\nnodes:\n  x: { use: no.such.node }\n" });
+    expect(draft.status).toBe(201);
+    expect(draft.body.problems.join()).toMatch(/unknown node type/);
+    expect((await post("/api/workflows/import", { yaml: "name: ../escape\nnodes: {}\n" })).status).toBe(422);
+  });
+
+  it("disabled workflows refuse to run and are skipped by the schedule until enabled", async () => {
+    const { app, api, post } = await start();
+    expect((await post("/api/workflows/demo-rules/disable", { note: "paused" })).status).toBe(200);
+    const info = (await api<WorkflowInfo[]>("/api/workflows")).body.find((w) => w.name === "demo-rules")!;
+    expect(info.disabled).toMatchObject({ note: "paused" });
+    const refused = await post<{ error: string }>("/api/workflows/demo-rules/run", { asOf: "2026-07-21" });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatch(/無効/);
+    expect((await post("/api/workflows/nope/disable", {})).status).toBe(404);
+    expect((await post("/api/workflows/demo-rules/enable", {})).status).toBe(200);
+    const ok = await post<{ runId: string }>("/api/workflows/demo-rules/run", { asOf: "2026-07-21" });
+    expect(ok.status).toBe(202);
+    await app.queue.idle();
+  });
+
+  it("the scheduler skips disabled workflows", () => {
+    const fired: string[] = [];
+    let off = true;
+    const sch = new Scheduler([{ workflow: "w", file: "w.yaml", at: "06:40", days: [0, 1, 2, 3, 4, 5, 6] }], {
+      trigger: (f) => void fired.push(f), ranToday: () => null, isDisabled: () => off,
+      clock: () => new Date(2026, 10, 3, 7, 0),
+    });
+    expect(sch.tick()).toEqual([]);
+    expect(sch.status()[0]).toMatchObject({ disabled: true, nextAt: null });
+    off = false;
+    expect(sch.tick()).toEqual([]); // that day's slot was already consumed while disabled
+    expect(fired).toEqual([]);
   });
 });

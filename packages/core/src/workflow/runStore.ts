@@ -69,7 +69,19 @@ export class RunStore {
       CREATE TABLE IF NOT EXISTS wf_node_cache (key TEXT PRIMARY KEY, outputs_json TEXT, created_at TEXT);
       CREATE TABLE IF NOT EXISTS wf_events (run_id TEXT, seq INT, ts TEXT, json TEXT, PRIMARY KEY (run_id, seq));
       CREATE TABLE IF NOT EXISTS wf_approvals (
-        run_id TEXT, node_id TEXT, decision TEXT, note TEXT, decided_at TEXT, PRIMARY KEY (run_id, node_id));`);
+        run_id TEXT, node_id TEXT, decision TEXT, note TEXT, decided_at TEXT, PRIMARY KEY (run_id, node_id));
+      CREATE TABLE IF NOT EXISTS wf_disabled (workflow TEXT PRIMARY KEY, disabled_at TEXT, note TEXT);`);
+  }
+
+  /** Disabled workflows are not started (schedule, UI, CLI). Runs already waiting can still be decided. */
+  disabled(workflow: string): { since: string; note: string } | null {
+    const r = this.#db.prepare("SELECT disabled_at, note FROM wf_disabled WHERE workflow = ?").get(workflow) as { disabled_at: string; note: string } | undefined;
+    return r ? { since: r.disabled_at, note: r.note } : null;
+  }
+
+  setDisabled(workflow: string, disabled: boolean, note = "", at: Date = new Date()): void {
+    if (disabled) this.#db.prepare("INSERT OR REPLACE INTO wf_disabled VALUES (?,?,?)").run(workflow, at.toISOString(), note);
+    else this.#db.prepare("DELETE FROM wf_disabled WHERE workflow = ?").run(workflow);
   }
 
   createRun(runId: string, workflow: string, asOf: string, specJson: string, createdAt: Date = new Date()): void {

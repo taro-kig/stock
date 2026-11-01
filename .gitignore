@@ -1,17 +1,29 @@
+# ── dependencies / build output ─────────────────────────────
 node_modules/
+dist/
+apps/web/dist/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# ── local data: runs, prices, paper accounts, API keys (settings.sqlite) ──
 data/
 *.sqlite
 *.sqlite-*
-config/config.yaml
+*.db
+*.db-*
+
+# ── personal config (the *.example.yaml files stay tracked) ──
+config/*.yaml
+config/*.yml
+!config/*.example.yaml
+
+# ── secrets and credentials ─────────────────────────────────
 .env
 .env.*
 !.env.example
-dist/
-coverage/
 deploy/ibkr/.env
 deploy/ibkr/secrets/
-apps/web/dist/
-# secrets and credentials
 secrets/
 *.pem
 *.key
@@ -20,5 +32,18 @@ secrets/
 *-token.json
 *.token
 credentials*.json
-# server logs may echo request details
+
+# ── backups written by the node editor / YAML upload ────────
+*.bak
+
+# ── logs (servers may echo request details) ─────────────────
 *.log
+npm-debug.log*
+
+# ── OS / editor clutter ─────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/

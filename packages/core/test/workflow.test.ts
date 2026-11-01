@@ -118,6 +118,14 @@ nodes:
 });
 
 describe("workflow engine", () => {
+  it("refuses to start a disabled workflow, and runs again once enabled", async () => {
+    services.runStore.setDisabled("sum", true, "maintenance");
+    await expect(engine.run(wf(SUM))).rejects.toThrow(/disabled/);
+    expect(services.runStore.listRuns(10, "sum")).toHaveLength(0);
+    services.runStore.setDisabled("sum", false);
+    expect((await engine.run(wf(SUM))).status).toBe("succeeded");
+  });
+
   it("runs nodes in dependency order", async () => {
     const r = await engine.run(wf(SUM), { asOf: "2026-10-30" });
     expect(r.status).toBe("succeeded");

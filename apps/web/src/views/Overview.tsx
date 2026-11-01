@@ -48,12 +48,12 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
               {data.workflows.map((w) => {
                 const sched = data.schedule.find((s) => s.workflow === w.name);
                 return (
-                  <tr key={w.name} className="clickable" onClick={() => (w.lastRun ? navigate("runs", w.lastRun.runId) : navigate("workflows", w.name))}>
-                    <td className="nowrap">{w.lastRun ? <Status s={w.lastRun.status} label={false} /> : <span className="st-g faint">·</span>}{w.name}{w.problems.length > 0 && <span className="fail"> ✕</span>}</td>
+                  <tr key={w.name} className={`clickable ${w.disabled ? "disabled-row" : ""}`} onClick={() => (w.lastRun ? navigate("runs", w.lastRun.runId) : navigate("workflows", w.name))}>
+                    <td className="nowrap">{w.lastRun ? <Status s={w.lastRun.status} label={false} /> : <span className="st-g faint">·</span>}{w.name}{w.problems.length > 0 && <span className="fail"> ✕</span>}{w.disabled && <span className="badge off">無効</span>}</td>
                     <td className="dim">{w.lastRun ? ago(w.lastRun.createdAt, now) : "—"}</td>
                     <td>{w.lastRun?.asOf ?? "—"}</td>
                     <td className="num dim">{w.lastRun ? runDuration(w.lastRun) : "—"}</td>
-                    <td className="dim nowrap">{sched ? `${sched.at} · ${until(sched.nextAt, now)}` : "手動"}</td>
+                    <td className="dim nowrap">{w.disabled ? <span className="faint">停止中</span> : sched ? `${sched.at} · ${until(sched.nextAt, now)}` : "手動"}</td>
                   </tr>
                 );
               })}

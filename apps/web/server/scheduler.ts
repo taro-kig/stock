@@ -12,6 +12,8 @@ export interface SchedulerDeps {
   trigger: (file: string) => void;
   /** A run of this workflow for today's date, if any. */
   ranToday: (workflow: string) => ScheduleItem["ranToday"];
+  /** Disabled workflows are skipped (not queued, no error). */
+  isDisabled?: (workflow: string) => boolean;
   clock?: () => Date;
 }
 
@@ -56,6 +58,7 @@ export class Scheduler {
       const key = `${dateKey}|${e.file}|${e.at}`;
       if (!e.days.includes(day) || mins < minutes(e.at) || this.#fired.has(key)) continue;
       this.#fired.add(key);
+      if (this.#deps.isDisabled?.(e.workflow)) continue;
       if (this.#deps.ranToday(e.workflow)) continue; // already run (e.g. manually) today
       this.#deps.trigger(e.file);
       fired.push(e.file);
@@ -65,7 +68,10 @@ export class Scheduler {
 
   status(): ScheduleItem[] {
     const now = this.#now();
-    return this.#entries.map((e) => ({ ...e, nextAt: nextAt(e, now), ranToday: this.#deps.ranToday(e.workflow) }));
+    return this.#entries.map((e) => {
+      const disabled = this.#deps.isDisabled?.(e.workflow) ?? false;
+      return { ...e, nextAt: disabled ? null : nextAt(e, now), ranToday: this.#deps.ranToday(e.workflow), disabled };
+    });
   }
 }
 
