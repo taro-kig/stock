@@ -1,6 +1,6 @@
 # ウィブル証券 (Webull Japan) 接続ガイド
 
-IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブローカー** として追加した（`portfolio.webullAccount` / `broker.webull`、`workflows/webull-jp.yaml`）。
+IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブローカー** として追加した（`portfolio.webullAccount` / `broker.webull`、`workflows/webull-us.yaml`（米国株）/ `workflows/webull-jp.yaml`（日本株））。
 
 ## できること・できないこと
 
@@ -27,12 +27,8 @@ IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブロ�
 
 1. ウィブル証券で口座を開設する
 2. 開発者サイトで **API の利用申請**（個人）→ 審査後にアプリを作成し **App Key / App Secret** を発行（発行時に SMS 認証と取引パスワード）。**API キーの初期有効期間は 45 日**なので、期限前の更新を忘れないこと
-3. キーをリポジトリ直下の `.env`（git 管理外・`chmod 600`）に書く。書き方は README の「API キーの設定」
-
-   ```bash
-   WEBULL_APP_KEY=...
-   WEBULL_APP_SECRET=...
-   ```
+3. キーを Web UI の「7 設定」画面で `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` に入れる（CLI なら `npm run stockai -- settings set WEBULL_APP_KEY`）。
+   証券口座のキーなので、**自宅のマシンだけ**に置き、クラウド環境には入れない
 
 4. `config/config.yaml` の `webull:`（例は `config/config.example.yaml`）
 
@@ -41,8 +37,8 @@ IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブロ�
      trading: dry_run          # まずはプレビューのみ
      accountId: "..."          # stockai webull check で表示される ID
      accountTaxType: SPECIFIC  # 特定口座 = SPECIFIC / 一般口座 = GENERAL
-     market: jp
-     maxOrderValue: 2000000
+     market: us              # 米国株（日本株は jp）
+     maxOrderValue: 20000
    ```
 
 5. アクセスの承認（2FA が有効な場合）
@@ -54,10 +50,10 @@ IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブロ�
 
    承認済みトークンは `data/webull-token.json`（権限 600、git 管理外）に保存される。期限切れになると実行は `WebullAuthRequired` で止まる（＝注文は出ない）ので、もう一度 `webull auth` を実行する。
 
-6. 実行（`webull-jp.yaml` は承認ゲートが manual）
+6. 実行（`webull-us.yaml` / `webull-jp.yaml` は承認ゲートが manual）
 
    ```bash
-   npm run stockai -- run workflows/webull-jp.yaml
+   npm run stockai -- run workflows/webull-us.yaml
    npm run stockai -- approve <runId> approve
    npm run stockai -- resume <runId>      # dry_run: Webull のプレビュー結果が注文票に入る
    ```
@@ -95,6 +91,7 @@ IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブロ�
 - [ ] `stockai webull check` が通る（署名・`x-version`・アクセストークンが受け付けられる）
 - [ ] 残高のフィールド名（`total_cash_balance` / `total_market_value`）と通貨（`total_asset_currency=JPY`）
 - [ ] 保有の `symbol` が銘柄コード（例 `7203`）で返るか
+- [ ] 米国株（`market: us`）: シンボルが `AAPL` 形式で通るか、残高の通貨が USD で返るか、ドル建ての指値（$0.01 刻み）が受け付けられるか
 - [ ] 日本株で `order_type: LIMIT` / `time_in_force: DAY` / `support_trading_session: CORE` / `entrust_type: QTY` が受け付けられるか（プレビューで確認）
 - [ ] 指値が呼値刻みでないときの扱い、100 株単位の扱い
 - [ ] 未約定注文一覧に `client_order_id` が入っているか（二重発注防止に使う）

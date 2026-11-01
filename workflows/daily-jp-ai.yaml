@@ -1,0 +1,23 @@
+name: daily-jp-ai
+description: "日本株: RSS + J-Quants 価格。AI アンサンブルが判断し、人の承認後にペーパー約定。"
+nodes:
+  # ── information ───────────────────────────────────────────────
+  news:       { use: source.rss, onError: skip, ui: { x: 0, y: 0 } }
+  dedup:      { use: filter.dedup, in: { docs: news }, onError: skip, ui: { x: 260, y: 0 } }
+  match:      { use: filter.watchlist, in: { docs: dedup }, onError: skip, ui: { x: 520, y: 0 } }
+  extract:    { use: llm.extractEvents, in: { matches: match }, onError: fallback, ui: { x: 780, y: 0 } }
+  history:    { use: signal.eventHistory, in: { today: extract }, ui: { x: 1040, y: 0 } }
+  eventScore: { use: signal.eventScores, in: { events: history }, ui: { x: 1300, y: 0 } }
+  # ── prices & factors (no LLM) ────────────────────────────────
+  prices:     { use: data.pricesJQuants, params: { requestsPerMinute: 60 }, ui: { x: 0, y: 220 } }
+  factors:    { use: signal.factors, in: { prices: prices }, ui: { x: 260, y: 220 } }
+  score:      { use: signal.score, in: { factors: factors, events: eventScore }, ui: { x: 1560, y: 110 } }
+  account:    { use: portfolio.account, in: { prices: prices }, ui: { x: 260, y: 440 } }
+  # ── decision → hard limits → approval → execution ────────────
+  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: history, account: account }, onError: fallback, ui: { x: 1820, y: 220 } }
+  propose:    { use: portfolio.propose, in: { judgments: decide, factors: factors, account: account }, ui: { x: 2080, y: 220 } }
+  approve:    { use: gate.approval, in: { proposals: propose }, params: { mode: manual }, ui: { x: 2340, y: 220 } }
+  execute:    { use: broker.paper, in: { proposals: approve, prices: prices, account: account }, ui: { x: 2600, y: 220 } }
+  # ── grading (確度の答え合わせ) ──────────────────────────────────
+  record:     { use: eval.record, in: { judgments: decide }, ui: { x: 2080, y: 440 } }
+  grade:      { use: eval.scorecard, in: { prices: prices }, params: { baselineLabel: daily-jp-rules }, after: [record], ui: { x: 2340, y: 440 } }

@@ -31,6 +31,8 @@ export const post = async <T,>(path: string, body: unknown): Promise<T> =>
 export const put = async <T,>(path: string, body: unknown): Promise<T> =>
   parse<T>(await fetch(path, { method: "PUT", headers: { ...headers(), "content-type": "application/json" }, body: JSON.stringify(body) }));
 
+export const del = async <T,>(path: string): Promise<T> => parse<T>(await fetch(path, { method: "DELETE", headers: headers() }));
+
 const listeners = new Set<(e: StreamEvent) => void>();
 /** Subscribe to raw stream events (e.g. live node status in the editor). Returns an unsubscribe function. */
 export function onStream(fn: (e: StreamEvent) => void): () => void {

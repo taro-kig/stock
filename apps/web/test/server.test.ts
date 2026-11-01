@@ -3,8 +3,9 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { Overview, RunDetail, StreamEvent } from "../shared/types.ts";
+import { request } from "node:http";
+import { builtinRegistry, loadConfig, Services, SettingsStore } from "@stockai/core";
+import type { Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -29,8 +30,8 @@ afterEach(async () => {
   app = undefined;
 });
 
-async function start(opts: { gate?: "auto" | "manual"; token?: string; clock?: () => Date } = {}) {
-  const services = new Services(loadConfig(join(ROOT, "config/config.example.yaml")), { fake: true, dbPath: ":memory:" });
+async function start(opts: { gate?: "auto" | "manual"; token?: string; clock?: () => Date; settings?: SettingsStore } = {}) {
+  const services = new Services(loadConfig(join(ROOT, "config/config.jp.example.yaml")), { fake: true, dbPath: ":memory:", ...(opts.settings ? { settings: opts.settings } : {}) });
   lastDir = workflowsDir(opts.gate);
   app = createApp({
     services, registry: builtinRegistry(), workflowsDir: lastDir,
@@ -209,5 +210,41 @@ describe("scheduler", () => {
     expect(s.tick()).toEqual([]);
     expect(new Date(s.status()[0]!.nextAt!).getDay()).toBe(1); // next Monday
     expect(fired).toEqual(["w.yaml"]);
+  });
+
+  it("settings: stores keys, reports where each comes from, never returns a secret", async () => {
+    const env: NodeJS.ProcessEnv = { WEBULL_APP_KEY: "from-shell" };
+    const settings = new SettingsStore({ path: ":memory:", env, shellKeys: new Set(["WEBULL_APP_KEY"]) });
+    const { api } = await start({ settings });
+    const put = (name: string, value: unknown) => api(`/api/settings/${name}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ value }) });
+    expect((await put("GEMINI_API_KEY", "AIzaSy-very-secret-value-9876")).status).toBe(200);
+    expect(env["GEMINI_API_KEY"]).toBe("AIzaSy-very-secret-value-9876");
+    const view = await api<SettingsView>("/api/settings");
+    expect(view.body.available).toBe(true);
+    expect(JSON.stringify(view.body)).not.toContain("very-secret");
+    const by = Object.fromEntries(view.body.items.map((i) => [i.name, i]));
+    expect(by["GEMINI_API_KEY"]).toMatchObject({ set: true, source: "settings", preview: "…9876" });
+    expect(by["WEBULL_APP_KEY"]!.source).toBe("shell");
+    expect((await put("WEBULL_APP_KEY", "x")).status).toBe(400); // the shell wins
+    expect((await put("STOCKAI_LIVE_TRADING", "yes-i-understand")).status).toBe(400);
+    expect((await put("GEMINI_API_KEY", 42)).status).toBe(400);
+    expect((await api("/api/settings/GEMINI_API_KEY", { method: "PUT", body: "{}" })).status).toBe(415); // no cross-site form posts
+    expect((await api("/api/settings/GEMINI_API_KEY", { method: "DELETE" })).status).toBe(200);
+    expect(env["GEMINI_API_KEY"]).toBeUndefined();
+  });
+
+  it("refuses foreign Host headers when serving without a token (DNS rebinding)", async () => {
+    const { base } = await start();
+    const status = (host: string) =>
+      new Promise<number>((ok, fail) => {
+        const u = new URL(`${base}/api/overview`);
+        request({ host: u.hostname, port: u.port, path: u.pathname, headers: { host } }, (res) => {
+          res.resume();
+          ok(res.statusCode ?? 0);
+        }).on("error", fail).end();
+      });
+    expect(await status("evil.example:4317")).toBe(403);
+    expect(await status(`localhost:${new URL(base).port}`)).toBe(200);
+    expect(await status(`127.0.0.1:${new URL(base).port}`)).toBe(200);
   });
 });

@@ -13,9 +13,11 @@ import { buildProvider } from "./llm/factory.ts";
 import { FakeProvider } from "./llm/fake.ts";
 import { heuristicResponder } from "./llm/heuristic.ts";
 import type { LLMProvider } from "./llm/types.ts";
+import { PriceStore } from "./data/priceStore.ts";
 import { DocStore } from "./signals/docStore.ts";
 import { Watchlist } from "./signals/prefilter.ts";
 import { openDb, type Db } from "./util/db.ts";
+import type { SettingsStore } from "./util/settings.ts";
 import { RunStore } from "./workflow/runStore.ts";
 
 export type BrokerKind = "ibkr" | "webull";
@@ -30,6 +32,12 @@ export interface ServicesOptions {
   env?: NodeJS.ProcessEnv;
   /** Override how broker connections are made (tests). */
   brokerFactory?: (kind: BrokerKind) => Promise<BrokerClient>;
+  /** HTTP for data sources (tests inject a mock). */
+  fetchImpl?: typeof fetch;
+  /** Waits used for rate limiting (tests make them instant). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Keys entered in the web UI; changes apply without a restart. */
+  settings?: SettingsStore;
 }
 
 /** Lazily-built shared dependencies handed to every node via its context. */
@@ -38,6 +46,9 @@ export class Services {
   readonly fake: boolean;
   readonly dbPath: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly fetch: typeof fetch;
+  readonly settings: SettingsStore | undefined;
+  readonly sleep: (ms: number) => Promise<void>;
   readonly #brokerFactory: ((kind: BrokerKind) => Promise<BrokerClient>) | undefined;
   readonly #fakeBrokers = new Map<BrokerKind, FakeBroker>();
   #ledger?: BrokerLedger;
@@ -49,6 +60,7 @@ export class Services {
   #watchlist?: Watchlist;
   #paper?: PaperBook;
   #predictions?: PredictionStore;
+  #prices?: PriceStore;
   #tier1?: LLMProvider[];
 
   constructor(config: AppConfig, opts: ServicesOptions = {}) {
@@ -57,6 +69,13 @@ export class Services {
     this.dbPath = opts.dbPath ?? join(config.dataDir, "stockai.sqlite");
     this.env = opts.env ?? process.env;
     this.#brokerFactory = opts.brokerFactory;
+    this.fetch = opts.fetchImpl ?? ((input, init) => fetch(input, init));
+    this.sleep = opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+    this.settings = opts.settings;
+    // API clients read their key when built: rebuild them after a key changes.
+    this.settings?.onChange(() => {
+      this.#tier1 = undefined;
+    });
   }
 
   get db(): Db {
@@ -83,6 +102,10 @@ export class Services {
   }
   get predictions(): PredictionStore {
     return (this.#predictions ??= new PredictionStore(this.db));
+  }
+  /** Local copy of downloaded daily bars (data.pricesTwelveData). */
+  get priceStore(): PriceStore {
+    return (this.#prices ??= new PriceStore(this.db));
   }
   get brokerLedger(): BrokerLedger {
     return (this.#ledger ??= new BrokerLedger(this.db));

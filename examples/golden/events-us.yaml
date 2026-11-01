@@ -1,0 +1,286 @@
+# Golden set for event extraction on US filings / news (stockai eval events --set examples/golden/events-us.yaml).
+#
+# DRAFT: written by the assistant with fictional companies. Tickers contain digits (XU01…)
+# so they cannot be real symbols and models cannot answer from memory. Every case is
+# `reviewed: false` until a human checks the label. Labels list every acceptable value.
+name: events-us-draft-v1
+description: 8-K の Item・決算とコンセンサス・ガイダンス・資本政策・M&A・訂正・ノイズ記事など 24 件（架空企業・英語）
+cases:
+  # ── guidance ───────────────────────────────────────────────────
+  - id: us-guid-raise-large
+    note: 通期売上ガイダンスを約 10% 引き上げ（8-K 2.02 + EX-99.1）
+    candidates: { XU01: Harborline Robotics }
+    doc:
+      source: sec_edgar
+      title: "Harborline Robotics (XU01) 8-K: Item 2.02 Results of Operations and Financial Condition; Item 9.01 Financial Statements and Exhibits"
+      body: |
+        Harborline Robotics Reports Third Quarter Fiscal 2026 Results.
+        Third quarter revenue was $1.21 billion, up 18% year over year.
+        The company raises its full-year revenue outlook to $4.6 billion to $4.7 billion, from $4.2 billion to $4.3 billion previously.
+    expect: { relevant: true, tickers: [XU01], eventType: [guidance_up], direction: [2], materiality: [3], horizon: [months] }
+
+  - id: us-guid-raise-small
+    note: EPS ガイダンスを 2% 程度引き上げ
+    candidates: { XU02: Kestrel Foods }
+    doc:
+      source: news
+      title: Kestrel Foods nudges up annual profit forecast
+      body: |
+        Kestrel Foods said on Tuesday it now expects fiscal 2027 adjusted earnings of $3.05 to $3.10 per share,
+        compared with its prior range of $3.00 to $3.05, citing lower ingredient costs.
+    expect: { relevant: true, tickers: [XU02], eventType: [guidance_up], direction: [1], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-guid-cut
+    note: ガイダンス大幅引き下げ
+    candidates: { XU03: Meridian Polymers }
+    doc:
+      source: sec_edgar
+      title: "Meridian Polymers (XU03) 8-K: Item 7.01 Regulation FD Disclosure"
+      body: |
+        Meridian Polymers today lowered its full-year 2026 adjusted EBITDA guidance to $610 million to $640 million,
+        from $780 million to $820 million, reflecting weaker demand in Europe and China.
+    expect: { relevant: true, tickers: [XU03], eventType: [guidance_down], direction: [-2], materiality: [3], horizon: [months] }
+
+  - id: us-guid-reaffirm
+    note: ガイダンス据え置き → 材料は小さい
+    candidates: { XU04: Bluecrest Software }
+    doc:
+      source: news
+      title: Bluecrest Software reaffirms outlook at investor day
+      body: |
+        At its investor day, Bluecrest Software reaffirmed its fiscal 2027 outlook for revenue of $2.9 billion to $3.0 billion
+        and introduced a new long-term operating margin target of 30%.
+    expect: { relevant: [true, false], tickers: [XU04], eventType: [guidance_up, other, product_business, none], direction: [0, 1], materiality: [0, 1, 2], horizon: [weeks, months] }
+
+  # ── earnings vs consensus ─────────────────────────────────────
+  - id: us-earn-beat-consensus
+    note: コンセンサス比で上振れ
+    candidates: { XU05: Stonefield Bancorp }
+    doc:
+      source: news
+      title: Stonefield Bancorp tops profit estimates on loan growth
+      body: |
+        Stonefield Bancorp reported quarterly earnings of $2.41 per share, beating analysts' average estimate of $2.12 per share,
+        according to LSEG data. Net interest income rose 9% to $1.8 billion.
+    expect: { relevant: true, tickers: [XU05], eventType: [earnings_beat], direction: [1, 2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-earn-miss-consensus
+    note: 予想未達
+    candidates: { XU06: Copperleaf Retail }
+    doc:
+      source: news
+      title: Copperleaf Retail misses quarterly sales expectations
+      body: |
+        Copperleaf Retail posted second-quarter comparable sales growth of 0.4%, below Wall Street expectations of 2.5%,
+        as shoppers cut back on discretionary items. Earnings per share were $0.88 versus the $1.02 consensus estimate.
+    expect: { relevant: true, tickers: [XU06], eventType: [earnings_miss], direction: [-1, -2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-earn-yoy-only
+    note: 予想比較なし・前年比のみ → materiality 1 まで
+    candidates: { XU07: Northgate Industrial }
+    doc:
+      source: sec_edgar
+      title: "Northgate Industrial (XU07) 8-K: Item 2.02 Results of Operations and Financial Condition"
+      body: |
+        Northgate Industrial Reports Fourth Quarter Results. Net sales were $842 million, compared with $810 million
+        in the fourth quarter of the prior year. Diluted earnings per share were $1.37, compared with $1.29.
+    expect: { relevant: true, tickers: [XU07], eventType: [earnings_beat], direction: [0, 1], materiality: [1], horizon: [weeks, months] }
+
+  - id: us-earn-beat-guide-down
+    note: 決算は上振れだがガイダンス引き下げ → ガイダンス優先
+    candidates: { XU08: Tidewater Semiconductor }
+    doc:
+      source: news
+      title: Tidewater Semiconductor beats estimates but issues weak outlook
+      body: |
+        Tidewater Semiconductor reported revenue of $3.4 billion, above the $3.3 billion analysts expected.
+        However, the company forecast current-quarter revenue of $2.9 billion, well below estimates of $3.5 billion,
+        citing an inventory correction at data-center customers.
+    expect: { relevant: true, tickers: [XU08], eventType: [guidance_down], direction: [-1, -2], materiality: [3], horizon: [months] }
+
+  # ── capital allocation ────────────────────────────────────────
+  - id: us-buyback-large
+    note: 時価総額比が大きい自社株買い
+    candidates: { XU09: Pinecrest Media }
+    doc:
+      source: sec_edgar
+      title: "Pinecrest Media (XU09) 8-K: Item 8.01 Other Events"
+      body: |
+        The Board of Directors authorized a new share repurchase program of up to $5 billion of the Company's common stock,
+        representing approximately 8% of its current market capitalization.
+    expect: { relevant: true, tickers: [XU09], eventType: [shareholder_return], direction: [1, 2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-dividend-raise
+    note: 増配
+    candidates: { XU10: Ashby Utilities }
+    doc:
+      source: news
+      title: Ashby Utilities raises quarterly dividend by 7%
+      body: |
+        Ashby Utilities declared a quarterly dividend of $0.79 per share, up from $0.74, marking its 21st consecutive annual increase.
+    expect: { relevant: true, tickers: [XU10], eventType: [shareholder_return], direction: [1], materiality: [1, 2], horizon: [weeks, months] }
+
+  - id: us-dividend-suspend
+    note: 配当停止
+    candidates: { XU11: Granite Cruise Holdings }
+    doc:
+      source: sec_edgar
+      title: "Granite Cruise Holdings (XU11) 8-K: Item 8.01 Other Events"
+      body: |
+        To preserve liquidity, the Board of Directors has suspended the Company's quarterly cash dividend, effective immediately.
+    expect: { relevant: true, tickers: [XU11], eventType: [dividend_cut], direction: [-2], materiality: [3], horizon: [months] }
+
+  - id: us-offering-primary
+    note: 新株の公募 → 希薄化
+    candidates: { XU12: Vireo Therapeutics }
+    doc:
+      source: news
+      title: Vireo Therapeutics prices $400 million public offering
+      body: |
+        Vireo Therapeutics announced the pricing of an underwritten public offering of 12,500,000 shares of its common stock
+        at $32.00 per share, a 9% discount to Monday's close. Proceeds will fund late-stage trials.
+    expect: { relevant: true, tickers: [XU12], eventType: [dilution], direction: [-1, -2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-offering-secondary
+    note: 既存株主の売出し（新株なし）→ -1 まで
+    candidates: { XU13: Larkspur Payments }
+    doc:
+      source: news
+      title: Larkspur Payments announces secondary offering by selling stockholders
+      body: |
+        Certain selling stockholders affiliated with a private equity sponsor will offer 20 million shares of Larkspur Payments.
+        The company is not selling any shares in the offering and will not receive any proceeds.
+    expect: { relevant: true, tickers: [XU13], eventType: [dilution, other], direction: [-1, 0], materiality: [1, 2], horizon: [days, weeks] }
+
+  # ── M&A ───────────────────────────────────────────────────────
+  - id: us-ma-target
+    note: 買収される側（プレミアムあり）
+    candidates: { XU14: Oakhurst Diagnostics }
+    doc:
+      source: sec_edgar
+      title: "Oakhurst Diagnostics (XU14) 8-K: Item 1.01 Entry into a Material Definitive Agreement"
+      body: |
+        Oakhurst Diagnostics entered into a definitive merger agreement to be acquired for $48.00 per share in cash,
+        a premium of 37% to the unaffected closing price.
+    expect: { relevant: true, tickers: [XU14], eventType: [m_and_a], direction: [2], materiality: [3], horizon: [weeks, months] }
+
+  - id: us-ma-rumor
+    note: 観測報道 → confidence 低め（ここでは向きと重要度を見る）
+    candidates: { XU15: Silverpine Networks }
+    doc:
+      source: news
+      title: Silverpine Networks explores sale, people familiar say
+      body: |
+        Silverpine Networks is working with advisers to explore a potential sale after receiving takeover interest,
+        according to people familiar with the matter. No final decision has been made.
+    expect: { relevant: true, tickers: [XU15], eventType: [m_and_a], direction: [1, 2], materiality: [2, 3], horizon: [weeks, months] }
+
+  # ── restatements, delisting, cyber, management ───────────────
+  - id: us-non-reliance
+    note: Item 4.02 決算の訂正
+    candidates: { XU16: Calder Logistics }
+    doc:
+      source: sec_edgar
+      title: "Calder Logistics (XU16) 8-K: Item 4.02 Non-Reliance on Previously Issued Financial Statements"
+      body: |
+        On October 27, 2026, the Audit Committee concluded that the Company's previously issued financial statements for fiscal 2025
+        should no longer be relied upon due to errors in revenue recognition for certain long-term contracts.
+    expect: { relevant: true, tickers: [XU16], eventType: [scandal], direction: [-2], materiality: [3], horizon: [months] }
+
+  - id: us-delisting-notice
+    note: Item 3.01 上場基準未達の通知
+    candidates: { XU17: Brightwater Energy }
+    doc:
+      source: sec_edgar
+      title: "Brightwater Energy (XU17) 8-K: Item 3.01 Notice of Delisting or Failure to Satisfy a Listing Rule"
+      body: |
+        The Company received a notice from Nasdaq stating that the bid price of its common stock closed below $1.00 per share
+        for 30 consecutive business days. The Company has 180 calendar days to regain compliance.
+    expect: { relevant: true, tickers: [XU17], eventType: [legal_regulatory, other], direction: [-1, -2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-cyber
+    note: Item 1.05 サイバー攻撃
+    candidates: { XU18: Fennwick Health }
+    doc:
+      source: sec_edgar
+      title: "Fennwick Health (XU18) 8-K: Item 1.05 Material Cybersecurity Incidents"
+      body: |
+        The Company detected unauthorized access to certain information technology systems, which disrupted pharmacy operations
+        at a number of locations. The incident is reasonably likely to have a material impact on fourth-quarter results.
+    expect: { relevant: true, tickers: [XU18], eventType: [legal_regulatory], direction: [-1, -2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-ceo-departure
+    note: CEO の突然の退任
+    candidates: { XU19: Redmarsh Apparel }
+    doc:
+      source: sec_edgar
+      title: "Redmarsh Apparel (XU19) 8-K: Item 5.02 Departure or Election of Directors or Officers"
+      body: |
+        On October 28, 2026, Jane Doe notified the Board of her decision to step down as Chief Executive Officer, effective immediately.
+        The Board appointed Chief Financial Officer John Roe as interim Chief Executive Officer while it conducts a search.
+    expect: { relevant: true, tickers: [XU19], eventType: [management], direction: [-1, 0], materiality: [2], horizon: [weeks, months] }
+
+  - id: us-vote-results
+    note: Item 5.07 株主総会の投票結果 → 材料なし
+    candidates: { XU20: Quillon Insurance }
+    doc:
+      source: sec_edgar
+      title: "Quillon Insurance (XU20) 8-K: Item 5.07 Submission of Matters to a Vote of Security Holders"
+      body: |
+        At the Annual Meeting, stockholders elected each of the nine director nominees and ratified the appointment of the
+        independent registered public accounting firm.
+    expect: { relevant: [false, true], direction: [0], materiality: [0] }
+
+  # ── product / regulatory ──────────────────────────────────────
+  - id: us-fda-approval
+    note: FDA 承認
+    candidates: { XU21: Larchmont Biosciences }
+    doc:
+      source: news
+      title: Larchmont Biosciences wins FDA approval for migraine drug
+      body: |
+        The U.S. Food and Drug Administration approved Larchmont Biosciences' oral migraine treatment, the company's first
+        commercial product. Analysts expect peak annual sales of about $1.5 billion.
+    expect: { relevant: true, tickers: [XU21], eventType: [product_business, legal_regulatory], direction: [1, 2], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: us-analyst-downgrade
+    note: 格下げ
+    candidates: { XU22: Cobaltine Motors }
+    doc:
+      source: news
+      title: Cobaltine Motors cut to underweight at major broker
+      body: |
+        Analysts at a major brokerage downgraded Cobaltine Motors to underweight from equal-weight and lowered their price target
+        to $41 from $58, citing slowing electric-vehicle demand.
+    expect: { relevant: true, tickers: [XU22], eventType: [analyst_downgrade], direction: [-1], materiality: [1, 2], horizon: [days, weeks] }
+
+  # ── noise / wrong entity ──────────────────────────────────────
+  - id: us-noise-price-move
+    note: 株価が動いただけの記事
+    candidates: { XU01: Harborline Robotics }
+    doc:
+      source: news
+      title: Harborline Robotics shares jump 5% as tech stocks rally
+      body: |
+        Shares of Harborline Robotics rose 5% on Wednesday as the broader technology sector rallied on lower bond yields.
+    expect: { relevant: [false, true], direction: [0, 1], materiality: [0, 1] }
+
+  - id: us-noise-listicle
+    note: まとめ記事
+    candidates: { XU05: Stonefield Bancorp, XU10: Ashby Utilities }
+    doc:
+      source: news
+      title: 3 dividend stocks to buy and hold forever
+      body: |
+        Looking for income? Stonefield Bancorp and Ashby Utilities have long histories of paying dividends. Here is why investors may like them.
+    expect: { relevant: [false, true], materiality: [0, 1] }
+
+  - id: us-wrong-entity
+    note: 似た名前の別会社
+    candidates: { XU14: Oakhurst Diagnostics }
+    doc:
+      source: news
+      title: Oakhurst Capital closes $900 million real estate fund
+      body: |
+        Oakhurst Capital, a private real estate investor unrelated to any listed company, said it closed its fifth fund at $900 million.
+    expect: { relevant: false }

@@ -1,4 +1,8 @@
-# Copy to config/config.yaml (git-ignored) and edit. API keys come from environment variables only.
+# 米国株用の例（既定）。config/config.yaml (git 管理外) にコピーして編集する。日本株は config.jp.example.yaml。
+# API キーは Web UI の「7 設定」画面（または CLI の `stockai settings set NAME`）で入れる。
+#   GEMINI_API_KEY / DEEPSEEK_API_KEY  … LLM
+#   TWELVEDATA_API_KEY                 … 米国株の日足（無料プラン: 800 回/日, 8 回/分）
+#   SEC_USER_AGENT                     … SEC EDGAR の利用条件で必須: "stockai you@example.com"
 dataDir: data
 
 harness:
@@ -14,11 +18,10 @@ models:
     # A 3rd member enables 2-of-3 voting; it is only called when the first two disagree.
     # - { name: qwen, provider: openai_compat, baseUrl: "https://openrouter.ai/api/v1", model: qwen/qwen-2.5-72b-instruct, apiKeyEnv: OPENROUTER_API_KEY }
   tier2: { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
-  # redTeam defaults to tier2 when omitted.
 
-# Prompt versions (docs/prompts.md). Compare with `stockai eval events|judge` before switching.
+# Prompt versions (docs/prompts.md). event-us-v1 reads English filings / news (8-K items, consensus, guidance).
 prompts:
-  event: event-v1
+  event: event-us-v1
   judge: judge-v1
   redTeam: redteam-v1
 
@@ -28,20 +31,29 @@ pricing:
   gemini-2.5-flash: [0.30, 2.50]
   deepseek-chat: [0.27, 1.10]
 
+# English news feeds (in addition to SEC filings, which source.secFilings reads directly).
+# Feed URLs are third-party and may change; a failing feed is skipped.
 sources:
-  - { name: google_news_jp_kessan, url: "https://news.google.com/rss/search?q=%E6%B1%BA%E7%AE%97+%E4%B8%8A%E6%96%B9%E4%BF%AE%E6%AD%A3&hl=ja&gl=JP&ceid=JP:ja", weight: 0.8 }
+  - { name: yahoo_finance, url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,MSFT,NVDA,AMZN,GOOGL,META,JPM,XOM,UNH,COST,LLY&region=US&lang=en-US", weight: 0.7 }
+  - { name: google_news_us_guidance, url: "https://news.google.com/rss/search?q=raises+OR+cuts+guidance+outlook&hl=en-US&gl=US&ceid=US:en", weight: 0.6 }
 
 market:
-  currency: JPY
-  benchmark: "1306"     # TOPIX ETF, used for relative strength, regime filter and grading
+  currency: USD
+  benchmark: SPY        # S&P 500 ETF, used for relative strength, regime filter and grading
 
+# name is matched against news text (whole words); aliases add other spellings.
 watchlist:
-  "7203": { name: トヨタ自動車, aliases: [トヨタ, Toyota], sector: auto }
-  "7267": { name: 本田技研工業, aliases: [ホンダ, Honda], sector: auto }
-  "6758": { name: ソニーグループ, aliases: [ソニー, Sony], sector: electronics }
-  "6861": { name: キーエンス, aliases: [Keyence], sector: electronics }
-  "8306": { name: 三菱UFJフィナンシャル・グループ, aliases: [三菱UFJ, MUFG], sector: bank }
-  "9984": { name: ソフトバンクグループ, aliases: [ソフトバンクG, SoftBank Group], sector: telecom }
+  AAPL:  { name: Apple, aliases: [Apple Inc], sector: tech }
+  MSFT:  { name: Microsoft, sector: tech }
+  NVDA:  { name: NVIDIA, aliases: [Nvidia], sector: semis }
+  AMZN:  { name: Amazon, aliases: [Amazon.com], sector: consumer }
+  GOOGL: { name: Alphabet, aliases: [Google], sector: communication }
+  META:  { name: Meta Platforms, aliases: [Facebook], sector: communication }
+  JPM:   { name: JPMorgan Chase, aliases: [JPMorgan, JP Morgan], sector: financials }
+  XOM:   { name: Exxon Mobil, aliases: [ExxonMobil, Exxon], sector: energy }
+  UNH:   { name: UnitedHealth, aliases: [UnitedHealth Group], sector: healthcare }
+  COST:  { name: Costco, aliases: [Costco Wholesale], sector: staples }
+  LLY:   { name: Eli Lilly, aliases: [Lilly], sector: healthcare }
 
 risk:
   riskPerTrade: 0.0075
@@ -49,7 +61,7 @@ risk:
   maxWeight: 0.15
   maxPositions: 6
   maxSectorWeight: 0.35
-  lotSize: 100
+  lotSize: 1             # US shares trade in single shares
 
 # Interactive Brokers via IB Gateway (docs/ibkr.md). Used by workflows/ibkr-paper.yaml.
 ibkr:
@@ -57,26 +69,24 @@ ibkr:
   port: 4002              # IB Gateway: 4002 = paper, 4001 = live
   clientId: 17
   mode: paper             # live additionally needs accountId + STOCKAI_LIVE_TRADING=yes-i-understand
-  # accountId: DU1234567  # recommended: refuses to run if the gateway is logged into another account
-  market: jp              # jp -> TSEJ/JPY, us -> SMART/USD (per-ticker overrides under `contracts`)
-  limitOffsetBps: 50      # buy limit = close +0.5%, sell limit = close -0.5%, rounded to the tick grid
-  maxOrderValue: 2000000  # hard cap per buy order (account currency)
+  market: us              # SMART routing, USD
+  limitOffsetBps: 50
+  maxOrderValue: 20000    # hard cap per buy order (USD)
   maxOrdersPerRun: 6
 
-# Webull Japan OpenAPI (docs/webull.md). Used by workflows/webull-jp.yaml.
-# Credentials come from WEBULL_APP_KEY / WEBULL_APP_SECRET; approve access once with `stockai webull auth`.
+# Webull Japan OpenAPI (docs/webull.md). Used by workflows/webull-us.yaml.
 webull:
-  trading: dry_run          # dry_run: Webull only previews orders (nothing placed). live: real orders
-                            #          (live also needs accountId + STOCKAI_LIVE_TRADING=yes-i-understand)
+  trading: dry_run          # dry_run: Webull only previews orders (nothing placed)
   # accountId: "..."        # recommended; required for live
-  accountTaxType: SPECIFIC  # 特定口座 = SPECIFIC, 一般口座 = GENERAL (required by Webull JP)
-  market: jp
+  accountTaxType: SPECIFIC  # 特定口座 = SPECIFIC, 一般口座 = GENERAL
+  market: us
   limitOffsetBps: 50
-  maxOrderValue: 2000000
+  maxOrderValue: 20000
   maxOrdersPerRun: 6
 
 # Automatic daily runs while the web server is up (`npm run web`). Server local time.
-# The baseline runs first so the AI workflow reuses its cached nodes.
+# The US close is 05:00 (summer) / 06:00 (winter) JST, so these run the next morning in Japan,
+# Tuesday–Saturday. The run date is the UTC date, i.e. the US trading day just closed.
 schedule:
-  - { workflow: workflows/daily-rules.yaml, at: "16:30" }
-  - { workflow: workflows/daily-ai.yaml, at: "16:35" }
+  - { workflow: workflows/daily-rules.yaml, at: "06:40", days: [2, 3, 4, 5, 6] }
+  - { workflow: workflows/daily-ai.yaml, at: "06:45", days: [2, 3, 4, 5, 6] }

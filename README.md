@@ -4,7 +4,9 @@
 **AI が「何を・いつ」売買するかを判断し、決定論的なルールが「いくら・どこまで損するか」を縛る。**
 AI に渡す権限は、判断を全件記録して答え合わせした **実測の確度** に応じて段階的に広げる。
 
-設計: **[docs/DESIGN.md](docs/DESIGN.md)** ・ プロンプトと評価: **[docs/prompts.md](docs/prompts.md)**
+**既定は米国株**（価格 Twelve Data・開示 SEC EDGAR・英語ニュース）。日本株用の設定も残している。
+
+設計: **[docs/DESIGN.md](docs/DESIGN.md)** ・ 米国株: **[docs/us.md](docs/us.md)** ・ プロンプトと評価: **[docs/prompts.md](docs/prompts.md)**
 
 ![overview](docs/images/overview.png)
 
@@ -24,15 +26,17 @@ packages/core/src/
   signals/    RSS, 重複除去, 銘柄辞書, イベント抽出, イベントスコア, テクニカル指標
   ai/         AI 売買判断 (資料作成, 読み取りチェック, 反対役)
   strategy/   ファクター, スコア合成, リスク制限, リバランス提案
+  data/       Twelve Data (米国株の日足) と価格のローカル保存, SEC EDGAR
   execution/  ペーパー口座, IBKR / ウィブル証券クライアント, 発注前ガード, 注文・ポジション台帳
   eval/       判断の記録と採点 (scorecard)
   workflow/   エンジン (型付きポート, 検証, キャッシュ, 承認, 再生, イベントログ)
   nodes/      組み込みノード (stockai nodes で一覧)
   cli/        CLI
 apps/web/     Web UI (React + Vite) と API サーバー (node:http, SSE, 実行キュー, スケジューラ)
-workflows/    daily-ai / daily-rules (本番), webull-jp (ウィブル証券), ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
+workflows/    daily-ai / daily-rules (米国株), daily-jp-ai / daily-jp-rules (日本株), webull-us / webull-jp (ウィブル証券),
+              ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
 deploy/ibkr/  IB Gateway の Docker 構成
-config/       config.example.yaml
+config/       config.example.yaml (米国株), config.jp.example.yaml (日本株)
 ```
 
 ## Web UI
@@ -47,6 +51,7 @@ config/       config.example.yaml
 | 4 確度 | AI とルールの的中率、95% 下限、実効標本、確信度別、昇格判定 |
 | 5 フロー | ワークフローのグラフ、今日 / 過去日付での実行、**ノードエディタ**（`e` 編集 / `n` 新規） |
 | 6 ノード | ノードの一覧（ポート型・パラメータ） |
+| 7 設定 | **API キーの入力**（Gemini / DeepSeek / Twelve Data / SEC / Webull …）。保存先と、各キーがどこから来ているか（設定画面 / .env / シェル）を表示 |
 
 | 承認 | 確度 |
 |---|---|
@@ -77,14 +82,14 @@ npm run web:server & npm run web:ui   # 開発: Vite (http://127.0.0.1:5173) + A
 `config/config.yaml` の `schedule` に書いたワークフローが、Web サーバーの起動中に毎日自動で実行される。
 
 ```yaml
-schedule:
-  - { workflow: workflows/daily-rules.yaml, at: "16:30" }   # 比較用ベースライン（先に実行し、共通ノードをキャッシュ）
-  - { workflow: workflows/daily-ai.yaml, at: "16:35" }      # AI 判断（承認ゲートで停止）
+schedule:   # 米国株: 取引終了後の日本時間の朝（火〜土）
+  - { workflow: workflows/daily-rules.yaml, at: "06:40", days: [2, 3, 4, 5, 6] }   # 比較用ベースライン（先に実行し、共通ノードをキャッシュ）
+  - { workflow: workflows/daily-ai.yaml, at: "06:45", days: [2, 3, 4, 5, 6] }      # AI 判断（承認ゲートで停止）
 ```
 
-1. 常時起動のマシンで `npm run web` を動かしておく（API キーは環境変数）
+1. 常時起動のマシンで `npm run web` を動かしておく（API キーは「7 設定」で入れる）
 2. 毎日の判断は承認しなくても記録・採点される（`record` / `grade` は承認ゲートの手前で動く）
-3. 注文を承認するとペーパー口座で約定する。承認しなければ 12 時間で自動的に却下扱い
+3. 注文を承認するとペーパー口座で約定する。承認しなければ一定時間で自動的に却下扱い
 4. 「4 確度」で AI とルールの差を見る。実効標本が 100 を超え、下限が 50% を上回り、ルールに勝ったら次の段階を検討する
 
 ## セットアップ
@@ -114,26 +119,32 @@ npm run check      # 型チェック + テスト + UI ビルド
 
 ## API キーの設定
 
-キーはリポジトリ直下の **`.env`**（git 管理外）に書く。CLI と Web サーバーが起動時に自動で読み込む。
+**Web UI の「7 設定」画面で入れる**のがいちばん簡単（`.env` は不要）。保存すると再起動なしで次の実行から使われる。
+
+![settings](docs/images/settings.png)
 
 ```bash
-cp .env.example .env
-chmod 600 .env        # 自分だけが読めるように（緩いと起動時に警告）
-$EDITOR .env          # GEMINI_API_KEY=... / DEEPSEEK_API_KEY=... などを記入
+npm run web          # → http://127.0.0.1:4317/#/settings
+# CLI でも同じ（入力は画面に表示されない）
+npm run stockai -- settings                       # 一覧と、それぞれの出どころ
+npm run stockai -- settings set GEMINI_API_KEY
+npm run stockai -- settings clear GEMINI_API_KEY
 ```
 
 | 変数 | 用途 | 取得先 |
 |---|---|---|
 | `GEMINI_API_KEY` | Gemini（イベント抽出・判断） | Google AI Studio |
 | `DEEPSEEK_API_KEY` | DeepSeek（多数決の2つ目） | DeepSeek Platform |
-| `JQUANTS_API_KEY` | 株価（`data.pricesJQuants`）。Free プランは直近12週間が取れないので日次運用には Light 以上 | J-Quants ダッシュボードの API Keys |
+| `TWELVEDATA_API_KEY` | 米国株の日足（無料: 800 回/日） | twelvedata.com |
+| `SEC_USER_AGENT` | SEC EDGAR（キー不要。名前と連絡先メール、例 `stockai you@example.com`） | — |
+| `JQUANTS_API_KEY` | 日本株の株価（`data.pricesJQuants`）。Free プランは直近12週間が取れないので日次運用には Light 以上 | J-Quants ダッシュボードの API Keys |
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | 別ベンダーを試す場合 | 各社のコンソール |
 | `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` | ウィブル証券 | 開発者サイトで申請（[docs/webull.md](docs/webull.md)） |
-| `STOCKAI_WEB_TOKEN` | Web UI を外部から開く場合のみ | 自分で決めた長いランダム文字列 |
 
-- シェルで `export` した値があればそちらが優先される
-- どの変数をどのモデルに使うかは `config/config.yaml` の `apiKeyEnv` で変えられる
-- **本番発注のスイッチ `STOCKAI_LIVE_TRADING` は `.env` からは読まない**（書いても無視して警告）。本番で動かすときだけ、そのシェルで明示的に設定する
+- 保存先は `<dataDir>/settings.sqlite`（権限 600、git 管理外）。**暗号化はしていない平文**なので `data/` を共有・コミットしない
+- 優先順位: シェルで `export` した値 > 設定画面 > `.env`（`.env` も引き続き使える: `cp .env.example .env && chmod 600 .env`）
+- 画面にはキーの末尾 4 文字しか表示しない。サーバーは既定で `127.0.0.1` のみで待ち受け、別のホスト名でのアクセスは拒否する
+- **本番発注のスイッチ `STOCKAI_LIVE_TRADING` は設定画面にも `.env` にも保存できない**。本番で動かすときだけ、そのシェルで明示的に設定する
 - キーをチャット・Issue・コミットに貼らない。漏れたら各社のコンソールですぐ無効化して作り直す
 
 ## 使い方 (CLI)
@@ -144,8 +155,8 @@ $EDITOR .env          # GEMINI_API_KEY=... / DEEPSEEK_API_KEY=... などを記�
 npm run stockai -- run workflows/demo-rules.yaml --from 2026-05-04 --to 2026-10-30 --step 5 --fake
 npm run stockai -- run workflows/demo-ai.yaml    --from 2026-05-04 --to 2026-10-30 --step 5 --fake
 
-# 本番 (要 API キー: 上の「API キーの設定」)。daily-ai は承認ゲートで止まる
-cp config/config.example.yaml config/config.yaml
+# 本番 (米国株。要 API キー: 上の「API キーの設定」)。daily-ai は承認ゲートで止まる
+cp config/config.example.yaml config/config.yaml   # 日本株なら config.jp.example.yaml
 npm run stockai -- run workflows/daily-rules.yaml
 npm run stockai -- run workflows/daily-ai.yaml
 npm run stockai -- approve <runId> approve      # または --reject
@@ -154,13 +165,13 @@ npm run stockai -- resume <runId>
 # ウィブル証券 (docs/webull.md)。既定はプレビューのみで発注しない
 npm run stockai -- webull auth                   # Webull アプリでアクセスを承認 (2FA)
 npm run stockai -- webull check                  # 読み取りのみ: 口座・現金・保有
-npm run stockai -- run workflows/webull-jp.yaml
+npm run stockai -- run workflows/webull-us.yaml
 
 # IBKR ペーパー口座 (IB Gateway が必要: docs/ibkr.md)
 npm run stockai -- run workflows/ibkr-paper.yaml
 
 # プロンプト・モデルの評価 (docs/prompts.md)
-npm run stockai -- eval events --versions event-v1,event-v2 --ensemble
+npm run stockai -- eval events --ensemble          # 米国株の設定では events-us.yaml × event-us-*
 npm run stockai -- eval judge  --versions judge-v1,judge-v2
 
 npm run stockai -- runs                          # 実行履歴
@@ -173,4 +184,5 @@ npm run stockai -- graph workflows/daily-ai.yaml # ノード UI 用のグラフ 
 
 Phase 2 + ノードエディタ完了 (コア + ワークフロー + AI 判断 + ペーパー執行 + 採点 + IBKR 接続 + Web UI + 自動実行 + ノードエディタ)。
 ブローカーは IBKR とウィブル証券の2社に対応。どちらも疑似ブローカーでテスト済みだが実際の口座では未確認 ([docs/ibkr.md](docs/ibkr.md), [docs/webull.md](docs/webull.md))。当面はシステム内のペーパー口座で確度を記録する。
+米国株（Twelve Data・SEC EDGAR・英語ニュース）と設定画面を追加。データ源は公開仕様とモックで実装・テストしたもので、実際の応答は未確認（[docs/us.md](docs/us.md) のチェックリスト）。
 次は実データでの日次記録。本リポジトリは投資助言ではない。

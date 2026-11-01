@@ -448,3 +448,15 @@ pre.json { margin: 0; white-space: pre-wrap; word-break: break-all; color: var(-
 .ed-problems .clickable:hover { color: var(--fg); }
 .ed-keys td { padding-top: 2px !important; }
 select.input { padding-right: 0.5ch; }
+
+/* ── settings ───────────────────────────────────────────────── */
+.settings { max-width: 110ch; }
+.setting-list { display: grid; gap: calc(var(--lh) * 0.75); }
+.setting { display: grid; gap: 2px; padding-bottom: calc(var(--lh) * 0.75); border-bottom: 1px dashed var(--line); }
+.setting:last-child { border-bottom: 0; padding-bottom: 0; }
+.setting-head { display: flex; gap: 1.5ch; align-items: baseline; }
+.setting-head b { color: var(--fg); font-weight: 500; }
+.setting-head .spacer { flex: 1; }
+.setting-input { flex: 1; min-width: 32ch; }
+.setting a { color: var(--info); text-decoration: none; }
+.setting a:hover { text-decoration: underline; }

@@ -7,9 +7,11 @@ import { LIVE_ENV_VAR } from "../execution/guards.ts";
  * - warn when the file is readable by group/others (it holds API keys)
  * - the real-money switch is never taken from a file: it must be set explicitly per session
  */
-export function loadDotEnv(path = ".env", env: NodeJS.ProcessEnv = process.env): { loaded: boolean; warnings: string[] } {
+export function loadDotEnv(path = ".env", env: NodeJS.ProcessEnv = process.env): { loaded: boolean; warnings: string[]; shellKeys: Set<string> } {
   const warnings: string[] = [];
-  if (!existsSync(path)) return { loaded: false, warnings };
+  /** Exported in the shell (taken before `.env`): these outrank the settings file too. */
+  const shellKeys = new Set(Object.keys(env));
+  if (!existsSync(path)) return { loaded: false, warnings, shellKeys };
   if (process.platform !== "win32" && (statSync(path).mode & 0o077) !== 0) {
     warnings.push(`${path} is readable by other users; run: chmod 600 ${path}`);
   }
@@ -19,5 +21,5 @@ export function loadDotEnv(path = ".env", env: NodeJS.ProcessEnv = process.env):
     delete env[LIVE_ENV_VAR];
     warnings.push(`${LIVE_ENV_VAR} in ${path} is ignored — set it explicitly in the shell for the session that should trade real money`);
   }
-  return { loaded: true, warnings };
+  return { loaded: true, warnings, shellKeys };
 }

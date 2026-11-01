@@ -74,11 +74,12 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 
 describe("IBKR workflow (fake broker)", () => {
   const setup = (broker: FakeBroker, ibkr: Record<string, unknown> = {}, clock?: () => Date) => {
-    const cfg = loadConfig(resolve(ROOT, "config/config.example.yaml"));
+    const cfg = loadConfig(resolve(ROOT, "config/config.jp.example.yaml"));
     cfg.ibkr = IbkrConfig.parse({ maxOrderValue: 5_000_000, ...ibkr });
     const services = new Services(cfg, { fake: true, dbPath: ":memory:", brokerFactory: async () => broker });
     const spec = loadWorkflow(resolve(ROOT, "workflows/ibkr-paper.yaml"));
     spec.nodes["news"] = { ...spec.nodes["news"]!, use: "source.fixture", params: { path: resolve(ROOT, "examples/fixtures/news.json"), lookbackDays: 7 } };
+    if (spec.nodes["filings"]) spec.nodes["filings"] = { ...spec.nodes["filings"]!, use: "source.fixture", params: { path: resolve(ROOT, "examples/fixtures/news.json"), lookbackDays: 7 } };
     spec.nodes["prices"] = { ...spec.nodes["prices"]!, use: "data.pricesSynthetic", params: { seed: 6 } };
     return { services, spec, engine: new Engine({ services, registry: builtinRegistry(), store: services.runStore, clock }) };
   };

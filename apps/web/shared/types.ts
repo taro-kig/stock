@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { AccountState, Fill, Judgment, NodeDescription, OrderTicket, Proposal, Scorecard } from "@stockai/core";
+import type { AccountState, Fill, Judgment, NodeDescription, OrderTicket, Proposal, Scorecard, SettingStatus } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -113,3 +113,10 @@ export type StreamEvent =
   | { type: "hello"; now: string }
   | { type: "queued"; runId: string; workflow: string }
   | { type: "run_event"; runId: string; event: Record<string, unknown> };
+
+export interface SettingsView {
+  /** False when the server was started without a settings store (tests, embedded use). */
+  available: boolean;
+  path: string | null;
+  items: SettingStatus[];
+}

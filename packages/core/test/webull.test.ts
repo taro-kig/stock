@@ -164,11 +164,12 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 
 describe("Webull workflow", () => {
   const setup = (fake: ReturnType<typeof fakeWebull>, webull: Record<string, unknown>, env: Record<string, string>, clock: () => Date) => {
-    const config = loadConfig(resolve(ROOT, "config/config.example.yaml"));
+    const config = loadConfig(resolve(ROOT, "config/config.jp.example.yaml"));
     config.webull = cfg({ maxOrderValue: 5_000_000, ...webull });
     const services = new Services(config, { fake: true, dbPath: ":memory:", env: { ...ENV, ...env }, brokerFactory: async () => WebullClient.connect(config.webull!, { env: { ...ENV, ...env }, fetchImpl: fake.fetchImpl }) });
     const spec = loadWorkflow(resolve(ROOT, "workflows/webull-jp.yaml"));
     spec.nodes["news"] = { ...spec.nodes["news"]!, use: "source.fixture", params: { path: resolve(ROOT, "examples/fixtures/news.json"), lookbackDays: 7 } };
+    if (spec.nodes["filings"]) spec.nodes["filings"] = { ...spec.nodes["filings"]!, use: "source.fixture", params: { path: resolve(ROOT, "examples/fixtures/news.json"), lookbackDays: 7 } };
     spec.nodes["prices"] = { ...spec.nodes["prices"]!, use: "data.pricesSynthetic", params: { seed: 6 } };
     spec.nodes["approve"]!.params["mode"] = "auto";
     return { services, spec, engine: new Engine({ services, registry: builtinRegistry(), store: services.runStore, clock }) };

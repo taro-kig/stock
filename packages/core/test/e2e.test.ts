@@ -10,7 +10,7 @@ import { Engine } from "../src/workflow/engine.ts";
 import { loadWorkflow, type WorkflowSpec } from "../src/workflow/spec.ts";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
-const config = (): AppConfig => loadConfig(resolve(ROOT, "config/config.example.yaml"));
+const config = (): AppConfig => loadConfig(resolve(ROOT, "config/config.jp.example.yaml"));
 const demo = (name: string, gate?: "manual"): WorkflowSpec => {
   const spec = loadWorkflow(resolve(ROOT, `workflows/${name}.yaml`));
   spec.nodes["news"]!.params["path"] = resolve(ROOT, "examples/fixtures/news.json");

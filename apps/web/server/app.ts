@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { Engine, stringifyWorkflow, toGraph, validateWorkflow, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { Overview, RunDetail, StreamEvent } from "../shared/types.ts";
+import { Engine, settingDefs, stringifyWorkflow, toGraph, validateWorkflow, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
 import { discoverWorkflows, equitySeries, latestScorecard, ranToday, runDetail, summary, workflowInfo, type WorkflowFile } from "./views.ts";
@@ -64,6 +64,13 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   const v: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new HttpError(400, "expected a JSON object");
   return v as Record<string, unknown>;
+}
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+function isLocalHost(host: string | undefined): boolean {
+  if (!host) return true; // HTTP/1.0 clients; browsers always send Host
+  const name = host.replace(/:\d+$/, "").toLowerCase();
+  return LOCAL_HOSTS.has(name);
 }
 
 const newRunId = (name: string) => `${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)}-${name}-${randomUUID().slice(0, 6)}`;
@@ -167,6 +174,9 @@ export function createApp(o: AppOptions): App {
     const path = url.pathname;
     if (!path.startsWith("/api/")) return serveStatic(req, res, path);
     if (o.token && req.headers["x-stockai-token"] !== o.token && url.searchParams.get("token") !== o.token) throw new HttpError(401, "token required");
+    // Without a token the server is local-only: refuse other Host names so a web page cannot
+    // reach it through DNS rebinding (it holds API keys and can approve orders).
+    if (!o.token && !isLocalHost(req.headers.host)) throw new HttpError(403, "non-local Host header (set STOCKAI_WEB_TOKEN to serve other hosts)");
     const m = (re: RegExp) => path.match(re);
     let g: RegExpMatchArray | null;
 
@@ -222,6 +232,28 @@ export function createApp(o: AppOptions): App {
       s.runStore.setApproval(runId, node, decision, typeof body["note"] === "string" ? body["note"].slice(0, 500) : "");
       void queue.enqueue(`resume ${runId}`, () => engine.resume(runId)).catch(() => undefined);
       return send(res, 202, { ok: true });
+    }
+    if (req.method === "GET" && path === "/api/settings") {
+      const st = s.settings;
+      if (!st) return send(res, 200, { available: false, path: null, items: [] } satisfies SettingsView);
+      return send(res, 200, { available: true, path: st.path, items: st.status(settingDefs(s.config)) } satisfies SettingsView);
+    }
+    if ((req.method === "PUT" || req.method === "DELETE") && (g = m(/^\/api\/settings\/([A-Za-z0-9_]+)$/))) {
+      const st = s.settings;
+      if (!st) throw new HttpError(404, "settings are not available on this server");
+      const name = g[1]!;
+      try {
+        if (req.method === "PUT") {
+          const value = (await readJson(req))["value"];
+          if (typeof value !== "string") throw new HttpError(400, "value must be a string");
+          st.set(name, value);
+        } else st.clear(name);
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, e instanceof Error ? e.message : String(e));
+      }
+      const item = st.status(settingDefs(s.config)).find((x) => x.name === name);
+      return send(res, 200, { ok: true, item: item ?? null });
     }
     if (req.method === "GET" && path === "/api/nodes") return send(res, 200, registry.describe());
     if (req.method === "GET" && path === "/api/stream") {

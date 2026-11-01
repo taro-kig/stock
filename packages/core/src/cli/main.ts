@@ -20,6 +20,7 @@ import { Engine, type RunResult } from "../workflow/engine.ts";
 import type { NodeRunRow } from "../workflow/runStore.ts";
 import { loadWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec } from "../workflow/spec.ts";
 import { loadDotEnv } from "../util/env.ts";
+import { assertSettingName, SettingsStore, settingDefs } from "../util/settings.ts";
 import { c, money, num, pct, status, table } from "./format.ts";
 
 const HELP = `stockai — mid-term AI trading workflows
@@ -35,17 +36,22 @@ Usage:
   stockai runs [--limit N] [--workflow NAME]     recent runs
   stockai show <runId> [--json]                  node table + key outputs
   stockai events <runId>                         run event log (JSON lines)
-  stockai eval events [--versions event-v1,event-v2] [--models a,b] [--ensemble] [--set PATH] [--budget USD]
+  stockai eval events [--versions event-us-v1] [--models a,b] [--ensemble] [--set PATH] [--budget USD]
+                                                 (defaults follow the market: USD → events-us.yaml + event-us-*)
   stockai eval judge  [--versions judge-v1,judge-v2] [--models a,b] [--set PATH] [--budget USD]
                                                  score prompts/models on a golden set (report saved under data/evals)
   stockai webull auth [--wait SECONDS]           approve API access in the Webull app (2FA)
   stockai webull check                           read-only: accounts, cash, positions
+  stockai settings                               API keys and where each comes from (shell / settings / .env)
+  stockai settings set NAME                      store a value (read from stdin, not echoed) in <dataDir>/settings.sqlite
+  stockai settings clear NAME                    remove a stored value
 
 Options:
   --config PATH   default config/config.yaml (falls back to config/config.example.yaml)
   --fake          offline heuristic models: no API keys, no cost`;
 
-for (const w of loadDotEnv().warnings) console.error(`warning: ${w}`);
+const dotenv = loadDotEnv();
+for (const w of dotenv.warnings) console.error(`warning: ${w}`);
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
@@ -77,7 +83,10 @@ function services(): Services {
     path = "config/config.example.yaml";
     console.error(c.dim(`(using ${path}; copy it to config/config.yaml to customise)`));
   }
-  return new Services(loadConfig(path), { fake: opt.fake });
+  const config = loadConfig(path);
+  // Keys saved from the web UI's settings screen (shell > settings > .env).
+  const settings = new SettingsStore({ path: join(config.dataDir, "settings.sqlite"), shellKeys: dotenv.shellKeys });
+  return new Services(config, { fake: opt.fake, settings });
 }
 
 const engineFor = (s: Services) => new Engine({ services: s, registry: builtinRegistry(), store: s.runStore });
@@ -290,13 +299,15 @@ async function cmdEval(task: string): Promise<void> {
   const models = s.allModels(names);
   if (!models.length) throw new Error(`no models to evaluate (configured: ${s.modelNames().join(", ")})`);
   if (opt.ensemble && models.length < 2 && !s.fake) throw new Error("--ensemble needs the production pair (tier1) with keys for both; run without --ensemble to score one model");
+  // US config (USD) → English golden set and US prompt versions by default.
+  const us = s.config.market.currency === "USD";
   const common = {
     models, pricing: s.fake ? Object.fromEntries(models.map((m) => [m.model, [0, 0] as const])) : s.config.pricing,
     budgetUsd: Number(opt.budget), maxRetries: s.config.harness.maxRetries,
     onProgress: (m: string) => process.stderr.isTTY && process.stderr.write(`\r\x1b[2K${c.dim(m)}`),
   };
   const report = task === "events"
-    ? await evalEvents(loadEventSet(opt.set ?? "examples/golden/events.yaml"), pick<EventPromptVersion>(EVENT_PROMPT_VERSIONS, opt.versions, [...EVENT_PROMPT_VERSIONS]), {
+    ? await evalEvents(loadEventSet(opt.set ?? (us ? "examples/golden/events-us.yaml" : "examples/golden/events.yaml")), pick<EventPromptVersion>(EVENT_PROMPT_VERSIONS, opt.versions, EVENT_PROMPT_VERSIONS.filter((v) => v.startsWith("event-us") === us)), {
         ...common,
         ensemble: opt.ensemble ? { members: s.tier1(), quorum: s.config.harness.quorum, escalation: s.tier2() } : undefined,
       })
@@ -404,10 +415,61 @@ async function main(): Promise<void> {
       }
       throw new Error("usage: stockai webull auth|check");
     }
+    case "settings": {
+      const s = services();
+      const store = s.settings!;
+      const name = args[1] ?? "";
+      if (args[0] === "set") {
+        assertSettingName(name);
+        const value = await readSecret(`${name}: `);
+        store.set(name, value);
+        return void console.log(`${c.green("✓")} ${name} を ${store.path} に保存しました`);
+      }
+      if (args[0] === "clear") {
+        store.clear(name);
+        return void console.log(`${c.green("✓")} ${name} を削除しました`);
+      }
+      if (args[0]) throw new Error("usage: stockai settings [set NAME | clear NAME]");
+      const label = { shell: c.yellow("shell"), settings: c.green("settings"), dotenv: c.cyan(".env"), none: c.dim("—") };
+      console.log(table(["name", "source", "value", "use"], store.status(settingDefs(s.config)).map((x) => [x.name, label[x.source ?? "none"], x.preview ?? c.dim("未設定"), x.help])));
+      return void console.log(c.dim(`settings file: ${store.path}`));
+    }
     default:
       console.log(HELP);
       process.exitCode = 1;
   }
+}
+
+/** Reads one line without echoing it when stdin is a terminal (API keys). */
+async function readSecret(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const ch of stdin) chunks.push(ch as Buffer);
+    return Buffer.concat(chunks).toString("utf8").split(/\r?\n/)[0] ?? "";
+  }
+  process.stderr.write(prompt);
+  stdin.setRawMode(true);
+  stdin.resume();
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    const done = (fn: () => void) => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.off("data", onData);
+      process.stderr.write("\n");
+      fn();
+    };
+    const onData = (d: Buffer) => {
+      for (const ch of d.toString("utf8")) {
+        if (ch === "\r" || ch === "\n") return done(() => resolve(buf));
+        if (ch === "\u0003") return done(() => reject(new Error("cancelled")));
+        if (ch === "\u007f" || ch === "\b") buf = buf.slice(0, -1);
+        else buf += ch;
+      }
+    };
+    stdin.on("data", onData);
+  });
 }
 
 main().catch((e: unknown) => {

@@ -2,6 +2,28 @@ import { z } from "zod";
 import { dedup, type Match } from "../signals/prefilter.ts";
 import { defineNode } from "../workflow/registry.ts";
 
+export const mergeDocs = defineNode({
+  type: "filter.merge",
+  title: "Merge documents",
+  category: "filter",
+  description: "Combines up to four document streams (e.g. news + SEC filings). Inputs from failed or skipped sources are left out.",
+  version: 1,
+  cache: "inputs",
+  params: z.object({}),
+  inputs: {
+    a: { type: "Documents", optional: true },
+    b: { type: "Documents", optional: true },
+    c: { type: "Documents", optional: true },
+    d: { type: "Documents", optional: true },
+  },
+  outputs: { docs: { type: "Documents" } },
+  async run(ctx, _p, i) {
+    const docs = [...(i.a ?? []), ...(i.b ?? []), ...(i.c ?? []), ...(i.d ?? [])];
+    ctx.metric("docs", docs.length);
+    return { docs };
+  },
+});
+
 export const dedupNode = defineNode({
   type: "filter.dedup",
   title: "Deduplicate",

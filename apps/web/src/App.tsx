@@ -11,9 +11,10 @@ import { Nodes } from "./views/Nodes.tsx";
 import { Overview } from "./views/Overview.tsx";
 import { Runs } from "./views/Runs.tsx";
 import { Scorecard } from "./views/Scorecard.tsx";
+import { Settings } from "./views/Settings.tsx";
 import { Workflows } from "./views/Workflows.tsx";
 
-const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", editor: "編集" };
+const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", editor: "編集" };
 
 interface Toast {
   id: number;
@@ -94,6 +95,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         {route.view === "scorecard" && <Scorecard card={data?.scorecard} />}
         {route.view === "workflows" && <Workflows param={route.param} toast={toast} />}
         {route.view === "nodes" && <Nodes param={route.param} />}
+        {route.view === "settings" && <Settings toast={toast} />}
         {route.view === "editor" && <Editor key={route.param ?? "new"} name={route.param} toast={toast} />}
       </main>
 

@@ -12,15 +12,15 @@ export function heuristicResponder(req: LLMRequest): string {
   return "{}";
 }
 
-const POSITIVE = ["上方修正", "増配", "自社株買い", "最高益", "raises", "beats"];
-const NEGATIVE = ["下方修正", "減配", "不正", "赤字", "cuts", "misses"];
+const POSITIVE = ["上方修正", "増配", "自社株買い", "最高益", "raises", "raised", "beats", "exceeded", "repurchase", "record revenue"];
+const NEGATIVE = ["下方修正", "減配", "不正", "赤字", "cuts", "lowers", "lowered", "misses", "below expectations", "no longer be relied upon"];
 
 function extract(user: string): string {
   const cands = [...user.matchAll(/^- (\S+): /gm)].map((m) => m[1]!);
   const doc = user.split("# 文書")[1] ?? "";
   const title = doc.match(/^タイトル: (.*)$/m)?.[1] ?? "";
   const body = `${title}\n${doc.split("本文:\n")[1] ?? ""}`;
-  const sentences = body.split(/[。\n]/).map((s) => s.trim()).filter((s) => s.length >= 10);
+  const sentences = body.split(/[。\n]|(?<=\.)\s+/).map((s) => s.trim()).filter((s) => s.length >= 10);
   const find = (words: string[]) => sentences.find((s) => words.some((w) => s.includes(w)));
   const pos = find(POSITIVE);
   const neg = find(NEGATIVE);

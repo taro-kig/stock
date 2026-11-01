@@ -27,6 +27,6 @@ describe("loadDotEnv", () => {
 
   it("warns about loose permissions and tolerates a missing file", () => {
     expect(loadDotEnv(file("A_B_C=1\n", 0o644)).warnings.join()).toMatch(/chmod 600/);
-    expect(loadDotEnv("/nonexistent/.env")).toEqual({ loaded: false, warnings: [] });
+    expect(loadDotEnv("/nonexistent/.env")).toMatchObject({ loaded: false, warnings: [] });
   });
 });

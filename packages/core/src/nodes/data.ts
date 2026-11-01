@@ -1,8 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { isCovered, syncBars } from "../data/priceSync.ts";
+import { TwelveDataAuthError, TwelveDataClient } from "../data/twelveData.ts";
 import { barsUntil, type Bar, type Prices } from "../signals/technical.ts";
-import { weekdays, type IsoDate } from "../util/dates.ts";
+import { addDays, weekdays, type IsoDate } from "../util/dates.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -61,7 +63,8 @@ export const stooqPrices = defineNode({
   type: "data.pricesStooq",
   title: "Prices (Stooq)",
   category: "data",
-  description: "Downloads daily bars from stooq.com (free). Tickers map to <code>.jp / <code>.us unless overridden.",
+  description:
+    "Downloads daily bars from stooq.com. Since 2026 stooq requires an API key and a browser check, so this usually fails; use data.pricesJQuants (JP), data.pricesTwelveData (US) or data.pricesCsv.",
   version: 1,
   cache: "daily",
   params: z.object({ market: z.enum(["jp", "us"]), symbols: z.record(z.string(), z.string()).default({}) }),
@@ -172,7 +175,7 @@ export const jquantsPrices = defineNode({
   outputs: { prices: { type: "Prices" } },
   async run(ctx, p) {
     const apiKey = ctx.services.env["JQUANTS_API_KEY"];
-    if (!apiKey) throw new Error("JQUANTS_API_KEY is not set (.env)");
+    if (!apiKey) throw new Error("JQUANTS_API_KEY is not set (settings screen or .env)");
     const client = jquantsClient({ apiKey, requestsPerMinute: p.requestsPerMinute });
     const prices: Prices = {};
     let stale = 0;
@@ -194,6 +197,73 @@ export const jquantsPrices = defineNode({
     if (!Object.keys(prices).length) {
       throw new Error(stale ? `J-Quants prices are older than ${p.maxStaleDays} days (the Free plan omits the latest 12 weeks)` : "no price data from J-Quants");
     }
+    return { prices };
+  },
+});
+
+export const twelveDataPrices = defineNode({
+  type: "data.pricesTwelveData",
+  title: "Prices (Twelve Data)",
+  category: "data",
+  description:
+    "US daily bars from Twelve Data (free plan: 800 requests/day, 8/min; key in TWELVEDATA_API_KEY). Keeps a local copy, so daily runs download only the last bars and replays of past dates need no network.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    apiKeyEnv: z.string().default("TWELVEDATA_API_KEY"),
+    /** Ticker -> Twelve Data symbol when they differ. */
+    symbols: z.record(z.string(), z.string()).default({}),
+    historyBars: z.number().int().min(300).max(5000).default(1000),
+    perMinute: z.number().positive().default(8),
+    /** Use the local copy when a download fails, if its last bar is at most this many days old. */
+    maxStaleDays: z.number().int().min(0).default(5),
+  }),
+  inputs: {},
+  outputs: { prices: { type: "Prices" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const store = s.priceStore;
+    const SRC = "twelvedata";
+    let client: TwelveDataClient | undefined;
+    const api = () => {
+      if (client) return client;
+      const key = s.env[p.apiKeyEnv];
+      if (!key) throw new TwelveDataAuthError(`${p.apiKeyEnv} is not set (get a free key at twelvedata.com and put it in .env)`);
+      return (client = new TwelveDataClient({ apiKey: key, perMinute: p.perMinute, fetchImpl: s.fetch, sleep: s.sleep }));
+    };
+    const prices: Prices = {};
+    const counts = { cached: 0, update: 0, full: 0, stale: 0, failed: 0 };
+    for (const t of universe(ctx)) {
+      const sym = p.symbols[t] ?? t;
+      let bars: Bar[];
+      if (isCovered(store, SRC, t, ctx.asOf)) {
+        bars = store.bars(SRC, t);
+        counts.cached++;
+      } else {
+        try {
+          const r = await syncBars(store, api(), SRC, t, sym, ctx.wallNow(), { historyBars: p.historyBars });
+          bars = r.bars;
+          counts[r.fetch === "full" ? "full" : "update"]++;
+        } catch (e) {
+          if (e instanceof TwelveDataAuthError) throw e; // every other ticker would fail the same way
+          const msg = e instanceof Error ? e.message : String(e);
+          bars = store.bars(SRC, t).filter((b) => b.date <= ctx.asOf);
+          const last = bars.at(-1)?.date;
+          if (last && last >= addDays(ctx.asOf, -p.maxStaleDays)) {
+            counts.stale++;
+            ctx.log(`${sym}: download failed, using local copy through ${last}: ${msg}`);
+          } else {
+            counts.failed++;
+            ctx.log(`${sym}: download failed and no recent local copy: ${msg}`);
+            continue;
+          }
+        }
+      }
+      const until = barsUntil(bars, ctx.asOf);
+      if (until.length) prices[t] = until;
+    }
+    for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
+    if (!Object.keys(prices).length) throw new Error("no price data from Twelve Data");
     return { prices };
   },
 });

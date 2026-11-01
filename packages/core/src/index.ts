@@ -14,3 +14,4 @@ export type { OrderTicket } from "./execution/broker.ts";
 export type { Proposal } from "./strategy/portfolio.ts";
 export { today, toIsoDate, type IsoDate } from "./util/dates.ts";
 export { loadDotEnv } from "./util/env.ts";
+export { KNOWN_SETTINGS, SettingsStore, settingDefs, type SettingDef, type SettingSource, type SettingStatus } from "./util/settings.ts";

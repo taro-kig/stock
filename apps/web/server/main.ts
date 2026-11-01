@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { builtinRegistry, loadConfig, loadDotEnv, Services } from "@stockai/core";
+import { builtinRegistry, loadConfig, loadDotEnv, Services, SettingsStore } from "@stockai/core";
 
-for (const w of loadDotEnv().warnings) console.error(`warning: ${w}`);
+const dotenv = loadDotEnv();
+for (const w of dotenv.warnings) console.error(`warning: ${w}`);
 import { createApp } from "./app.ts";
 
 const { values: opt } = parseArgs({
@@ -28,7 +29,10 @@ if (opt.host !== "127.0.0.1" && opt.host !== "localhost" && !token) {
   process.exit(1);
 }
 
-const services = new Services(loadConfig(configPath), { fake: opt.fake });
+const config = loadConfig(configPath);
+// API keys entered on the settings screen (shell > settings > .env); changes apply without a restart.
+const settings = new SettingsStore({ path: join(config.dataDir, "settings.sqlite"), shellKeys: dotenv.shellKeys });
+const services = new Services(config, { fake: opt.fake, settings });
 const app = createApp({
   services, registry: builtinRegistry(), workflowsDir: opt.workflows,
   staticDir: join(import.meta.dirname, "..", "dist"),

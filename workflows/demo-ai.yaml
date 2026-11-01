@@ -9,7 +9,7 @@ nodes:
   history:    { use: signal.eventHistory, in: { today: extract }, ui: { x: 1040, y: 0 } }
   eventScore: { use: signal.eventScores, in: { events: history }, ui: { x: 1300, y: 0 } }
   # ── prices & factors (no LLM) ────────────────────────────────
-  prices:     { use: data.pricesSynthetic, params: { seed: 6 }, ui: { x: 0, y: 220 } }
+  prices:     { use: data.pricesSynthetic, params: { seed: 1 }, ui: { x: 0, y: 220 } }
   factors:    { use: signal.factors, in: { prices: prices }, ui: { x: 260, y: 220 } }
   score:      { use: signal.score, in: { factors: factors, events: eventScore }, ui: { x: 1560, y: 110 } }
   account:    { use: portfolio.account, in: { prices: prices }, ui: { x: 260, y: 440 } }
