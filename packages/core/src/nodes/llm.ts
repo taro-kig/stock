@@ -2,7 +2,6 @@ import { z } from "zod";
 import { BudgetExceeded } from "../harness/budget.ts";
 import { EventExtractor } from "../signals/extractor.ts";
 import { docHash, type EventRecord } from "../signals/models.ts";
-import { EVENT_PROMPT_VERSION } from "../signals/prompts.ts";
 import { defineNode } from "../workflow/registry.ts";
 
 export const extractEvents = defineNode({
@@ -19,16 +18,17 @@ export const extractEvents = defineNode({
   fallback: () => ({ events: [] }),
   async run(ctx, p, i) {
     const s = ctx.services;
-    const extractor = new EventExtractor(s.caller, s.tier1(), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.tier2() });
+    const version = s.config.prompts.event;
+    const extractor = new EventExtractor(s.caller, s.tier1(), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.tier2(), promptVersion: version });
     const events: EventRecord[] = [];
     for (const { doc, candidates } of i.matches) {
       s.docStore.saveDocument(doc);
-      let res = s.docStore.getExtraction(doc, EVENT_PROMPT_VERSION);
+      let res = s.docStore.getExtraction(doc, version);
       if (res) ctx.metric("alreadyExtracted", 1);
       else {
         try {
           const r = await extractor.extract({ doc, candidates, priority: new Set() });
-          s.docStore.saveExtraction(doc, EVENT_PROMPT_VERSION, r);
+          s.docStore.saveExtraction(doc, version, r);
           ctx.metric(`status_${r.status}`, 1);
           ctx.metric("rejectedVotes", r.votes.filter((v) => v.rejected).length);
           res = { status: r.status, agreement: r.agreement, value: r.value };

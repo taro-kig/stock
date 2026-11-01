@@ -5,6 +5,12 @@ import { loadConfig } from "../config.ts";
 import type { Scorecard } from "../eval/scorecard.ts";
 import type { OrderTicket } from "../execution/broker.ts";
 import { WebullClient } from "../execution/webull.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { JUDGE_PROMPT_VERSIONS, type JudgePromptVersion } from "../ai/prompts.ts";
+import { loadEventSet, loadJudgeSet } from "../eval/golden.ts";
+import { evalEvents, evalJudge, type EvalReport } from "../eval/promptEval.ts";
+import { EVENT_PROMPT_VERSIONS, type EventPromptVersion } from "../signals/prompts.ts";
 import type { AccountState, Fill } from "../execution/paper.ts";
 import { builtinRegistry } from "../nodes/index.ts";
 import { Services } from "../services.ts";
@@ -28,6 +34,9 @@ Usage:
   stockai runs [--limit N] [--workflow NAME]     recent runs
   stockai show <runId> [--json]                  node table + key outputs
   stockai events <runId>                         run event log (JSON lines)
+  stockai eval events [--versions event-v1,event-v2] [--models a,b] [--ensemble] [--set PATH] [--budget USD]
+  stockai eval judge  [--versions judge-v1,judge-v2] [--models a,b] [--set PATH] [--budget USD]
+                                                 score prompts/models on a golden set (report saved under data/evals)
   stockai webull auth [--wait SECONDS]           approve API access in the Webull app (2FA)
   stockai webull check                           read-only: accounts, cash, positions
 
@@ -50,6 +59,11 @@ const { values: opt, positionals } = parseArgs({
     limit: { type: "string", default: "20" },
     workflow: { type: "string" },
     wait: { type: "string", default: "300" },
+    versions: { type: "string" },
+    models: { type: "string" },
+    ensemble: { type: "boolean", default: false },
+    set: { type: "string" },
+    budget: { type: "string", default: "0.5" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -231,6 +245,69 @@ async function cmdRun(file: string): Promise<void> {
   if (r.status === "failed") process.exitCode = 1;
 }
 
+function printEval(r: EvalReport): void {
+  const pc = (x: number) => pct(x, 0);
+  console.log(`${c.bold(`eval ${r.task}`)}  set ${r.set}  ${r.reviewedShare < 1 ? c.yellow(`labels reviewed ${pc(r.reviewedShare)} (draft)`) : c.green("labels reviewed")}`);
+  if (r.stoppedByBudget) console.log(c.red("stopped: eval budget reached (--budget)"));
+  const fieldCols = r.task === "events" ? ["relevant", "eventType", "direction", "materiality", "tickers"] : [];
+  console.log(
+    table(
+      ["version", "model", "n", "schema ok", "accepted", "correct", "accuracy", ...fieldCols, ...(r.task === "judge" ? ["bull/bear/neu/abs", "misread"] : []), "cost", "tokens in/out"],
+      r.rows.map((x) => [
+        x.version, x.model, String(x.n), pc(x.schemaOk / x.n), pc(x.accepted / x.n), String(x.correct), c.bold(pc(x.accuracy)),
+        ...fieldCols.map((f) => (x.fields[f]?.total ? pc(x.fields[f]!.right / x.fields[f]!.total) : "—")),
+        ...(r.task === "judge" ? [`${x.extra?.["bullish"] ?? 0}/${x.extra?.["bearish"] ?? 0}/${x.extra?.["neutral"] ?? 0}/${x.extra?.["abstain"] ?? 0}`, String(x.extra?.["misread"] ?? 0)] : []),
+        `$${x.costUsd.toFixed(4)}`, `${x.inputTokens}/${x.outputTokens}`,
+      ]),
+      { right: [2, 3, 4, 5, 6] },
+    ),
+  );
+  if (r.ensemble.length) {
+    console.log(c.bold("\nensemble (what production would accept)"));
+    console.log(table(["version", "members", "coverage", "precision", "accepted", "correct", "cost"], r.ensemble.map((e) => [e.version, e.members, pc(e.coverage), c.bold(pc(e.precision)), String(e.accepted), String(e.correctAccepted), `$${e.costUsd.toFixed(4)}`]), { right: [2, 3, 4, 5] }));
+  }
+  for (const x of r.rows) {
+    if (!x.failures.length) continue;
+    console.log(c.dim(`\n${x.version} ${x.model} — misses (${x.failures.length})`));
+    for (const f of x.failures.slice(0, 8)) console.log(`  ${f.id}: ${c.dim(f.reason.slice(0, 140))}`);
+  }
+}
+
+async function cmdEval(task: string): Promise<void> {
+  if (task !== "events" && task !== "judge") throw new Error("usage: stockai eval events|judge");
+  const s = services();
+  const pick = <T extends string>(all: readonly T[], csv: string | undefined, fallback: T[]): T[] => {
+    if (!csv) return fallback;
+    const want = csv.split(",").map((x) => x.trim()).filter(Boolean);
+    const bad = want.filter((w) => !all.includes(w as T));
+    if (bad.length) throw new Error(`unknown version(s) ${bad.join(", ")} (have: ${all.join(", ")})`);
+    return want as T[];
+  };
+  const all = s.allModels();
+  const names = opt.models?.split(",").map((x) => x.trim()) ?? null;
+  const models = names ? all.filter((m) => names.includes(m.name)) : all;
+  if (!models.length) throw new Error(`no models matched ${opt.models} (have: ${all.map((m) => m.name).join(", ")})`);
+  const common = {
+    models, pricing: s.fake ? Object.fromEntries(models.map((m) => [m.model, [0, 0] as const])) : s.config.pricing,
+    budgetUsd: Number(opt.budget), maxRetries: s.config.harness.maxRetries,
+    onProgress: (m: string) => process.stderr.isTTY && process.stderr.write(`\r\x1b[2K${c.dim(m)}`),
+  };
+  const report = task === "events"
+    ? await evalEvents(loadEventSet(opt.set ?? "examples/golden/events.yaml"), pick<EventPromptVersion>(EVENT_PROMPT_VERSIONS, opt.versions, [...EVENT_PROMPT_VERSIONS]), {
+        ...common,
+        ensemble: opt.ensemble ? { members: s.tier1(), quorum: s.config.harness.quorum, escalation: s.tier2() } : undefined,
+      })
+    : await evalJudge(loadJudgeSet(opt.set ?? "examples/golden/judge.yaml"), pick<JudgePromptVersion>(JUDGE_PROMPT_VERSIONS, opt.versions, [...JUDGE_PROMPT_VERSIONS]), common);
+  if (process.stderr.isTTY) process.stderr.write("\r\x1b[2K");
+  const dir = join(s.config.dataDir, "evals");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${report.createdAt.replace(/[-:.]/g, "").slice(0, 15)}-${task}.json`);
+  writeFileSync(file, JSON.stringify(report, null, 2));
+  if (opt.json) return void console.log(JSON.stringify(report, null, 2));
+  printEval(report);
+  console.log(c.dim(`\nreport: ${file}`));
+}
+
 async function main(): Promise<void> {
   const [cmd, ...args] = positionals;
   if (!cmd || opt.help) return void console.log(HELP);
@@ -299,6 +376,8 @@ async function main(): Promise<void> {
     case "events":
       for (const e of services().runStore.events(args[0] ?? "")) console.log(JSON.stringify(e));
       return;
+    case "eval":
+      return cmdEval(args[0] ?? "");
     case "webull": {
       const s = services();
       if (!s.config.webull) throw new Error("config.webull is not set (see docs/webull.md)");

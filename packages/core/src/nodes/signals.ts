@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { eventScores } from "../signals/aggregate.ts";
 import type { EventRecord } from "../signals/models.ts";
-import { EVENT_PROMPT_VERSION } from "../signals/prompts.ts";
 import { computeFactors } from "../strategy/factors.ts";
 import { compositeScore, DEFAULT_WEIGHTS } from "../strategy/scoring.ts";
 import { defineNode } from "../workflow/registry.ts";
@@ -19,7 +18,7 @@ export const eventHistory = defineNode({
   async run(ctx, p, i) {
     const since = new Date(ctx.now.getTime() - p.lookbackDays * 86_400_000);
     const byHash = new Map<string, EventRecord>();
-    for (const e of [...ctx.services.docStore.acceptedEvents(since, ctx.now, EVENT_PROMPT_VERSION), ...(i.today ?? [])]) {
+    for (const e of [...ctx.services.docStore.acceptedEvents(since, ctx.now, ctx.services.config.prompts.event), ...(i.today ?? [])]) {
       if (new Date(e.learnedAt) <= ctx.now) byHash.set(e.docHash, e);
     }
     return { events: [...byHash.values()].sort((a, b) => a.learnedAt.localeCompare(b.learnedAt)) };
@@ -45,8 +44,8 @@ export const factorsNode = defineNode({
   type: "signal.factors",
   title: "Price factors",
   category: "signal",
-  description: "Momentum 12-1, relative strength, trend, ATR and volatility per ticker. No LLM.",
-  version: 1,
+  description: "Momentum 12-1, relative strength, trend, ATR, volatility, 20-day return and distance from the 52-week high per ticker. No LLM.",
+  version: 2, // v2: ret20, fromHigh52
   cache: "daily",
   params: z.object({ benchmark: z.string().optional(), relDays: z.number().int().positive().default(126) }),
   inputs: { prices: { type: "Prices" } },

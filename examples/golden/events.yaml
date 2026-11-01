@@ -1,0 +1,408 @@
+# Golden set for event extraction (stockai eval events).
+#
+# DRAFT: written by the assistant with fictional companies (codes X1xx are not real
+# tickers) so models cannot answer from memory. Every case is `reviewed: false` until a
+# human checks the label. Labels list every acceptable value. Add real TDnet / news
+# documents over time (keep fictional ones too: they are leakage-free).
+name: events-draft-v1
+description: 業績予想修正・決算・資本政策・M&A・不祥事・ノイズ記事など 40 件（架空企業）
+cases:
+  # ── 業績予想の修正 ─────────────────────────────────────────────
+  - id: guid-up-large
+    note: 通期営業利益 +20% の上方修正（適時開示）
+    candidates: { X101: 架空精機 }
+    doc:
+      source: tdnet
+      title: 架空精機、通期業績予想の上方修正に関するお知らせ
+      body: |
+        当社は、最近の業績動向を踏まえ、2026年5月14日に公表した通期業績予想を下記のとおり修正いたします。
+        営業利益は前回発表予想の50億円から60億円（前回比20.0%増）に、経常利益は52億円から63億円に修正いたします。
+        半導体製造装置向け部品の受注が想定を上回って推移したことが主な要因です。
+    expect: { relevant: true, tickers: [X101], eventType: [guidance_up], direction: [2], materiality: [3], horizon: [months] }
+
+  - id: guid-up-small
+    note: +4% の小幅上方修正
+    candidates: { X102: 架空食品 }
+    doc:
+      source: tdnet
+      title: 業績予想の修正に関するお知らせ（架空食品）
+      body: |
+        2027年3月期の通期連結業績予想を修正いたします。売上高は1,200億円から1,230億円へ、
+        営業利益は75億円から78億円（前回予想比4.0%増）へ修正いたします。原材料価格の落ち着きによるものです。
+    expect: { relevant: true, tickers: [X102], eventType: [guidance_up], direction: [1], materiality: [2, 3], horizon: [weeks, months] }
+
+  - id: guid-down-large
+    note: 営業利益 -30% の下方修正
+    candidates: { X103: 架空化学 }
+    doc:
+      source: tdnet
+      title: 架空化学、通期業績予想の下方修正
+      body: |
+        中国向け汎用樹脂の市況悪化により、通期の営業利益予想を前回予想の200億円から140億円（30.0%減）に引き下げます。
+        あわせて期末配当予想は据え置きといたします。
+    expect: { relevant: true, tickers: [X103], eventType: [guidance_down], direction: [-2], materiality: [3], horizon: [months] }
+
+  - id: guid-mixed-sales-up-profit-down
+    note: 売上は上方、営業利益は下方 → 利益の向きで判断
+    candidates: { X104: 架空建設 }
+    doc:
+      source: tdnet
+      title: 業績予想の修正に関するお知らせ（架空建設）
+      body: |
+        受注の増加により売上高予想を3,000億円から3,200億円に引き上げる一方、資材高と労務費の上昇により
+        営業利益予想は180億円から150億円（16.7%減）に引き下げます。
+    expect: { relevant: true, tickers: [X104], eventType: [guidance_down], direction: [-1, -2], materiality: [2, 3], horizon: [months] }
+
+  - id: guid-title-only-numbers
+    note: タイトルからは向きが分からない。数字を読む必要がある
+    candidates: { X105: 架空ソフト }
+    doc:
+      source: tdnet
+      title: 業績予想の修正に関するお知らせ
+      body: |
+        架空ソフト株式会社は、2026年12月期の業績予想を修正いたしました。
+        営業利益 前回発表予想 80億円、今回修正予想 95億円、増減率 18.8%。クラウド事業の解約率改善が寄与しました。
+    expect: { relevant: true, tickers: [X105], eventType: [guidance_up], direction: [1, 2], materiality: [3], horizon: [months] }
+
+  - id: tanshin-with-raise
+    note: 決算短信で増益かつ通期上方修正（どちらの型も可）
+    candidates: { X106: 架空機械 }
+    doc:
+      source: tdnet
+      title: 2027年3月期 第2四半期決算短信〔日本基準〕（連結）
+      body: |
+        当第2四半期累計期間の経常利益は前年同期比35.2%増の88億円となりました。
+        好調な受注を踏まえ、通期の経常利益予想を150億円から170億円に上方修正いたします。
+    expect: { relevant: true, tickers: [X106], eventType: [guidance_up, earnings_beat], direction: [1, 2], materiality: [3], horizon: [months] }
+
+  - id: guidance-maintained
+    note: 予想どおりで通期据え置き（材料性は乏しい）
+    candidates: { X107: 架空薬品 }
+    doc:
+      source: news
+      title: 架空薬品、上期は計画通り　通期予想は据え置き
+      body: 架空薬品の上期決算は会社計画通りの着地となった。通期の業績予想は据え置いた。
+    expect: { relevant: [false, true], direction: [0], materiality: [0, 1] }
+
+  # ── 決算 ─────────────────────────────────────────────────────
+  - id: earn-beat-consensus
+    note: 市場予想を上回る
+    candidates: { X108: 架空電子 }
+    doc:
+      source: news
+      title: 架空電子の4〜6月期、営業益42%増　市場予想上回る
+      body: |
+        架空電子が発表した2026年4〜6月期の連結営業利益は前年同期比42%増の130億円だった。
+        QUICK・ファクトセットがまとめたアナリスト予想の平均（105億円）を上回った。データセンター向け部品が伸びた。
+    expect: { relevant: true, tickers: [X108], eventType: [earnings_beat], direction: [1, 2], materiality: [2, 3] }
+
+  - id: earn-miss-plan
+    note: 会社計画に届かず
+    candidates: { X109: 架空アパレル }
+    doc:
+      source: news
+      title: 架空アパレル、上期営業益が計画未達
+      body: |
+        架空アパレルの上期の営業利益は38億円と、会社計画の50億円を下回った。暖冬で秋冬物の販売が振るわなかった。
+    expect: { relevant: true, tickers: [X109], eventType: [earnings_miss], direction: [-1, -2], materiality: [2, 3] }
+
+  - id: earn-yoy-only
+    note: 前年比の増益のみ（予想との比較なし）→ 重要度は 1 まで
+    candidates: { X110: 架空運輸 }
+    doc:
+      source: news
+      title: 架空運輸、4〜9月期は純利益5%増
+      body: 架空運輸の4〜9月期の純利益は前年同期比5%増の21億円だった。運賃改定が寄与した。
+    expect: { relevant: [true, false], eventType: [earnings_beat], direction: [0, 1], materiality: [0, 1] }
+
+  # ── 株主還元・資本政策 ──────────────────────────────────────────
+  - id: buyback-large
+    note: 発行済株式の3.5%の自社株買い
+    candidates: { X111: 架空商事 }
+    doc:
+      source: tdnet
+      title: 自己株式取得に係る事項の決定に関するお知らせ
+      body: |
+        架空商事は、取得し得る株式の総数を700万株（発行済株式総数（自己株式を除く）に対する割合3.5%）、
+        取得価額の総額を300億円とする自己株式の取得を決議いたしました。取得期間は2026年11月から2027年3月です。
+    expect: { relevant: true, tickers: [X111], eventType: [shareholder_return], direction: [1, 2], materiality: [2, 3] }
+
+  - id: dividend-increase
+    note: 増配
+    candidates: { X112: 架空銀行 }
+    doc:
+      source: tdnet
+      title: 剰余金の配当（増配）に関するお知らせ
+      body: 架空銀行は、期末配当を前回予想の1株当たり30円から35円に増額することを決定いたしました。年間配当は65円となります。
+    expect: { relevant: true, tickers: [X112], eventType: [shareholder_return], direction: [1], materiality: [1, 2] }
+
+  - id: dividend-cut-to-zero
+    note: 無配転落
+    candidates: { X113: 架空海運 }
+    doc:
+      source: tdnet
+      title: 配当予想の修正（無配）に関するお知らせ
+      body: 業績の急激な悪化を踏まえ、当期の期末配当予想を1株当たり40円から無配に修正いたします。
+    expect: { relevant: true, tickers: [X113], eventType: [dividend_cut], direction: [-1, -2], materiality: [2, 3] }
+
+  - id: public-offering
+    note: 発行済株式の15%の公募増資
+    candidates: { X114: 架空不動産 }
+    doc:
+      source: tdnet
+      title: 新株式発行及び株式売出しに関するお知らせ
+      body: |
+        架空不動産は、公募による新株式発行2,000万株（発行済株式総数の15.0%）を決議いたしました。
+        調達資金は物件取得に充当する予定です。
+    expect: { relevant: true, tickers: [X114], eventType: [dilution], direction: [-1, -2], materiality: [2, 3] }
+
+  - id: ms-warrant
+    note: MSワラント
+    candidates: { X115: 架空バイオ }
+    doc:
+      source: tdnet
+      title: 第三者割当による第5回新株予約権（行使価額修正条項付）の発行に関するお知らせ
+      body: 架空バイオは、行使価額修正条項付新株予約権の発行を決議いたしました。潜在株式数は1,200万株（希薄化率22.0%）です。
+    expect: { relevant: true, tickers: [X115], eventType: [dilution], direction: [-1, -2], materiality: [2, 3] }
+
+  - id: stock-split
+    note: 株式分割（型は other / shareholder_return どちらも可）
+    candidates: { X116: 架空ゲームス }
+    doc:
+      source: tdnet
+      title: 株式分割及び定款の一部変更に関するお知らせ
+      body: 架空ゲームスは、2027年1月1日を効力発生日として、普通株式1株につき3株の割合で株式分割を行います。
+    expect: { relevant: true, tickers: [X116], eventType: [other, shareholder_return], direction: [0, 1], materiality: [1, 2] }
+
+  # ── M&A ─────────────────────────────────────────────────────
+  - id: tob-target-premium
+    note: TOB の対象会社（プレミアム約40%）
+    candidates: { X117: 架空部品 }
+    doc:
+      source: tdnet
+      title: 架空ホールディングスによる当社株式に対する公開買付けに関する意見表明のお知らせ
+      body: |
+        当社は、架空ホールディングスによる当社株式に対する公開買付けに賛同の意見を表明いたします。
+        公開買付価格は1株2,800円で、前営業日終値に対するプレミアムは40.3%です。
+    expect: { relevant: true, tickers: [X117], eventType: [m_and_a], direction: [2], materiality: [3], horizon: [weeks, months] }
+
+  - id: tob-acquirer-side
+    note: 買う側（評価は文書次第。ここでは中立〜小幅）
+    candidates: { X118: 架空ホールディングス }
+    doc:
+      source: news
+      title: 架空ホールディングス、部品メーカーを1000億円で買収へ
+      body: 架空ホールディングスは部品メーカーの架空部品を約1000億円で買収すると発表した。手元資金と借入金で賄う。
+    expect: { relevant: true, tickers: [X118], eventType: [m_and_a], direction: [-1, 0, 1], materiality: [2, 3] }
+
+  - id: tob-rumor
+    note: 観測報道（未確定）
+    candidates: { X119: 架空通信 }
+    doc:
+      source: news
+      title: 架空通信に買収提案か　海外ファンドが検討と報道
+      body: 複数の関係者によると、海外の投資ファンドが架空通信に対する株式公開買付け（TOB）を検討している。買付価格は時価を上回る水準になる見通しだという。
+    expect: { relevant: true, tickers: [X119], eventType: [m_and_a], direction: [1, 2], materiality: [2, 3] }
+
+  - id: mbo-delisting
+    note: MBO による上場廃止（プレミアムあり）
+    candidates: { X120: 架空印刷 }
+    doc:
+      source: tdnet
+      title: MBOの実施及び応募の推奨に関するお知らせ
+      body: 当社経営陣によるマネジメント・バイアウトのための公開買付けを実施いたします。買付価格は1株1,500円（直近株価に対し35%のプレミアム）で、成立後は上場廃止となる予定です。
+    expect: { relevant: true, tickers: [X120], eventType: [m_and_a], direction: [2], materiality: [3] }
+
+  - id: alliance-two-candidates
+    note: 候補2社の資本業務提携
+    candidates: { X121: 架空自動車, X122: 架空電池 }
+    doc:
+      source: news
+      title: 架空自動車と架空電池が資本業務提携　次世代電池を共同開発
+      body: 架空自動車は架空電池の株式5%を取得し、資本業務提携を結ぶ。全固体電池を共同で開発し、2029年の実用化を目指す。
+    expect: { relevant: true, tickers: [X121, X122], eventType: [m_and_a, product_business], direction: [0, 1], materiality: [1, 2, 3] }
+
+  # ── アナリスト ───────────────────────────────────────────────
+  - id: analyst-upgrade
+    note: 格上げ・目標株価引き上げ
+    candidates: { X123: 架空ゴム }
+    doc:
+      source: news
+      title: 架空証券、架空ゴムを「買い」に格上げ
+      body: 架空証券は架空ゴムの投資判断を「中立」から「買い」に引き上げた。目標株価は1,800円から2,400円に引き上げた。
+    expect: { relevant: true, tickers: [X123], eventType: [analyst_upgrade], direction: [1], materiality: [1, 2], horizon: [days, weeks] }
+
+  - id: analyst-downgrade-en
+    note: 英語記事の格下げ
+    candidates: { X124: Fictional Robotics }
+    doc:
+      source: news-en
+      title: Broker cuts Fictional Robotics to Underweight on slowing orders
+      body: Sample Securities downgraded Fictional Robotics to Underweight from Neutral and lowered its price target to 3,100 yen, citing slowing factory automation orders in China.
+    expect: { relevant: true, tickers: [X124], eventType: [analyst_downgrade], direction: [-1], materiality: [1, 2], horizon: [days, weeks] }
+
+  - id: guidance-up-en
+    note: 英語記事の上方修正（+12%）
+    candidates: { X125: Fictional Optics }
+    doc:
+      source: news-en
+      title: Fictional Optics raises full-year profit forecast on camera module demand
+      body: Fictional Optics raised its full-year operating profit forecast to 56 billion yen from 50 billion yen, a 12% increase, citing strong demand for smartphone camera modules.
+    expect: { relevant: true, tickers: [X125], eventType: [guidance_up], direction: [1, 2], materiality: [3] }
+
+  # ── 事業 ─────────────────────────────────────────────────────
+  - id: large-order
+    note: 年間売上の8%に当たる大型受注
+    candidates: { X126: 架空重工 }
+    doc:
+      source: tdnet
+      title: 大型案件の受注に関するお知らせ
+      body: 当社は、海外電力会社よりガスタービン設備一式を受注いたしました。受注金額は約400億円で、前期連結売上高の8.1%に相当します。
+    expect: { relevant: true, tickers: [X126], eventType: [product_business], direction: [1, 2], materiality: [2] }
+
+  - id: new-product-minor
+    note: 小さな新製品の発表
+    candidates: { X127: 架空雑貨 }
+    doc:
+      source: pr
+      title: 架空雑貨、秋の新作マグカップを発売
+      body: 架空雑貨は秋の新作マグカップ3種類を全国の店舗で発売する。価格は1,200円から。
+    expect: { relevant: [true, false], eventType: [product_business], direction: [0, 1], materiality: [0, 1] }
+
+  # ── 法務・規制・不祥事 ─────────────────────────────────────────
+  - id: recall-large
+    note: 大規模リコール
+    candidates: { X128: 架空モーター }
+    doc:
+      source: news
+      title: 架空モーター、120万台をリコール　ブレーキ部品に不具合
+      body: 架空モーターは国土交通省にリコールを届け出た。対象は国内外で約120万台。対策費用は約600億円を見込み、通期業績への影響を精査している。
+    expect: { relevant: true, tickers: [X128], eventType: [legal_regulatory], direction: [-1, -2], materiality: [2, 3] }
+
+  - id: lawsuit-minor
+    note: 小規模な訴訟（請求額は売上の0.1%）
+    candidates: { X129: 架空システム }
+    doc:
+      source: tdnet
+      title: 訴訟の提起に関するお知らせ
+      body: 当社は、取引先から損害賠償請求訴訟（請求額2億円）を提起されました。当社の主張の正当性を訴訟で明らかにしてまいります。なお、請求額は当社連結売上高の0.1%に相当します。
+    expect: { relevant: [true, false], eventType: [legal_regulatory], direction: [-1, 0], materiality: [0, 1] }
+
+  - id: admin-order
+    note: 業務改善命令
+    candidates: { X130: 架空証券 }
+    doc:
+      source: news
+      title: 金融庁、架空証券に業務改善命令　不適切な勧誘で
+      body: 金融庁は架空証券に業務改善命令を出した。高齢顧客への不適切な勧誘が組織的に行われていたと認定した。
+    expect: { relevant: true, tickers: [X130], eventType: [legal_regulatory, scandal], direction: [-1, -2], materiality: [2, 3] }
+
+  - id: accounting-fraud
+    note: 不適切会計の疑い
+    candidates: { X131: 架空商社 }
+    doc:
+      source: tdnet
+      title: 特別調査委員会の設置及び決算発表の延期に関するお知らせ
+      body: 当社の海外子会社において不適切な会計処理が行われていた疑いが判明したため、外部の専門家による特別調査委員会を設置いたします。これに伴い、第2四半期決算の発表を延期いたします。
+    expect: { relevant: true, tickers: [X131], eventType: [scandal], direction: [-2], materiality: [3] }
+
+  - id: cyberattack
+    note: ランサムウェア被害（型は複数可）
+    candidates: { X132: 架空物流 }
+    doc:
+      source: news
+      title: 架空物流にサイバー攻撃　出荷システムが停止
+      body: 架空物流はランサムウェアによるサイバー攻撃を受け、出荷管理システムが停止したと発表した。復旧の見通しは立っていない。
+    expect: { relevant: true, tickers: [X132], eventType: [legal_regulatory, scandal, other, product_business], direction: [-1, -2], materiality: [1, 2, 3] }
+
+  - id: rumor-denial
+    note: 報道に対する会社の否定コメント
+    candidates: { X133: 架空製薬 }
+    doc:
+      source: tdnet
+      title: 一部報道について
+      body: 本日、一部報道機関において当社の事業売却に関する報道がありましたが、当社が発表したものではなく、現時点で決定した事実はありません。
+    expect: { relevant: [false, true], direction: [0, -1], materiality: [0, 1] }
+
+  # ── 経営・マクロ ─────────────────────────────────────────────
+  - id: ceo-change
+    note: 社長交代
+    candidates: { X134: 架空百貨店 }
+    doc:
+      source: tdnet
+      title: 代表取締役の異動に関するお知らせ
+      body: 当社は、代表取締役社長の架空一郎が退任し、後任に専務執行役員の架空次郎が就任する人事を決定いたしました。
+    expect: { relevant: true, tickers: [X134], eventType: [management], direction: [-1, 0, 1], materiality: [1, 2] }
+
+  - id: macro-yen
+    note: 業界全体の要因（円安）
+    candidates: { X135: 架空自動車工業 }
+    doc:
+      source: news
+      title: 円安進行、輸出企業に追い風　自動車各社の想定レート上回る
+      body: 外国為替市場で円安が進み、1ドル=158円台をつけた。架空自動車工業など自動車各社は想定為替レートを145円としており、円安が収益の押し上げ要因となる。
+    expect: { relevant: [true, false], eventType: [macro_sector], direction: [0, 1], materiality: [1, 2] }
+
+  # ── ノイズ・無関係 ─────────────────────────────────────────────
+  - id: price-move-only
+    note: 株価が動いたことだけの記事
+    candidates: { X136: 架空半導体 }
+    doc:
+      source: news
+      title: 架空半導体が年初来高値　半導体株に買い
+      body: 東京株式市場で架空半導体が続伸し、年初来高値を更新した。半導体関連株に幅広く買いが入った。
+    expect: { relevant: [false, true], materiality: [0, 1] }
+
+  - id: ranking-article
+    note: ランキング・まとめ記事で触れられただけ
+    candidates: { X137: 架空電力 }
+    doc:
+      source: blog
+      title: 【2026年版】高配当株ランキングTOP20
+      body: 配当利回りの高い銘柄を20社紹介します。第7位は架空電力（利回り4.1%）。安定した配当が魅力です。
+    expect: { relevant: [false, true], materiality: [0, 1] }
+
+  - id: similar-name-other-company
+    note: 社名の一部が同じ別会社（候補銘柄ではない）
+    candidates: { X138: 架空工業 }
+    doc:
+      source: news
+      title: 架空工業ロジスティクス、物流センターを新設
+      body: 架空工業ロジスティクス（本社・大阪、非上場）は、埼玉県に新しい物流センターを開設すると発表した。同社は架空工業とは資本関係のない独立した企業である。
+    expect: { relevant: false }
+
+  - id: competitor-main-subject
+    note: 主体は競合、候補はついでに言及
+    candidates: { X139: 架空家電 }
+    doc:
+      source: news
+      title: 競合の架空エレクトロ、白物家電で値下げ攻勢
+      body: 架空エレクトロ（非上場）は冷蔵庫と洗濯機の価格を最大20%引き下げる。業界では架空家電などとの価格競争が激しくなるとの見方がある。
+    expect: { relevant: [false, true], direction: [0, -1], materiality: [0, 1] }
+
+  - id: naming-rights-event
+    note: 施設名に社名が入っているだけ
+    candidates: { X140: 架空物産 }
+    doc:
+      source: news
+      title: 架空物産スタジアムで週末に音楽フェス
+      body: 架空物産スタジアムで今週末、野外音楽フェスティバルが開かれる。2日間で約3万人の来場を見込む。
+    expect: { relevant: false }
+
+  - id: guidance-up-subsidiary-only
+    note: 上場子会社の上方修正。候補は親会社（影響は小さい）
+    candidates: { X141: 架空グループ }
+    doc:
+      source: news
+      title: 架空グループ傘下の架空テック、営業益予想を上方修正
+      body: 架空グループの上場子会社である架空テックは、通期の営業利益予想を30億円から36億円に引き上げた。架空グループの連結営業利益は約2,000億円。
+    expect: { relevant: [true, false], direction: [0, 1], materiality: [0, 1] }
+
+  - id: impairment-net-only
+    note: 減損で純利益のみ下方（営業利益は据え置き）
+    candidates: { X142: 架空ホテル }
+    doc:
+      source: tdnet
+      title: 特別損失の計上及び通期業績予想の修正に関するお知らせ
+      body: 一部ホテルの減損損失80億円を特別損失に計上するため、親会社株主に帰属する当期純利益の予想を120億円から60億円に修正いたします。なお、営業利益予想（150億円）に変更はありません。
+    expect: { relevant: true, tickers: [X142], eventType: [guidance_down, other], direction: [-1, 0], materiality: [1, 2, 3] }

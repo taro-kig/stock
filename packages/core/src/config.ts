@@ -3,7 +3,9 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { IbkrConfig } from "./execution/ibkr.ts";
 import { WebullConfig } from "./execution/webull.ts";
+import { JUDGE_PROMPT_VERSIONS, RED_TEAM_PROMPT_VERSIONS, type JudgePromptVersion, type RedTeamPromptVersion } from "./ai/prompts.ts";
 import { ModelSpec } from "./llm/factory.ts";
+import { EVENT_PROMPT_VERSIONS, type EventPromptVersion } from "./signals/prompts.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
 export const AppConfig = z.strictObject({
@@ -28,6 +30,14 @@ export const AppConfig = z.strictObject({
       redTeam: ModelSpec.optional(),
     })
     .optional(),
+  /** Prompt versions in use. Compare candidates with `stockai eval` before switching. */
+  prompts: z
+    .strictObject({
+      event: z.enum(EVENT_PROMPT_VERSIONS as [EventPromptVersion, ...EventPromptVersion[]]).default("event-v1"),
+      judge: z.enum(JUDGE_PROMPT_VERSIONS as [JudgePromptVersion, ...JudgePromptVersion[]]).default("judge-v1"),
+      redTeam: z.enum(RED_TEAM_PROMPT_VERSIONS as [RedTeamPromptVersion, ...RedTeamPromptVersion[]]).default("redteam-v1"),
+    })
+    .prefault({}),
   /** USD per 1M tokens [input, output]. Verify against current price pages. */
   pricing: z.record(z.string(), z.tuple([z.number(), z.number()])).default({}),
   sources: z.array(z.strictObject({ name: z.string(), url: z.url(), weight: z.number().min(0).default(1) })).default([]),

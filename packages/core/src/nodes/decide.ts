@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { buildDossier, Judge, type Judgment } from "../ai/judge.ts";
+import { JUDGE_PROMPTS } from "../ai/prompts.ts";
 import { BudgetExceeded } from "../harness/budget.ts";
 import { rankTickers } from "../strategy/scoring.ts";
 import { defineNode } from "../workflow/registry.ts";
@@ -58,7 +59,10 @@ export const aiDecide = defineNode({
       quorum: p.quorum ?? s.config.harness.quorum,
       escalation: s.tier2(),
       redTeam: p.redTeam ? s.redTeam() : undefined,
+      promptVersion: s.config.prompts.judge,
+      redTeamVersion: s.config.prompts.redTeam,
     });
+    const variant = JUDGE_PROMPTS[s.config.prompts.judge].dossier;
     const ranked = rankTickers(i.scores).filter((t) => i.factors.rows[t]);
     const held = Object.keys(i.account?.positions ?? {});
     const candidates = [...new Set([...ranked.slice(0, p.maxCandidates), ...held.filter((t) => i.factors.rows[t])])];
@@ -68,7 +72,7 @@ export const aiDecide = defineNode({
         row: i.factors.rows[t]!, asOf: ctx.asOf, rank: ranked.indexOf(t) + 1, universe: ranked.length,
         events: (i.events ?? []).filter((e) => e.event.tickers.includes(t)).slice(-5),
         position: i.account?.positions[t],
-      });
+      }, variant);
       try {
         judgments[t] = await judge.judge(dossier, held.includes(t));
         ctx.metric(`stance_${judgments[t].stance}`, 1);

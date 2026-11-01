@@ -133,6 +133,16 @@ export class Services {
     return spec ? buildProvider(spec, this.env) : undefined;
   }
 
+  /** Every configured model by name (tier1, tier2, redTeam); --fake gives the offline pair. */
+  allModels(): LLMProvider[] {
+    if (this.fake) return this.tier1();
+    const m = this.config.models;
+    if (!m) throw new Error("config.models is required (or run with --fake)");
+    const specs = [...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])];
+    const unique = [...new Map(specs.map((s) => [s.name, s])).values()];
+    return unique.map((s) => buildProvider(s, this.env));
+  }
+
   /** Today's LLM spend so far (0 if nothing has touched the budget yet). */
   costSnapshot(): number {
     return this.#budget ? this.#budget.spentToday() : 0;

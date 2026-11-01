@@ -12,6 +12,10 @@ export interface FactorRow {
   relStrength: number | null;
   vol: number | null;
   trend: TrendLabel | null;
+  /** Return over the last 20 trading days. */
+  ret20: number | null;
+  /** close / max(close over 252 days) - 1 (0 = at the 52-week high). */
+  fromHigh52: number | null;
 }
 
 export interface FactorTable {
@@ -45,6 +49,8 @@ export function computeFactors(
       relStrength: finiteOrNull(periodReturn(bars, relDays) - benchRet),
       vol: finiteOrNull(realizedVol(bars)),
       trend: trendLabel(bars),
+      ret20: finiteOrNull(periodReturn(bars, 20)),
+      fromHigh52: bars.length >= 20 ? finiteOrNull(last.close / Math.max(...bars.slice(-252).map((b) => b.close)) - 1) : null,
     };
   }
   return { asOf, benchmark: bench ? { ticker: bench, trend: trendLabel(prices[bench]!) } : null, rows };

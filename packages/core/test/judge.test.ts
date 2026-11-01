@@ -5,7 +5,7 @@ import { FakeProvider } from "../src/llm/fake.ts";
 import { EventExtraction, type EventRecord } from "../src/signals/models.ts";
 import type { FactorRow } from "../src/strategy/factors.ts";
 
-const row: FactorRow = { ticker: "7203", name: "トヨタ自動車", sector: "auto", lastDate: "2026-10-30", close: 3000, atr: 60, momentum: 0.234, relStrength: 0.05, vol: 0.24, trend: "up" };
+const row: FactorRow = { ticker: "7203", name: "トヨタ自動車", sector: "auto", lastDate: "2026-10-30", close: 3000, atr: 60, momentum: 0.234, relStrength: 0.05, vol: 0.24, trend: "up", ret20: 0.031, fromHigh52: -0.02 };
 const event: EventRecord = {
   docHash: "h", title: "t", url: "u", source: "s", learnedAt: "2026-10-29T06:00:00Z", agreement: 1, sourceWeight: 1, nSources: 1,
   event: EventExtraction.parse({ relevant: true, tickers: ["7203"], eventType: "guidance_up", direction: 2, materiality: 3, horizon: "months", confidence: 0.8, evidence: ["営業利益予想を上方修正"] }),

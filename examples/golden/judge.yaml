@@ -1,0 +1,130 @@
+# Sanity set for the trade judge (stockai eval judge).
+#
+# A judgment cannot be graded "right" before the future happens, so this set checks
+# that the model (1) reads the dossier facts correctly (rejected otherwise), and
+# (2) never takes a stance a sound analyst would not take from these facts
+# (`allowed`). Real accuracy is measured later by the scorecard on live predictions.
+# DRAFT: fictional companies; reviewed: false until a human checks.
+name: judge-sanity-draft-v1
+description: 上昇/下降トレンド、ニュースの一致/矛盾、行き過ぎ、データ不足、保有中の含み損など 14 パターン
+cases:
+  - id: up-aligned-positive
+    note: 上昇トレンド + 強いモメンタム + 好材料 → 弱気はおかしい
+    row: { ticker: X201, name: 架空精機, sector: machinery, close: 3200, atr: 70, momentum: 0.42, relStrength: 0.15, vol: 0.28, trend: up, ret20: 0.06, fromHigh52: -0.04 }
+    rank: 1
+    universe: 30
+    events:
+      - { date: "2025-12-20", eventType: guidance_up, direction: 2, materiality: 3, evidence: "通期の営業利益を50億円から60億円に修正" }
+    expect: { allowed: [bullish, neutral, abstain] }
+
+  - id: down-aligned-negative
+    note: 下降トレンド + 弱いモメンタム + 悪材料 → 強気はおかしい
+    row: { ticker: X202, name: 架空化学, sector: chemicals, close: 1500, atr: 45, momentum: -0.35, relStrength: -0.18, vol: 0.33, trend: down, ret20: -0.09, fromHigh52: -0.38 }
+    rank: 29
+    universe: 30
+    events:
+      - { date: "2025-12-18", eventType: guidance_down, direction: -2, materiality: 3, evidence: "通期の営業利益予想を200億円から140億円に引き下げ" }
+    expect: { allowed: [bearish, neutral, abstain] }
+
+  - id: up-trend-scandal
+    note: 上昇トレンドだが重大な不祥事 → 強気はおかしい
+    row: { ticker: X203, name: 架空商社, sector: trading, close: 2600, atr: 80, momentum: 0.30, relStrength: 0.10, vol: 0.40, trend: up, ret20: -0.05, fromHigh52: -0.10 }
+    rank: 4
+    universe: 30
+    events:
+      - { date: "2025-12-26", eventType: scandal, direction: -2, materiality: 3, evidence: "不適切な会計処理が行われていた疑いが判明" }
+    expect: { allowed: [bearish, neutral, abstain] }
+
+  - id: down-trend-tob-target
+    note: 下降トレンドでも TOB 対象（プレミアムあり）→ 弱気はおかしい
+    row: { ticker: X204, name: 架空部品, sector: electronics, close: 2750, atr: 60, momentum: -0.12, relStrength: -0.05, vol: 0.30, trend: down, ret20: 0.32, fromHigh52: -0.02 }
+    rank: 12
+    universe: 30
+    events:
+      - { date: "2025-12-29", eventType: m_and_a, direction: 2, materiality: 3, evidence: "公開買付価格は1株2,800円で、前営業日終値に対するプレミアムは40.3%" }
+    expect: { allowed: [bullish, neutral, abstain] }
+
+  - id: flat-no-news
+    note: 方向感なし・材料なし → 中立か棄権
+    row: { ticker: X205, name: 架空食品, sector: food, close: 1900, atr: 25, momentum: 0.01, relStrength: -0.01, vol: 0.16, trend: flat, ret20: 0.005, fromHigh52: -0.12 }
+    rank: 15
+    universe: 30
+    expect: { allowed: [neutral, abstain] }
+
+  - id: unknown-trend
+    note: データ不足（トレンド不明）→ 方向性の判断は避ける
+    row: { ticker: X206, name: 架空ソフト, sector: software, close: 4100, atr: null, momentum: null, relStrength: null, vol: null, trend: null, ret20: null, fromHigh52: null }
+    rank: 10
+    universe: 30
+    expect: { allowed: [neutral, abstain] }
+
+  - id: up-trend-negative-news-conflict
+    note: 上昇トレンドだが下方修正 → 強気はおかしい（矛盾）
+    row: { ticker: X207, name: 架空建設, sector: construction, close: 1200, atr: 30, momentum: 0.25, relStrength: 0.08, vol: 0.25, trend: up, ret20: -0.04, fromHigh52: -0.08 }
+    rank: 6
+    universe: 30
+    events:
+      - { date: "2025-12-22", eventType: guidance_down, direction: -1, materiality: 3, evidence: "営業利益予想は180億円から150億円に引き下げ" }
+    expect: { allowed: [neutral, abstain, bearish] }
+
+  - id: down-trend-positive-news-conflict
+    note: 下降トレンドだが上方修正 → 弱気はおかしい（矛盾）
+    row: { ticker: X208, name: 架空アパレル, sector: retail, close: 800, atr: 22, momentum: -0.20, relStrength: -0.10, vol: 0.35, trend: down, ret20: 0.07, fromHigh52: -0.30 }
+    rank: 22
+    universe: 30
+    events:
+      - { date: "2025-12-23", eventType: guidance_up, direction: 1, materiality: 3, evidence: "通期営業利益を38億円から42億円に上方修正" }
+    expect: { allowed: [neutral, abstain, bullish] }
+
+  - id: overextended-up
+    note: 上昇トレンドだが20日で+28%、52週高値圏 → 弱気までは不要だが過熱
+    row: { ticker: X209, name: 架空半導体, sector: semiconductors, close: 9800, atr: 420, momentum: 0.95, relStrength: 0.40, vol: 0.55, trend: up, ret20: 0.28, fromHigh52: -0.01 }
+    rank: 2
+    universe: 30
+    expect: { allowed: [bullish, neutral, abstain] }
+
+  - id: held-big-loss-down
+    note: 保有中・含み損大・下降トレンド・悪材料 → 強気はおかしい
+    row: { ticker: X210, name: 架空海運, sector: shipping, close: 2100, atr: 90, momentum: -0.28, relStrength: -0.20, vol: 0.45, trend: down, ret20: -0.12, fromHigh52: -0.45 }
+    rank: 28
+    universe: 30
+    held: { entryPrice: 2700, daysHeld: 35 }
+    events:
+      - { date: "2025-12-19", eventType: dividend_cut, direction: -2, materiality: 3, evidence: "期末配当予想を1株当たり40円から無配に修正" }
+    expect: { allowed: [bearish, neutral, abstain] }
+
+  - id: held-profit-up
+    note: 保有中・含み益・上昇トレンド継続 → 弱気はおかしい
+    row: { ticker: X211, name: 架空機械, sector: machinery, close: 3600, atr: 75, momentum: 0.38, relStrength: 0.12, vol: 0.26, trend: up, ret20: 0.04, fromHigh52: -0.03 }
+    rank: 3
+    universe: 30
+    held: { entryPrice: 3000, daysHeld: 40 }
+    expect: { allowed: [bullish, neutral, abstain] }
+
+  - id: mixed-news
+    note: 好材料と悪材料が混在、方向感なし → 中立か棄権
+    row: { ticker: X212, name: 架空電子, sector: electronics, close: 5200, atr: 110, momentum: 0.05, relStrength: 0.0, vol: 0.30, trend: flat, ret20: 0.01, fromHigh52: -0.15 }
+    rank: 14
+    universe: 30
+    events:
+      - { date: "2025-12-10", eventType: earnings_beat, direction: 1, materiality: 2, evidence: "営業利益は前年同期比42%増の130億円" }
+      - { date: "2025-12-24", eventType: analyst_downgrade, direction: -1, materiality: 2, evidence: "投資判断を「買い」から「中立」に引き下げた" }
+    expect: { allowed: [neutral, abstain] }
+
+  - id: down-trend-dilution
+    note: 下降トレンド + 大型増資 → 強気はおかしい
+    row: { ticker: X213, name: 架空不動産, sector: real_estate, close: 900, atr: 28, momentum: -0.15, relStrength: -0.09, vol: 0.32, trend: down, ret20: -0.11, fromHigh52: -0.33 }
+    rank: 26
+    universe: 30
+    events:
+      - { date: "2025-12-27", eventType: dilution, direction: -2, materiality: 3, evidence: "公募による新株式発行2,000万株（発行済株式総数の15.0%）" }
+    expect: { allowed: [bearish, neutral, abstain] }
+
+  - id: up-trend-minor-positive
+    note: 上昇トレンド + 小さな好材料 → 弱気はおかしい
+    row: { ticker: X214, name: 架空ゴム, sector: materials, close: 2300, atr: 40, momentum: 0.22, relStrength: 0.06, vol: 0.22, trend: up, ret20: 0.03, fromHigh52: -0.05 }
+    rank: 5
+    universe: 30
+    events:
+      - { date: "2025-12-15", eventType: analyst_upgrade, direction: 1, materiality: 1, evidence: "投資判断を「中立」から「買い」に引き上げた" }
+    expect: { allowed: [bullish, neutral, abstain] }

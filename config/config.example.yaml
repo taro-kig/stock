@@ -16,6 +16,12 @@ models:
   tier2: { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
   # redTeam defaults to tier2 when omitted.
 
+# Prompt versions (docs/prompts.md). Compare with `stockai eval events|judge` before switching.
+prompts:
+  event: event-v1
+  judge: judge-v1
+  redTeam: redteam-v1
+
 # USD per 1M tokens [input, output]. ASSUMED values — verify. Unlisted models are charged a pessimistic price.
 pricing:
   gemini-2.5-flash-lite: [0.10, 0.40]

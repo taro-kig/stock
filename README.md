@@ -4,7 +4,7 @@
 **AI が「何を・いつ」売買するかを判断し、決定論的なルールが「いくら・どこまで損するか」を縛る。**
 AI に渡す権限は、判断を全件記録して答え合わせした **実測の確度** に応じて段階的に広げる。
 
-設計: **[docs/DESIGN.md](docs/DESIGN.md)**
+設計: **[docs/DESIGN.md](docs/DESIGN.md)** ・ プロンプトと評価: **[docs/prompts.md](docs/prompts.md)**
 
 ![overview](docs/images/overview.png)
 
@@ -135,6 +135,10 @@ npm run stockai -- run workflows/webull-jp.yaml
 
 # IBKR ペーパー口座 (IB Gateway が必要: docs/ibkr.md)
 npm run stockai -- run workflows/ibkr-paper.yaml
+
+# プロンプト・モデルの評価 (docs/prompts.md)
+npm run stockai -- eval events --versions event-v1,event-v2 --ensemble
+npm run stockai -- eval judge  --versions judge-v1,judge-v2
 
 npm run stockai -- runs                          # 実行履歴
 npm run stockai -- show <runId>                  # ノード状態・判断・注文・採点

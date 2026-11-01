@@ -7,7 +7,10 @@ import type { EventRecord } from "../signals/models.ts";
 import type { FactorRow } from "../strategy/factors.ts";
 import type { Position } from "../strategy/portfolio.ts";
 import type { IsoDate } from "../util/dates.ts";
-import { JUDGE_PROMPT_VERSION, JUDGE_SYSTEM, RED_TEAM_PROMPT_VERSION, RED_TEAM_SYSTEM } from "./prompts.ts";
+import {
+  JUDGE_PROMPT_VERSION, JUDGE_PROMPTS, RED_TEAM_PROMPT_VERSION, RED_TEAM_PROMPTS,
+  type DossierVariant, type JudgePromptVersion, type RedTeamPromptVersion,
+} from "./prompts.ts";
 
 export const STANCES = ["bullish", "neutral", "bearish", "abstain"] as const;
 export type Stance = (typeof STANCES)[number];
@@ -66,7 +69,7 @@ export function buildDossier(args: {
   universe: number;
   events: readonly EventRecord[];
   position?: Position | undefined;
-}): Dossier {
+}, variant: DossierVariant = "v1"): Dossier {
   const { row, events, position } = args;
   const trend: TrendRead = row.trend ?? "unknown";
   const dirs = events.map((e) => Math.sign(e.event.direction)).filter((d) => d !== 0);
@@ -88,6 +91,7 @@ export function buildDossier(args: {
     `12-1ヶ月モメンタム: ${pct(row.momentum)}`,
     `6ヶ月相対強度(対ベンチマーク): ${pct(row.relStrength)}`,
     `60日ボラティリティ: ${pct(row.vol)}`,
+    ...(variant === "v2" ? [`20日リターン: ${pct(row.ret20 ?? null)}`, `52週高値からの位置: ${pct(row.fromHigh52 ?? null)}`] : []),
     `定量スコア順位: ${args.rank}位 / ${args.universe}銘柄`,
     "## 直近のイベント (検証済み)",
     ...evLines,
@@ -130,6 +134,8 @@ export interface JudgeOptions {
   /** Single model that may veto a bullish consensus (blocking is easier than buying). */
   redTeam?: LLMProvider | undefined;
   vetoSeverity?: number;
+  promptVersion?: JudgePromptVersion;
+  redTeamVersion?: RedTeamPromptVersion;
 }
 
 export class Judge {
@@ -137,9 +143,13 @@ export class Judge {
   readonly #caller: StructuredCaller;
   readonly #redTeam: LLMProvider | undefined;
   readonly #vetoSeverity: number;
+  readonly version: JudgePromptVersion;
+  readonly redTeamVersion: RedTeamPromptVersion;
 
   constructor(caller: StructuredCaller, members: readonly LLMProvider[], opts: JudgeOptions = {}) {
     this.#caller = caller;
+    this.version = opts.promptVersion ?? JUDGE_PROMPT_VERSION;
+    this.redTeamVersion = opts.redTeamVersion ?? RED_TEAM_PROMPT_VERSION;
     this.#redTeam = opts.redTeam;
     this.#vetoSeverity = opts.vetoSeverity ?? 2;
     this.#ensemble = new Ensemble({
@@ -155,7 +165,7 @@ export class Judge {
 
   async judge(dossier: Dossier, priority: boolean): Promise<Judgment> {
     const res = await this.#ensemble.run(
-      { schemaName: "TradeJudgment", system: JUDGE_SYSTEM, user: dossier.text, promptVersion: JUDGE_PROMPT_VERSION },
+      { schemaName: "TradeJudgment", system: JUDGE_PROMPTS[this.version].system, user: dossier.text, promptVersion: this.version },
       { dossier, priority },
     );
     const votes = res.votes.map((v) => ({ provider: v.provider, stance: v.value?.stance ?? null, rejected: v.rejected }));
@@ -183,7 +193,7 @@ export class Judge {
   /** Returns a veto reason, or null. Fail-safe: if the check itself fails, veto. */
   async #redTeamCheck(d: Dossier): Promise<string | null> {
     const r = await this.#caller.call(this.#redTeam!, RedTeamFinding, {
-      schemaName: "RedTeamFinding", system: RED_TEAM_SYSTEM, user: `# 反証の依頼\n${d.text}`, promptVersion: RED_TEAM_PROMPT_VERSION,
+      schemaName: "RedTeamFinding", system: RED_TEAM_PROMPTS[this.redTeamVersion].system, user: `# 反証の依頼\n${d.text}`, promptVersion: this.redTeamVersion,
     });
     if (!r.value) return `red team unavailable (${r.error ?? "no value"})`;
     const f = r.value;
