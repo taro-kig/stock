@@ -24,6 +24,17 @@ export function checkAccountMode(accountId: string, mode: TradingMode, opts: { e
   return null;
 }
 
+/**
+ * Broker-agnostic lock for real-money trading: the configured account must be the connected
+ * one, and the operator must have opted in through the environment.
+ */
+export function checkLiveInterlock(accountId: string, opts: { expectedAccountId?: string | undefined; env: NodeJS.ProcessEnv }): string | null {
+  if (!opts.expectedAccountId) return "live trading requires accountId in config";
+  if (opts.expectedAccountId !== accountId) return `connected account ${accountId} does not match configured ${opts.expectedAccountId}`;
+  if (opts.env[LIVE_ENV_VAR] !== LIVE_ENV_VALUE) return `live trading requires ${LIVE_ENV_VAR}=${LIVE_ENV_VALUE}`;
+  return null;
+}
+
 /** Tokyo Stock Exchange standard tick sizes (呼値). Valid for TOPIX500 names too (their ticks are finer divisors). */
 const JP_TICKS: Array<[number, number]> = [
   [3_000, 1], [5_000, 5], [30_000, 10], [50_000, 50], [300_000, 100], [500_000, 500],

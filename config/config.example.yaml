@@ -57,6 +57,18 @@ ibkr:
   maxOrderValue: 2000000  # hard cap per buy order (account currency)
   maxOrdersPerRun: 6
 
+# Webull Japan OpenAPI (docs/webull.md). Used by workflows/webull-jp.yaml.
+# Credentials come from WEBULL_APP_KEY / WEBULL_APP_SECRET; approve access once with `stockai webull auth`.
+webull:
+  trading: dry_run          # dry_run: Webull only previews orders (nothing placed). live: real orders
+                            #          (live also needs accountId + STOCKAI_LIVE_TRADING=yes-i-understand)
+  # accountId: "..."        # recommended; required for live
+  accountTaxType: SPECIFIC  # 特定口座 = SPECIFIC, 一般口座 = GENERAL (required by Webull JP)
+  market: jp
+  limitOffsetBps: 50
+  maxOrderValue: 2000000
+  maxOrdersPerRun: 6
+
 # Automatic daily runs while the web server is up (`npm run web`). Server local time.
 # The baseline runs first so the AI workflow reuses its cached nodes.
 schedule:

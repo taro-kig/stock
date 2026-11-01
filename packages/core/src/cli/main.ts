@@ -4,6 +4,7 @@ import type { Judgment } from "../ai/judge.ts";
 import { loadConfig } from "../config.ts";
 import type { Scorecard } from "../eval/scorecard.ts";
 import type { OrderTicket } from "../execution/broker.ts";
+import { WebullClient } from "../execution/webull.ts";
 import type { AccountState, Fill } from "../execution/paper.ts";
 import { builtinRegistry } from "../nodes/index.ts";
 import { Services } from "../services.ts";
@@ -27,6 +28,8 @@ Usage:
   stockai runs [--limit N] [--workflow NAME]     recent runs
   stockai show <runId> [--json]                  node table + key outputs
   stockai events <runId>                         run event log (JSON lines)
+  stockai webull auth [--wait SECONDS]           approve API access in the Webull app (2FA)
+  stockai webull check                           read-only: accounts, cash, positions
 
 Options:
   --config PATH   default config/config.yaml (falls back to config/config.example.yaml)
@@ -46,6 +49,7 @@ const { values: opt, positionals } = parseArgs({
     note: { type: "string", default: "" },
     limit: { type: "string", default: "20" },
     workflow: { type: "string" },
+    wait: { type: "string", default: "300" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -117,7 +121,7 @@ function printHighlights(spec: WorkflowSpec, r: Outputs): void {
       else if (decl.type === "Proposals" && cfg.use === "gate.approval") printOrders(id, v as Proposal[]);
       else if (decl.type === "Fills") printFills(id, v as Fill[]);
       else if (decl.type === "Orders") printBrokerOrders(id, v as OrderTicket[]);
-      else if (decl.type === "Account" && (cfg.use === "broker.paper" || cfg.use === "portfolio.ibkrAccount")) printAccount(v as AccountState);
+      else if (decl.type === "Account" && ["broker.paper", "portfolio.ibkrAccount", "portfolio.webullAccount"].includes(cfg.use)) printAccount(v as AccountState);
       else if (decl.type === "Scorecard") printScorecard(v as Scorecard);
     }
   }
@@ -295,6 +299,29 @@ async function main(): Promise<void> {
     case "events":
       for (const e of services().runStore.events(args[0] ?? "")) console.log(JSON.stringify(e));
       return;
+    case "webull": {
+      const s = services();
+      if (!s.config.webull) throw new Error("config.webull is not set (see docs/webull.md)");
+      const client = new WebullClient(s.config.webull, { env: s.env });
+      if (args[0] === "auth") {
+        await client.ensureToken({
+          waitSeconds: Number(opt.wait),
+          onPending: () => console.log(c.magenta(`Webull アプリに承認リクエストを送りました。${opt.wait} 秒以内にアプリで承認してください…`)),
+        });
+        return void console.log(`${c.green("✓")} Webull API のアクセスが有効です（トークン: ${s.config.webull.tokenFile}）`);
+      }
+      if (args[0] === "check") {
+        await client.ensureToken({ waitSeconds: 0 });
+        const ids = await client.accountIds();
+        const a = await client.account();
+        const w = s.config.webull;
+        console.log(`accounts ${ids.join(", ")}  using ${c.bold(a.accountId)}  trading ${w.trading === "live" ? c.red("LIVE") : c.green("dry_run (preview only)")}  tax ${w.accountTaxType ?? c.red("unset")}`);
+        console.log(`cash ${money(a.cash)} ${a.currency}  net ${money(a.netLiquidation)}`);
+        if (a.positions.length) console.log(table(["ticker", "shares", "avg cost"], a.positions.map((p) => [p.ticker, String(p.shares), num(p.avgCost, 1)]), { right: [1, 2] }));
+        return;
+      }
+      throw new Error("usage: stockai webull auth|check");
+    }
     default:
       console.log(HELP);
       process.exitCode = 1;
@@ -302,6 +329,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((e: unknown) => {
-  console.error(c.red(e instanceof WorkflowError ? e.message : e instanceof Error ? (e.stack ?? e.message) : String(e)));
+  const debug = Boolean(process.env["STOCKAI_DEBUG"]);
+  console.error(c.red(e instanceof Error ? (debug && !(e instanceof WorkflowError) ? (e.stack ?? e.message) : `${e.name === "Error" ? "" : `${e.name}: `}${e.message}`) : String(e)));
   process.exitCode = 1;
 });

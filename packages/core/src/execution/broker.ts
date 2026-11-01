@@ -35,15 +35,21 @@ export interface OrderTicket extends OrderRequest {
   asOf: IsoDate;
   account: string;
   status: OrderTicketStatus;
-  brokerOrderId: number | null;
+  /** Broker-side id (string: Webull ids exceed Number's safe range). */
+  brokerOrderId: string | null;
   message: string;
 }
 
 export interface BrokerClient {
   account(): Promise<BrokerAccount>;
-  /** orderRefs of orders currently working at the broker. */
+  /** Keys of orders currently working at the broker (see refKey). */
   openOrderRefs(): Promise<string[]>;
-  placeLimitOrder(req: OrderRequest, accountId: string): Promise<number>;
+  /** Maps our idempotency ref to the key the broker reports in openOrderRefs (default: identity). */
+  refKey?(ref: string): string;
+  /** Broker-side validation without placing anything (used for dry runs when available). */
+  previewLimitOrder?(req: OrderRequest, accountId: string): Promise<string>;
+  /** Returns the broker's order id. */
+  placeLimitOrder(req: OrderRequest, accountId: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -73,7 +79,7 @@ export class FakeBroker implements BrokerClient {
     return [];
   }
 
-  async placeLimitOrder(req: OrderRequest, accountId: string): Promise<number> {
+  async placeLimitOrder(req: OrderRequest, accountId: string): Promise<string> {
     const id = this.#nextId++;
     this.placed.push({ ...req, accountId, id });
     const p = this.positions.get(req.ticker);
@@ -87,7 +93,7 @@ export class FakeBroker implements BrokerClient {
       if (p.shares <= req.shares) this.positions.delete(req.ticker);
       else this.positions.set(req.ticker, { ...p, shares: p.shares - req.shares });
     }
-    return id;
+    return String(id);
   }
 
   async close(): Promise<void> {

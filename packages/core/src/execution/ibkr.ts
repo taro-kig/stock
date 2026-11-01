@@ -100,7 +100,7 @@ export class IbkrClient implements BrokerClient {
     return open.map((o) => o.order.orderRef ?? "").filter(Boolean);
   }
 
-  async placeLimitOrder(req: OrderRequest, accountId: string): Promise<number> {
+  async placeLimitOrder(req: OrderRequest, accountId: string): Promise<string> {
     const ib = this.#ib;
     const order: Order = {
       action: req.side === "buy" ? ib.OrderAction.BUY : ib.OrderAction.SELL,
@@ -113,7 +113,7 @@ export class IbkrClient implements BrokerClient {
       outsideRth: false,
       transmit: true,
     };
-    return this.#api.placeNewOrder(ibContract(req.ticker, this.#cfg), order);
+    return String(await this.#api.placeNewOrder(ibContract(req.ticker, this.#cfg), order));
   }
 
   async close(): Promise<void> {

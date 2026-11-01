@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { IbkrConfig } from "./execution/ibkr.ts";
+import { WebullConfig } from "./execution/webull.ts";
 import { ModelSpec } from "./llm/factory.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
@@ -44,6 +45,8 @@ export const AppConfig = z.strictObject({
   risk: RiskConfig.prefault({}),
   /** Interactive Brokers via IB Gateway (docs/ibkr.md). */
   ibkr: IbkrConfig.optional(),
+  /** Webull Japan OpenAPI (docs/webull.md). */
+  webull: WebullConfig.optional(),
   /** Runs started automatically by the web server (local time of the server). */
   schedule: z
     .array(

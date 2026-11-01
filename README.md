@@ -24,13 +24,13 @@ packages/core/src/
   signals/    RSS, 重複除去, 銘柄辞書, イベント抽出, イベントスコア, テクニカル指標
   ai/         AI 売買判断 (資料作成, 読み取りチェック, 反対役)
   strategy/   ファクター, スコア合成, リスク制限, リバランス提案
-  execution/  ペーパー口座, IBKR クライアント, 発注前ガード, 注文・ポジション台帳
+  execution/  ペーパー口座, IBKR / ウィブル証券クライアント, 発注前ガード, 注文・ポジション台帳
   eval/       判断の記録と採点 (scorecard)
   workflow/   エンジン (型付きポート, 検証, キャッシュ, 承認, 再生, イベントログ)
   nodes/      組み込みノード (stockai nodes で一覧)
   cli/        CLI
 apps/web/     Web UI (React + Vite) と API サーバー (node:http, SSE, 実行キュー, スケジューラ)
-workflows/    daily-ai / daily-rules (本番), ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
+workflows/    daily-ai / daily-rules (本番), webull-jp (ウィブル証券), ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
 deploy/ibkr/  IB Gateway の Docker 構成
 config/       config.example.yaml
 ```
@@ -107,6 +107,11 @@ npm run stockai -- run workflows/daily-ai.yaml
 npm run stockai -- approve <runId> approve      # または --reject
 npm run stockai -- resume <runId>
 
+# ウィブル証券 (docs/webull.md)。既定はプレビューのみで発注しない
+npm run stockai -- webull auth                   # Webull アプリでアクセスを承認 (2FA)
+npm run stockai -- webull check                  # 読み取りのみ: 口座・現金・保有
+npm run stockai -- run workflows/webull-jp.yaml
+
 # IBKR ペーパー口座 (IB Gateway が必要: docs/ibkr.md)
 npm run stockai -- run workflows/ibkr-paper.yaml
 
@@ -119,5 +124,5 @@ npm run stockai -- graph workflows/daily-ai.yaml # ノード UI 用のグラフ 
 ## ステータス
 
 Phase 2 + ノードエディタ完了 (コア + ワークフロー + AI 判断 + ペーパー執行 + 採点 + IBKR 接続 + Web UI + 自動実行 + ノードエディタ)。
-IBKR 接続は疑似ブローカーでテスト済みだが、実機では未確認 ([docs/ibkr.md](docs/ibkr.md))。IBKR の口座開設は保留中で、当面はペーパー口座で確度を記録する。
+ブローカーは IBKR とウィブル証券の2社に対応。どちらも疑似ブローカーでテスト済みだが実際の口座では未確認 ([docs/ibkr.md](docs/ibkr.md), [docs/webull.md](docs/webull.md))。当面はシステム内のペーパー口座で確度を記録する。
 次は実データでの日次記録。本リポジトリは投資助言ではない。

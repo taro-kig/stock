@@ -3,6 +3,7 @@ import type { AppConfig } from "./config.ts";
 import { PredictionStore } from "./eval/predictions.ts";
 import { FakeBroker, type BrokerClient } from "./execution/broker.ts";
 import { IbkrClient, IbkrConfig } from "./execution/ibkr.ts";
+import { WebullClient, WebullConfig } from "./execution/webull.ts";
 import { BrokerLedger } from "./execution/ledger.ts";
 import { PaperBook } from "./execution/paper.ts";
 import { CostTracker } from "./harness/budget.ts";
@@ -17,6 +18,8 @@ import { Watchlist } from "./signals/prefilter.ts";
 import { openDb, type Db } from "./util/db.ts";
 import { RunStore } from "./workflow/runStore.ts";
 
+export type BrokerKind = "ibkr" | "webull";
+
 const FAKE_PRICING = { "fake-a": [0, 0], "fake-b": [0, 0], "fake-red": [0, 0] } as const;
 
 export interface ServicesOptions {
@@ -26,7 +29,7 @@ export interface ServicesOptions {
   dbPath?: string;
   env?: NodeJS.ProcessEnv;
   /** Override how broker connections are made (tests). */
-  brokerFactory?: () => Promise<BrokerClient>;
+  brokerFactory?: (kind: BrokerKind) => Promise<BrokerClient>;
 }
 
 /** Lazily-built shared dependencies handed to every node via its context. */
@@ -35,8 +38,8 @@ export class Services {
   readonly fake: boolean;
   readonly dbPath: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly #brokerFactory: (() => Promise<BrokerClient>) | undefined;
-  #fakeBroker?: FakeBroker;
+  readonly #brokerFactory: ((kind: BrokerKind) => Promise<BrokerClient>) | undefined;
+  readonly #fakeBrokers = new Map<BrokerKind, FakeBroker>();
   #ledger?: BrokerLedger;
   #db?: Db;
   #budget?: CostTracker;
@@ -87,13 +90,22 @@ export class Services {
   get ibkrConfig(): IbkrConfig {
     return this.config.ibkr ?? IbkrConfig.parse({});
   }
+  get webullConfig(): WebullConfig {
+    return this.config.webull ?? WebullConfig.parse({});
+  }
 
-  /** A fresh broker connection; the caller closes it. --fake uses an in-memory paper broker. */
-  async brokerClient(): Promise<BrokerClient> {
-    if (this.#brokerFactory) return this.#brokerFactory();
+  /** A fresh broker connection; the caller closes it. --fake uses an in-memory broker per kind. */
+  async brokerClient(kind: BrokerKind = "ibkr"): Promise<BrokerClient> {
+    if (this.#brokerFactory) return this.#brokerFactory(kind);
     if (this.fake) {
-      const b = (this.#fakeBroker ??= new FakeBroker());
-      return { account: () => b.account(), openOrderRefs: () => b.openOrderRefs(), placeLimitOrder: (r, a) => b.placeLimitOrder(r, a), close: async () => {} };
+      let b = this.#fakeBrokers.get(kind);
+      if (!b) this.#fakeBrokers.set(kind, (b = new FakeBroker(kind === "ibkr" ? "DU0000001" : "WB0000001")));
+      const fb = b;
+      return { account: () => fb.account(), openOrderRefs: () => fb.openOrderRefs(), placeLimitOrder: (r, a) => fb.placeLimitOrder(r, a), close: async () => {} };
+    }
+    if (kind === "webull") {
+      if (!this.config.webull) throw new Error("config.webull is not set (see docs/webull.md)");
+      return WebullClient.connect(this.config.webull, { env: this.env });
     }
     if (!this.config.ibkr) throw new Error("config.ibkr is not set (see docs/ibkr.md)");
     return IbkrClient.connect(this.config.ibkr);

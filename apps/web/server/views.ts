@@ -121,10 +121,12 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
         break;
       }
       case "broker.ibkr":
+      case "broker.webull":
         h.orders = artifact<OrderTicket[]>(s, row, "orders") ?? h.orders;
         break;
       case "portfolio.account":
       case "portfolio.ibkrAccount":
+      case "portfolio.webullAccount":
         h.account ??= artifact<AccountState>(s, row, "account");
         break;
       case "eval.scorecard":

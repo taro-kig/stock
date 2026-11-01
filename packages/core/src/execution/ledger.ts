@@ -20,6 +20,9 @@ export class BrokerLedger {
       CREATE TABLE IF NOT EXISTS broker_positions (
         account TEXT, ticker TEXT, entry_date TEXT, entry_price REAL, highest_close REAL, sector TEXT, PRIMARY KEY (account, ticker));
       CREATE TABLE IF NOT EXISTS broker_equity (account TEXT, as_of TEXT, equity REAL, PRIMARY KEY (account, as_of));`);
+    // v2: broker order ids are strings (an INT column would round Webull's large ids)
+    const cols = db.prepare("PRAGMA table_info(broker_orders)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "broker_order_ref")) db.exec("ALTER TABLE broker_orders ADD COLUMN broker_order_ref TEXT");
   }
 
   ticket(ref: string): OrderTicket | undefined {
@@ -28,15 +31,19 @@ export class BrokerLedger {
     return {
       ref, asOf: String(r["as_of"]), account: String(r["account"]), ticker: String(r["ticker"]), side: r["side"] as "buy" | "sell",
       shares: Number(r["shares"]), limitPrice: Number(r["limit_price"]), tif: "DAY", status: r["status"] as OrderTicket["status"],
-      brokerOrderId: r["broker_order_id"] === null ? null : Number(r["broker_order_id"]), message: String(r["message"] ?? ""),
+      brokerOrderId: r["broker_order_ref"] != null ? String(r["broker_order_ref"]) : r["broker_order_id"] != null ? String(r["broker_order_id"]) : null,
+      message: String(r["message"] ?? ""),
     };
   }
 
   /** Only real submissions are recorded: a blocked or failed order may be retried later. */
   recordSubmitted(t: OrderTicket, runId: string): void {
     this.#db
-      .prepare("INSERT INTO broker_orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(t.ref, t.asOf, t.account, t.ticker, t.side, t.shares, t.limitPrice, t.status, t.brokerOrderId, t.message, runId, new Date().toISOString());
+      .prepare(
+        `INSERT INTO broker_orders (ref, as_of, account, ticker, side, shares, limit_price, status, broker_order_id, message, run_id, created_at, broker_order_ref)
+         VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?)`,
+      )
+      .run(t.ref, t.asOf, t.account, t.ticker, t.side, t.shares, t.limitPrice, t.status, t.message, runId, new Date().toISOString(), t.brokerOrderId);
   }
 
   /** Aligns local metadata with the broker's positions; returns positions in the strategy's shape. */
