@@ -8,6 +8,8 @@ import { ModelSpec } from "./llm/factory.ts";
 import { EVENT_PROMPT_VERSIONS, type EventPromptVersion } from "./signals/prompts.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
+export const NOTIFY_EVENTS = ["approval", "failure", "orders", "fills", "success", "backup"] as const;
+
 export const AppConfig = z.strictObject({
   dataDir: z.string().default("data"),
   harness: z
@@ -57,6 +59,30 @@ export const AppConfig = z.strictObject({
   ibkr: IbkrConfig.optional(),
   /** Webull Japan OpenAPI (docs/webull.md). */
   webull: WebullConfig.optional(),
+  /** Discord notifications (the webhook URL is a secret: settings screen → DISCORD_WEBHOOK_URL). */
+  notify: z
+    .strictObject({
+      webhookEnv: z.string().default("DISCORD_WEBHOOK_URL"),
+      /** approval: waiting for approval · failure: failed / partly failed run · orders: orders sent to (or previewed by) a broker ·
+       *  fills: paper fills · success: every successful run · backup: backup failed */
+      events: z.array(z.enum(NOTIFY_EVENTS)).default(["approval", "failure", "orders", "backup"]),
+      /** Where links in notifications point. */
+      baseUrl: z.string().default("http://127.0.0.1:4317"),
+    })
+    .prefault({}),
+  /** Daily copy of the database (the forward record of judgments cannot be recreated). */
+  backup: z
+    .strictObject({
+      enabled: z.boolean().default(true),
+      /** Default <dataDir>/backups. Another disk or a synced folder protects against disk failure. */
+      dir: z.string().optional(),
+      at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM").default("12:30"),
+      keepDaily: z.number().int().min(1).default(14),
+      keepMonthly: z.number().int().min(0).default(12),
+      /** Also copy settings.sqlite (API keys, plain text). Off by default: keys can be re-entered, a leaked copy cannot be recalled. */
+      includeSettings: z.boolean().default(false),
+    })
+    .prefault({}),
   /** Runs started automatically by the web server (local time of the server). */
   schedule: z
     .array(
@@ -70,6 +96,7 @@ export const AppConfig = z.strictObject({
     .default([]),
 });
 export type AppConfig = z.output<typeof AppConfig>;
+export type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
 
 export function loadConfig(path: string): AppConfig {
   const r = AppConfig.safeParse(parseYaml(readFileSync(path, "utf8")));

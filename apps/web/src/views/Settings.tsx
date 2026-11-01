@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { SettingStatus } from "@stockai/core";
 import type { SettingsView } from "../../shared/types.ts";
-import { del, put, useApi } from "../api.ts";
+import { del, post, put, useApi } from "../api.ts";
+import { BackupPane, WatchlistPane } from "./SettingsExtra.tsx";
 import { Empty, ErrorLine, Pane } from "../components/ui.tsx";
 import { time } from "../format.ts";
 
@@ -10,6 +11,7 @@ type Toast = (m: string, err?: boolean) => void;
 const GROUPS: Array<[SettingStatus["group"], string]> = [
   ["llm", "LLM"],
   ["data", "データ"],
+  ["notify", "通知"],
   ["broker", "証券会社"],
   ["other", "その他（config.yaml が参照）"],
 ];
@@ -96,6 +98,26 @@ function Row({ item, onSaved, toast }: { item: SettingStatus; onSaved: () => voi
             aria-label={item.label}
           />
           <button className="btn primary" type="submit" disabled={busy || !value.trim()}>保存</button>
+          {item.name === "DISCORD_WEBHOOK_URL" && item.set && (
+            <button
+              className="btn"
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await post("/api/notify/test", {});
+                  toast("Discord にテスト通知を送りました");
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : String(e), true);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              テスト送信
+            </button>
+          )}
           {item.source === "settings" && (
             <button className="btn danger" type="button" disabled={busy} onClick={() => void clear()} onBlur={() => setConfirmClear(false)}>
               {confirmClear ? "もう一度押して削除" : "削除"}
@@ -138,6 +160,8 @@ export function Settings({ toast }: { toast: Toast }) {
           </Pane>
         );
       })}
+      <WatchlistPane toast={toast} />
+      <BackupPane toast={toast} />
     </div>
   );
 }

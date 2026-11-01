@@ -17,6 +17,7 @@ import { PriceStore } from "./data/priceStore.ts";
 import { DocStore } from "./signals/docStore.ts";
 import { Watchlist } from "./signals/prefilter.ts";
 import { openDb, type Db } from "./util/db.ts";
+import { sha256, stableStringify } from "./util/hash.ts";
 import type { SettingsStore } from "./util/settings.ts";
 import { RunStore } from "./workflow/runStore.ts";
 
@@ -57,10 +58,11 @@ export class Services {
   #caller?: StructuredCaller;
   #docStore?: DocStore;
   #runStore?: RunStore;
-  #watchlist?: Watchlist;
+  #watchlist?: Watchlist | undefined;
   #paper?: PaperBook;
   #predictions?: PredictionStore;
   #prices?: PriceStore;
+  #configHash?: string | undefined;
   #tier1?: LLMProvider[];
 
   constructor(config: AppConfig, opts: ServicesOptions = {}) {
@@ -96,6 +98,20 @@ export class Services {
   }
   get watchlist(): Watchlist {
     return (this.#watchlist ??= new Watchlist(this.config.watchlist));
+  }
+
+  /** Fingerprint of the loaded config: part of every node cache key, so edits never serve stale results. */
+  get configHash(): string {
+    return (this.#configHash ??= sha256(stableStringify(this.config)));
+  }
+
+  /** Replace the watchlist (and optionally the benchmark) while running, e.g. from the settings screen. */
+  updateWatchlist(watchlist: AppConfig["watchlist"], benchmark?: string): void {
+    const c = this.config as { watchlist: AppConfig["watchlist"]; market: AppConfig["market"] };
+    c.watchlist = watchlist;
+    if (benchmark !== undefined) c.market = { ...c.market, benchmark };
+    this.#watchlist = undefined;
+    this.#configHash = undefined;
   }
   get paperBook(): PaperBook {
     return (this.#paper ??= new PaperBook(this.db));

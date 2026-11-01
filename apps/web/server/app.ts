@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { Engine, parseWorkflow, settingDefs, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent } from "../shared/types.ts";
+import { backupDue, backupStatus, editableConfigPath, Engine, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
+import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
@@ -20,6 +21,8 @@ export interface AppOptions {
   token?: string;
   schedule?: boolean;
   clock?: () => Date;
+  /** The config file the services were loaded from (watchlist edits are written back to it). */
+  configPath?: string;
   /** MCP endpoint at /mcp (default on). readOnly drops the save / run / enable-disable tools. */
   mcp?: { readOnly?: boolean } | false;
 }
@@ -38,6 +41,9 @@ export interface App {
   setWorkflowDisabled(name: string, disabled: boolean, note?: string): { name: string; disabled: { since: string; note: string } | null };
   workflows(): WorkflowFile[];
   overview(): Overview;
+  notifier: RunNotifier;
+  /** Writes a database snapshot now (and prunes old ones). */
+  backupNow(): BackupFile;
   close(): Promise<void>;
 }
 
@@ -101,6 +107,23 @@ export function createApp(o: AppOptions): App {
     onEvent: (runId: string, event: RunEvent) => broadcast({ type: "run_event", runId, event }),
   });
   const queue = new RunQueue();
+  const notifier = new RunNotifier(s, registry, clock);
+
+  function backupNow(): BackupFile {
+    return runBackup(s.config, s.db, s.settings, clock());
+  }
+  /** Daily snapshot while the server runs (checked every 10 minutes; also right after start). */
+  function backupTick(): void {
+    if (!backupDue(s.config, clock())) return;
+    try {
+      const f = backupNow();
+      console.log(`backup ${f.file}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`backup failed: ${msg}`);
+      void notifier.backupFailed(msg);
+    }
+  }
   const workflows = (): WorkflowFile[] => discoverWorkflows(o.workflowsDir);
   const byName = (name: string) => {
     const w = workflows().find((x) => x.name === name);
@@ -117,7 +140,10 @@ export function createApp(o: AppOptions): App {
     if (off) throw new HttpError(409, `${spec.name} は無効になっています（${off.since.slice(0, 10)} から）。有効にしてから実行してください`);
     const runId = newRunId(spec.name);
     broadcast({ type: "queued", runId, workflow: spec.name });
-    void queue.enqueue(`${spec.name} ${asOf ?? "today"}`, () => engine.run(spec, { runId, ...(asOf ? { asOf } : {}) })).catch(() => undefined);
+    void queue
+      .enqueue(`${spec.name} ${asOf ?? "today"}`, () => engine.run(spec, { runId, ...(asOf ? { asOf } : {}) }))
+      .catch(() => undefined)
+      .then(() => notifier.runSettled(runId));
     return runId;
   }
 
@@ -149,12 +175,17 @@ export function createApp(o: AppOptions): App {
       void queue
         .enqueue(`timeout check ${r.runId}`, () => engine.resume(r.runId))
         .catch(() => undefined)
+        .then(() => notifier.runSettled(r.runId))
         .finally(() => resuming.delete(r.runId));
     }
     return due.map((r) => r.runId);
   }
   let sweeper: NodeJS.Timeout | undefined;
+  let backupTimer: NodeJS.Timeout | undefined;
   if (o.schedule) {
+    backupTick();
+    backupTimer = setInterval(backupTick, 10 * 60_000);
+    backupTimer.unref();
     scheduler.start();
     sweeper = setInterval(() => sweepWaiting(), 10 * 60_000);
     sweeper.unref();
@@ -318,7 +349,10 @@ export function createApp(o: AppOptions): App {
       const gate = runDetail(s, registry, run).waiting.find((w) => w.node === node);
       if (!gate) throw new HttpError(409, `node ${node} is not waiting for approval`);
       s.runStore.setApproval(runId, node, decision, typeof body["note"] === "string" ? body["note"].slice(0, 500) : "");
-      void queue.enqueue(`resume ${runId}`, () => engine.resume(runId)).catch(() => undefined);
+      void queue
+        .enqueue(`resume ${runId}`, () => engine.resume(runId))
+        .catch(() => undefined)
+        .then(() => notifier.runSettled(runId));
       return send(res, 202, { ok: true });
     }
     if (req.method === "GET" && path === "/api/settings") {
@@ -342,6 +376,51 @@ export function createApp(o: AppOptions): App {
       }
       const item = st.status(settingDefs(s.config)).find((x) => x.name === name);
       return send(res, 200, { ok: true, item: item ?? null });
+    }
+    if (req.method === "POST" && path === "/api/notify/test") {
+      await readJson(req);
+      try {
+        await notifier.send({ title: "stockai テスト通知", description: "この通知が見えていれば設定は完了です。", tone: "ok" });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : String(e));
+      }
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === "GET" && path === "/api/backup") return send(res, 200, backupStatus(s.config, clock()) satisfies BackupStatus);
+    if (req.method === "POST" && path === "/api/backup") {
+      await readJson(req);
+      try {
+        return send(res, 200, { ok: true, file: backupNow(), status: backupStatus(s.config, clock()) });
+      } catch (e) {
+        throw new HttpError(500, `バックアップに失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (req.method === "GET" && path === "/api/config/watchlist") {
+      return send(res, 200, {
+        watchlist: s.config.watchlist, benchmark: s.config.market.benchmark ?? "",
+        file: o.configPath ? editableConfigPath(o.configPath) : null, loadedFrom: o.configPath ?? null,
+      } satisfies WatchlistView);
+    }
+    if (req.method === "PUT" && path === "/api/config/watchlist") {
+      if (!o.configPath) throw new HttpError(404, "this server was started without a config file");
+      const body = await readJson(req);
+      // Optimistic concurrency: the client says which watchlist it edited. A missing or stale
+      // list (another tab, a hand edit, a half-loaded page) must not silently replace the file.
+      const previous = body["previous"];
+      const current = Object.keys(s.config.watchlist).sort();
+      if (!Array.isArray(previous) || JSON.stringify([...previous].map(String).sort()) !== JSON.stringify(current)) {
+        throw new HttpError(409, "ウォッチリストが読み込み時から変わっています。画面を再読み込みしてから編集してください");
+      }
+      let r: ReturnType<typeof saveWatchlist>;
+      try {
+        r = saveWatchlist(o.configPath, body["watchlist"] as never, typeof body["benchmark"] === "string" ? body["benchmark"] : undefined);
+      } catch (e) {
+        const msg = e instanceof Error && "issues" in e ? (e as { issues: Array<{ path: PropertyKey[]; message: string }> }).issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
+        throw new HttpError(400, msg);
+      }
+      s.updateWatchlist(r.config.watchlist, r.config.market.benchmark ?? "");
+      broadcast({ type: "config_changed" });
+      return send(res, 200, { ok: true, file: r.file, created: r.created, tickers: Object.keys(r.config.watchlist).length });
     }
     if (req.method === "GET" && path === "/api/nodes") return send(res, 200, registry.describe());
     if (req.method === "GET" && path === "/api/stream") {
@@ -381,10 +460,11 @@ export function createApp(o: AppOptions): App {
   });
 
   const self: App = {
-    server, queue, scheduler, startRun, sweepWaiting, importWorkflow, setWorkflowDisabled, workflows, overview,
+    server, queue, scheduler, startRun, sweepWaiting, importWorkflow, setWorkflowDisabled, workflows, overview, notifier, backupNow,
     async close() {
       scheduler.stop();
       if (sweeper) clearInterval(sweeper);
+      if (backupTimer) clearInterval(backupTimer);
       for (const r of subscribers) r.end();
       await new Promise<void>((r) => server.close(() => r()));
     },

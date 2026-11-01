@@ -21,6 +21,7 @@ import type { NodeRunRow } from "../workflow/runStore.ts";
 import { loadWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec } from "../workflow/spec.ts";
 import { loadDotEnv } from "../util/env.ts";
 import { assertSettingName, SettingsStore, settingDefs } from "../util/settings.ts";
+import { backupDir, listBackups, runBackup } from "../util/backup.ts";
 import { c, money, num, pct, status, table } from "./format.ts";
 
 const HELP = `stockai — mid-term AI trading workflows
@@ -44,6 +45,7 @@ Usage:
                                                  score prompts/models on a golden set (report saved under data/evals)
   stockai webull auth [--wait SECONDS]           approve API access in the Webull app (2FA)
   stockai webull check                           read-only: accounts, cash, positions
+  stockai backup [--list]                        snapshot the database now (the web server also does it daily)
   stockai settings                               API keys and where each comes from (shell / settings / .env)
   stockai settings set NAME                      store a value (read from stdin, not echoed) in <dataDir>/settings.sqlite
   stockai settings clear NAME                    remove a stored value
@@ -75,6 +77,7 @@ const { values: opt, positionals } = parseArgs({
     ensemble: { type: "boolean", default: false },
     set: { type: "string" },
     budget: { type: "string", default: "0.5" },
+    list: { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -416,6 +419,16 @@ async function main(): Promise<void> {
         return;
       }
       throw new Error("usage: stockai webull auth|check");
+    }
+    case "backup": {
+      const s = services();
+      if (opt.list) {
+        const files = listBackups(backupDir(s.config));
+        if (!files.length) return void console.log(c.dim(`no backups in ${backupDir(s.config)}`));
+        return void console.log(table(["time", "file", "size"], files.map((f) => [f.at.replace("T", " "), f.name, `${Math.ceil(f.size / 1000)} KB`]), { right: [2] }));
+      }
+      const f = runBackup(s.config, s.db, s.settings);
+      return void console.log(`${c.green("✓")} ${f.file}  ${Math.ceil(f.size / 1000)} KB`);
     }
     case "disable":
     case "enable": {

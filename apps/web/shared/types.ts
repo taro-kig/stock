@@ -116,7 +116,8 @@ export type StreamEvent =
   | { type: "hello"; now: string }
   | { type: "queued"; runId: string; workflow: string }
   | { type: "run_event"; runId: string; event: Record<string, unknown> }
-  | { type: "workflow_state"; workflow: string; disabled: boolean };
+  | { type: "workflow_state"; workflow: string; disabled: boolean }
+  | { type: "config_changed" };
 
 export interface SettingsView {
   /** False when the server was started without a settings store (tests, embedded use). */
@@ -131,4 +132,12 @@ export interface ImportResult {
   created: boolean;
   /** Validation problems: the file is saved as a draft but cannot run until fixed. */
   problems: string[];
+}
+
+export interface WatchlistView {
+  watchlist: Record<string, { name: string; aliases: string[]; sector: string }>;
+  benchmark: string;
+  /** Where edits are saved (config/config.yaml; created from the example on first save). */
+  file: string | null;
+  loadedFrom: string | null;
 }

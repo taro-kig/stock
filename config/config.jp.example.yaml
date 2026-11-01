@@ -77,6 +77,21 @@ webull:
   maxOrderValue: 2000000
   maxOrdersPerRun: 6
 
+# Discord notifications. Put the webhook URL on the settings screen (DISCORD_WEBHOOK_URL), then press "テスト送信".
+# events: approval (waiting for approval) · failure (failed / partly failed run) · orders (broker orders)
+#         fills (paper fills) · success (every successful run) · backup (backup failed)
+notify:
+  events: [approval, failure, orders, backup]
+  baseUrl: "http://127.0.0.1:4317"   # links in notifications
+
+# Daily database backup while the web server is up (the record of judgments cannot be recreated).
+backup:
+  at: "12:30"
+  # dir: "D:/stockai-backups"   # another disk or a synced folder survives a disk failure (default: <dataDir>/backups)
+  keepDaily: 14
+  keepMonthly: 12
+  includeSettings: false        # true also copies settings.sqlite (API keys, plain text)
+
 # Automatic daily runs while the web server is up (`npm run web`). Server local time.
 # The baseline runs first so the AI workflow reuses its cached nodes.
 schedule:

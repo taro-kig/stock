@@ -136,7 +136,7 @@ export class Engine {
       const params = def.params.parse(cfg.params);
       const cacheKey =
         cfg.cache && def.cache !== "none"
-          ? sha256(def.type, String(def.version), stableStringify(params), stableStringify(inputHashes), def.cache === "daily" ? asOf : "")
+          ? sha256(def.type, String(def.version), stableStringify(params), stableStringify(inputHashes), def.cache === "daily" ? asOf : "", services.configHash)
           : null;
 
       const startedAt = new Date();

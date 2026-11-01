@@ -9,7 +9,7 @@ export const rssSource = defineNode({
   type: "source.rss",
   title: "RSS",
   category: "source",
-  description: "Fetches RSS/Atom feeds (defaults to config.sources). Live runs only: a feed cannot show the past.",
+  description: "Fetches RSS/Atom feeds (defaults to config.sources; {tickers} in a URL becomes the watchlist). Live runs only: a feed cannot show the past.",
   version: 1,
   cache: "daily",
   params: z.object({
@@ -20,7 +20,9 @@ export const rssSource = defineNode({
   fallback: () => ({ docs: [] }),
   async run(ctx, p) {
     if (!ctx.live) throw new Error("source.rss cannot replay a past date (no point-in-time history); use source.fixture or stored documents");
-    const feeds = p.feeds ?? ctx.services.config.sources;
+    // "{tickers}" in a feed URL becomes the watchlist (e.g. Yahoo Finance headline feeds), so it follows watchlist edits.
+    const tickers = ctx.services.watchlist.tickers.map(encodeURIComponent).join(",");
+    const feeds = (p.feeds ?? ctx.services.config.sources).map((f) => ({ ...f, url: f.url.replaceAll("{tickers}", tickers) }));
     const docs: Document[] = [];
     let failed = 0;
     for (const f of feeds) {

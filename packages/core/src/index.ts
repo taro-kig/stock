@@ -15,3 +15,7 @@ export type { Proposal } from "./strategy/portfolio.ts";
 export { today, toIsoDate, type IsoDate } from "./util/dates.ts";
 export { loadDotEnv } from "./util/env.ts";
 export { KNOWN_SETTINGS, SettingsStore, settingDefs, type SettingDef, type SettingSource, type SettingStatus } from "./util/settings.ts";
+export { NOTIFY_EVENTS, type NotifyEvent } from "./config.ts";
+export { discordPayload, isDiscordWebhookUrl, sendDiscord, type Notice, type NoticeField } from "./notify/discord.ts";
+export { backupDir, backupDue, backupStatus, listBackups, runBackup, selectKept, type BackupFile, type BackupStatus } from "./util/backup.ts";
+export { editableConfigPath, saveWatchlist, WatchlistInput } from "./util/configFile.ts";

@@ -36,7 +36,7 @@ const config = loadConfig(configPath);
 const settings = new SettingsStore({ path: join(config.dataDir, "settings.sqlite"), shellKeys: dotenv.shellKeys });
 const services = new Services(config, { fake: opt.fake, settings });
 const app = createApp({
-  services, registry: builtinRegistry(), workflowsDir: opt.workflows,
+  services, registry: builtinRegistry(), workflowsDir: opt.workflows, configPath,
   staticDir: join(import.meta.dirname, "..", "dist"),
   ...(token ? { token } : {}),
   schedule: !opt["no-schedule"],

@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AppConfig } from "../config.ts";
+import { isDiscordWebhookUrl } from "../notify/discord.ts";
 
 /**
  * API keys and other per-machine settings entered in the web UI, kept in their own
@@ -19,7 +20,7 @@ export interface SettingDef {
   secret: boolean;
   help: string;
   url?: string;
-  group: "llm" | "data" | "broker" | "other";
+  group: "llm" | "data" | "broker" | "notify" | "other";
   /** Referenced by the loaded config (model / broker key variables). */
   usedByConfig?: boolean;
 }
@@ -32,11 +33,18 @@ export const KNOWN_SETTINGS: readonly SettingDef[] = [
   { name: "JQUANTS_API_KEY", label: "J-Quants API key", secret: true, group: "data", help: "日本株の日足（data.pricesJQuants）。Free プランは直近12週間が無いので日次運用には Light 以上", url: "https://jpx-jquants.com/" },
   { name: "TWELVEDATA_API_KEY", label: "Twelve Data API key", secret: true, group: "data", help: "米国株の日足（無料: 800 回/日, 8 回/分）", url: "https://twelvedata.com/pricing" },
   { name: "SEC_USER_AGENT", label: "SEC User-Agent", secret: false, group: "data", help: "SEC EDGAR の利用条件で必須。名前と連絡先メール（例: stockai taro@example.com）", url: "https://www.sec.gov/os/accessing-edgar-data" },
+  { name: "DISCORD_WEBHOOK_URL", label: "Discord Webhook URL", secret: true, group: "notify", help: "承認待ち・失敗・発注・バックアップ失敗を通知。Discord のチャンネル設定 → 連携サービス → ウェブフック → URL をコピー", url: "https://support.discord.com/hc/ja/articles/228383668" },
   { name: "WEBULL_APP_KEY", label: "Webull App Key", secret: true, group: "broker", help: "ウィブル証券（docs/webull.md）", url: "https://developer.webull.co.jp/" },
   { name: "WEBULL_APP_SECRET", label: "Webull App Secret", secret: true, group: "broker", help: "ウィブル証券（docs/webull.md）", url: "https://developer.webull.co.jp/" },
 ];
 
 const NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+/** Checks for values whose shape is known, so typos fail when saving instead of at 6 a.m. */
+const VALIDATORS: Record<string, (v: string) => string | null> = {
+  DISCORD_WEBHOOK_URL: (v) => (isDiscordWebhookUrl(v) ? null : "Discord のウェブフック URL ではありません（https://discord.com/api/webhooks/… の形）"),
+  SEC_USER_AGENT: (v) => (/@/.test(v) ? null : "連絡先メールを含めてください（例: stockai you@example.com）"),
+};
 
 export function assertSettingName(name: string): void {
   if (!NAME.test(name)) throw new Error(`invalid setting name ${JSON.stringify(name)} (A-Z, 0-9, _)`);
@@ -144,6 +152,8 @@ export class SettingsStore {
     if (!v) throw new Error("empty value (use clear to remove a setting)");
     if (v.length > 4096 || /[\r\n\0]/.test(v)) throw new Error("value must be a single line of at most 4096 characters");
     if (this.#shell.has(name)) throw new Error(`${name} is set in the shell environment, which takes precedence; unset it there first`);
+    const invalid = VALIDATORS[name]?.(v);
+    if (invalid) throw new Error(invalid);
     this.#db.prepare("INSERT OR REPLACE INTO settings VALUES (?,?,?)").run(name, v, new Date().toISOString());
     this.#applyOne(name, v);
     for (const l of this.#listeners) l(name);
@@ -158,6 +168,11 @@ export class SettingsStore {
       else delete this.#env[name];
     }
     for (const l of this.#listeners) l(name);
+  }
+
+  /** Consistent copy of the settings file (used by backups when includeSettings is on). */
+  backupTo(path: string): void {
+    this.#db.prepare("VACUUM INTO ?").run(path);
   }
 
   close(): void {

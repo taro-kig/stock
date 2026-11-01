@@ -36,7 +36,7 @@ const config = loadConfig(configPath);
 const settings = new SettingsStore({ path: join(config.dataDir, "settings.sqlite"), shellKeys: dotenv.shellKeys });
 const services = new Services(config, { fake: opt.fake, settings });
 const registry = builtinRegistry();
-const app = createApp({ services, registry, workflowsDir: opt.workflows, schedule: false, mcp: false }); // not listening: only its queue and helpers
+const app = createApp({ services, registry, workflowsDir: opt.workflows, configPath, schedule: false, mcp: false }); // not listening: only its queue and helpers
 
 const server = buildMcpServer({ app, services, registry, readOnly: opt["read-only"] });
 await server.connect(new StdioServerTransport());

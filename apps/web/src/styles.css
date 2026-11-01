@@ -466,3 +466,8 @@ select.input { padding-right: 0.5ch; }
 .disabled-row { opacity: 0.6; }
 .split-list.dropping { outline: 1px dashed var(--accent); outline-offset: -4px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .drop-hint { margin: 0 2ch calc(var(--lh) * 0.5); padding: calc(var(--lh) * 0.5) 1ch; border: 1px dashed var(--accent); color: var(--accent); text-align: center; }
+
+/* ── watchlist editor ───────────────────────────────────────── */
+.t.watchlist td { padding-top: 2px; padding-bottom: 2px; }
+.t.watchlist .input { width: 100%; }
+.input.bad { border-color: var(--fail); }
