@@ -37,8 +37,10 @@ export const proposeNode = defineNode({
     requireTrend: z.boolean().default(true),
     minConviction: z.number().min(0).max(1).default(0.5),
     regimeFilter: z.boolean().default(true),
+    /** No new buys this many calendar days before an earnings report (needs the earnings input; 0 = off). */
+    earningsBlackoutDays: z.number().int().min(0).default(3),
   }),
-  inputs: { judgments: { type: "Judgments" }, factors: { type: "Factors" }, account: { type: "Account" } },
+  inputs: { judgments: { type: "Judgments" }, factors: { type: "Factors" }, account: { type: "Account" }, earnings: { type: "Earnings", optional: true } },
   outputs: { proposals: { type: "Proposals" } },
   async run(ctx, p, i) {
     const held = Object.keys(i.account.positions);
@@ -49,7 +51,10 @@ export const proposeNode = defineNode({
     const candidates: Record<string, Candidate> = {};
     for (const r of Object.values(i.factors.rows)) {
       if (r.atr === null) continue; // cannot size without volatility
-      candidates[r.ticker] = { ticker: r.ticker, price: r.close, atr: r.atr, sector: r.sector, trendOk: !p.requireTrend || r.trend === "up" };
+      const e = i.earnings?.[r.ticker];
+      const blocked = e && p.earningsBlackoutDays > 0 && e.daysAway <= p.earningsBlackoutDays ? `決算まで ${e.daysAway} 日（${e.reportDate}）` : undefined;
+      candidates[r.ticker] = { ticker: r.ticker, price: r.close, atr: r.atr, sector: r.sector, trendOk: !p.requireTrend || r.trend === "up", blockedReason: blocked };
+      if (blocked && js[r.ticker] && isBuy(r.ticker)) ctx.log(`${r.ticker}: no new entry, ${blocked}`);
     }
     const regimeOk = !p.regimeFilter || i.factors.benchmark?.trend !== "down";
     if (!regimeOk) ctx.log(`regime filter: benchmark ${i.factors.benchmark?.ticker} is in a downtrend -> no new entries`);

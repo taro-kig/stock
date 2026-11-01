@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
 import type { WatchlistView } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
+import { Scheduler } from "../server/scheduler.ts";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const HOOK = "https://discord.com/api/webhooks/1/token_abc";
@@ -199,5 +200,46 @@ describe("prompts API", () => {
     expect(readFileSync(cfgPath, "utf8")).toContain("# H5: hard daily cap");
     expect((await call<View>("GET", "/api/prompts")).body.switches[0]).toMatchObject({ from: "event-us-v1", to: "event-us-v1-my1" });
     expect((await call("PUT", "/api/prompts/event/active", { version: "event-nope" })).status).toBe(400);
+  });
+});
+
+describe("calendar", () => {
+  it("the scheduler skips US market holidays but not the weekend review", () => {
+    const fired: string[] = [];
+    const holiday = (d: string) => (d === "2026-11-26" ? "Thanksgiving Day" : null);
+    const mk = (now: Date, skipHolidays?: boolean) =>
+      new Scheduler([{ workflow: "w", file: "w.yaml", at: "06:40", days: [0, 1, 2, 3, 4, 5, 6], ...(skipHolidays === undefined ? {} : { skipHolidays }) }], {
+        trigger: (f) => void fired.push(f), ranToday: () => null, holiday, clock: () => now,
+      });
+    // the run date is the UTC date of the firing time
+    expect(mk(new Date("2026-11-26T21:45:00Z")).tick()).toEqual([]);
+    expect(mk(new Date("2026-11-26T21:45:00Z"), false).tick()).toEqual(["w.yaml"]);
+    expect(mk(new Date("2026-11-27T21:45:00Z")).tick()).toEqual(["w.yaml"]);
+  });
+
+  it("serves holidays, earnings, upcoming runs and past runs for a date range", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "stockai-cal-"));
+    const cfgPath = join(dir, "config.yaml");
+    copyFileSync(join(ROOT, "config/config.example.yaml"), cfgPath);
+    const services = new Services(loadConfig(cfgPath), { fake: true, dbPath: ":memory:", configPath: cfgPath, env: {} });
+    services.earnings.save("2026-11-20", [
+      { ticker: "NVDA", reportDate: "2026-11-25", fiscalDateEnding: null, estimate: 0.9, time: "post-market" },
+      { ticker: "ZZZZ", reportDate: "2026-11-25", fiscalDateEnding: null, estimate: null, time: null },
+    ]);
+    const wf = join(dir, "wf");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(wf);
+    app = createApp({ services, registry: builtinRegistry(), workflowsDir: wf, configPath: cfgPath, clock: () => new Date(2026, 10, 20, 12, 0) });
+    await new Promise<void>((r) => app!.server.listen(0, "127.0.0.1", () => r()));
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    const c = (await (await fetch(`${base}/api/calendar?from=2026-11-16&to=2026-12-31`)).json()) as {
+      holidays: Array<{ date: string; name: string }>; earnings: Array<{ ticker: string; time: string; daysAway: number }>;
+      schedule: Array<{ date: string; workflow: string; skipped: string | null }>; market: string;
+    };
+    expect(c.market).toBe("us");
+    expect(c.holidays).toEqual([{ date: "2026-11-26", name: "感謝祭" }, { date: "2026-12-25", name: "クリスマス" }]);
+    expect(c.earnings).toEqual([expect.objectContaining({ ticker: "NVDA", time: "post-market", daysAway: 5 })]); // ZZZZ is not watched
+    expect(c.schedule.some((x) => x.workflow === "workflows/daily-ai.yaml" || x.workflow === "daily-ai")).toBe(true);
+    expect((await fetch(`${base}/api/calendar?from=2026-01-01&to=2026-12-31`)).status).toBe(400);
   });
 });

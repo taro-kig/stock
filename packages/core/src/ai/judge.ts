@@ -6,6 +6,7 @@ import type { LLMProvider } from "../llm/types.ts";
 import type { EventRecord } from "../signals/models.ts";
 import type { FactorRow } from "../strategy/factors.ts";
 import type { Position } from "../strategy/portfolio.ts";
+import type { NextEarnings } from "../data/earnings.ts";
 import type { IsoDate } from "../util/dates.ts";
 import {
   JUDGE_PROMPT_VERSION, JUDGE_PROMPTS, RED_TEAM_PROMPT_VERSION, RED_TEAM_PROMPTS,
@@ -71,6 +72,8 @@ export function buildDossier(args: {
   universe: number;
   events: readonly EventRecord[];
   position?: Position | undefined;
+  /** Next earnings report: undefined = no calendar connected (no section), null = none known. */
+  earnings?: NextEarnings | null | undefined;
 }, variant: DossierVariant = "v1"): Dossier {
   const { row, events, position } = args;
   const trend: TrendRead = row.trend ?? "unknown";
@@ -99,6 +102,14 @@ export function buildDossier(args: {
     ...evLines,
     "## 保有状況",
     posLine,
+    ...(args.earnings === undefined
+      ? []
+      : [
+          "## 予定",
+          args.earnings
+            ? `次の決算発表: ${args.earnings.reportDate}（${args.earnings.daysAway === 0 ? "今日" : `${args.earnings.daysAway}日後`}${args.earnings.time === "pre-market" ? "・寄り前" : args.earnings.time === "post-market" ? "・引け後" : ""}）${args.earnings.estimate !== null ? ` EPS 予想 ${args.earnings.estimate}` : ""}`
+            : "次の決算発表: 3か月以内の予定は見つからない",
+        ]),
   ].join("\n");
   return { ticker: row.ticker, text, trend, news, held: Boolean(position) };
 }

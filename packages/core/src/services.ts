@@ -13,6 +13,7 @@ import { buildProvider } from "./llm/factory.ts";
 import { FakeProvider } from "./llm/fake.ts";
 import { heuristicResponder } from "./llm/heuristic.ts";
 import type { LLMProvider } from "./llm/types.ts";
+import { EarningsStore } from "./data/earnings.ts";
 import { PriceStore } from "./data/priceStore.ts";
 import { PromptRegistry } from "./prompts/registry.ts";
 import { PromptStore } from "./prompts/store.ts";
@@ -69,6 +70,7 @@ export class Services {
   #prices?: PriceStore;
   #prompts?: PromptRegistry;
   #promptStore?: PromptStore;
+  #earnings?: EarningsStore;
   #configHash?: string | undefined;
   #tier1?: LLMProvider[];
 
@@ -143,6 +145,11 @@ export class Services {
   /** Prompt versions (built-in + user). */
   get prompts(): PromptRegistry {
     return (this.#prompts ??= new PromptRegistry(this.config.promptsDir));
+  }
+
+  /** Upcoming earnings dates (point-in-time). */
+  get earnings(): EarningsStore {
+    return (this.#earnings ??= new EarningsStore(this.db));
   }
 
   /** Prompt switches and evaluation jobs. */

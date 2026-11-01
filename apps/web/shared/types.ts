@@ -175,3 +175,18 @@ export interface PromptsView {
   editable: boolean;
   fake: boolean;
 }
+
+export interface CalendarView {
+  from: string;
+  to: string;
+  /** Today in the server's local time zone. */
+  today: string;
+  market: "us" | "jp";
+  holidays: Array<{ date: string; name: string }>;
+  earnings: Array<{ date: string; ticker: string; name: string; time: string | null; estimate: number | null; held: boolean; daysAway: number }>;
+  /** Upcoming automatic runs, by local date. */
+  schedule: Array<{ date: string; at: string; workflow: string; skipped: string | null }>;
+  /** Past runs by run date (asOf). */
+  runs: Array<{ date: string; workflow: string; status: string; runId: string }>;
+  earningsSource: { configured: boolean; lastFetch: string | null; rows: number | null };
+}

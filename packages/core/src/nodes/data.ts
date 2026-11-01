@@ -4,7 +4,8 @@ import { z } from "zod";
 import { isCovered, syncBars } from "../data/priceSync.ts";
 import { TwelveDataAuthError, TwelveDataClient } from "../data/twelveData.ts";
 import { barsUntil, type Bar, type Prices } from "../signals/technical.ts";
-import { addDays, weekdays, type IsoDate } from "../util/dates.ts";
+import { addDays, toIsoDate, weekdays, type IsoDate } from "../util/dates.ts";
+import { fetchEarningsCalendar } from "../data/earnings.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -265,6 +266,46 @@ export const twelveDataPrices = defineNode({
     for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
     if (!Object.keys(prices).length) throw new Error("no price data from Twelve Data");
     return { prices };
+  },
+});
+
+export const earningsCalendar = defineNode({
+  type: "data.earnings",
+  title: "Earnings calendar",
+  category: "data",
+  description:
+    "Next earnings date per ticker (US). Downloads the Alpha Vantage calendar once a day (free key ALPHAVANTAGE_API_KEY: 25 requests/day, one is enough) and keeps what was known on each day, so replays only see dates known at the time.",
+  version: 1,
+  cache: "daily",
+  params: z.object({ apiKeyEnv: z.string().default("ALPHAVANTAGE_API_KEY"), staleDays: z.number().int().min(1).default(7) }),
+  inputs: {},
+  outputs: { earnings: { type: "Earnings" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const today = toIsoDate(ctx.wallNow());
+    if (ctx.live && !s.earnings.fetchedOn(today)) {
+      const key = s.env[p.apiKeyEnv];
+      if (!key) {
+        // optional feature: no key is a choice, not a failure (the run stays green)
+        ctx.log(`${p.apiKeyEnv} is not set: no earnings calendar (free key at alphavantage.co, settings screen)`);
+        ctx.metric("disabled", 1);
+        return { earnings: {} };
+      }
+      try {
+        const entries = await fetchEarningsCalendar(key, s.fetch);
+        s.earnings.save(today, entries, ctx.wallNow());
+        ctx.metric("downloaded", entries.length);
+      } catch (e) {
+        const last = s.earnings.lastFetch();
+        if (!last || last.day < addDays(today, -p.staleDays)) throw e;
+        ctx.log(`download failed, using the calendar from ${last.day}: ${e instanceof Error ? e.message : String(e)}`);
+        ctx.metric("stale", 1);
+      }
+    }
+    const earnings = s.earnings.nextFor(universe(ctx), ctx.asOf, p.staleDays);
+    ctx.metric("tickers", Object.keys(earnings).length);
+    ctx.metric("within7d", Object.values(earnings).filter((e) => e.daysAway <= 7).length);
+    return { earnings };
   },
 });
 

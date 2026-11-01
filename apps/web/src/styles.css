@@ -494,3 +494,25 @@ select.input { padding-right: 0.5ch; }
 .eval-fail summary { cursor: pointer; color: var(--fg-2); }
 .eval-fail > div { padding-left: 2ch; }
 .prompt-text.diff .gap { color: var(--faint); text-align: center; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); margin: 2px 0; }
+
+/* ── calendar ───────────────────────────────────────────────── */
+.calendar-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(32ch, 40ch); gap: 2ch; align-items: start; }
+@media (max-width: 1100px) { .calendar-layout { grid-template-columns: 1fr; } }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+.cal-head { padding: 2px 1ch; color: var(--dim); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg-1); text-align: center; }
+.cal-head.weekend { color: var(--faint); }
+.cal-cell { min-height: calc(var(--lh) * 5); padding: 2px 0.75ch 4px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 12px; line-height: 17px; overflow: hidden; }
+.cal-cell.weekend { background: color-mix(in srgb, var(--bg-1) 70%, transparent); }
+.cal-cell.past .cal-date span:first-child { color: var(--faint); }
+.cal-cell.holiday { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--fail) 7%, transparent) 6px 7px); }
+.cal-cell.today { outline: 1px solid var(--accent); outline-offset: -1px; }
+.cal-cell.today .cal-date span:first-child { color: var(--accent); font-weight: 700; }
+.cal-date { display: flex; justify-content: space-between; gap: 1ch; color: var(--fg-2); margin-bottom: 2px; }
+.cal-hol { color: var(--fail); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-earn { display: inline-block; margin: 0 0.5ch 2px 0; padding: 0 0.6ch; border: 1px solid var(--line-2); color: var(--fg-2); }
+.cal-earn.held { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.cal-sched { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-sched.skipped { color: var(--faint); text-decoration: line-through; }
+.cal-run { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cal-run:hover { text-decoration: underline; }
+.cal-time { margin-left: 0.4ch; font-size: 10px; color: var(--dim); font-weight: 400; }

@@ -5,6 +5,7 @@ export interface ScheduleEntry {
   file: string;
   at: string;
   days: number[];
+  skipHolidays?: boolean;
 }
 
 export interface SchedulerDeps {
@@ -14,6 +15,8 @@ export interface SchedulerDeps {
   ranToday: (workflow: string) => ScheduleItem["ranToday"];
   /** Disabled workflows are skipped (not queued, no error). */
   isDisabled?: (workflow: string) => boolean;
+  /** Name of the exchange holiday on a run date (YYYY-MM-DD, UTC like the engine's asOf), or null. */
+  holiday?: (asOf: string) => string | null;
   clock?: () => Date;
 }
 
@@ -59,6 +62,7 @@ export class Scheduler {
       if (!e.days.includes(day) || mins < minutes(e.at) || this.#fired.has(key)) continue;
       this.#fired.add(key);
       if (this.#deps.isDisabled?.(e.workflow)) continue;
+      if (e.skipHolidays !== false && this.#deps.holiday?.(now.toISOString().slice(0, 10))) continue; // market closed: no new data
       if (this.#deps.ranToday(e.workflow)) continue; // already run (e.g. manually) today
       this.#deps.trigger(e.file);
       fired.push(e.file);
@@ -70,19 +74,19 @@ export class Scheduler {
     const now = this.#now();
     return this.#entries.map((e) => {
       const disabled = this.#deps.isDisabled?.(e.workflow) ?? false;
-      return { ...e, nextAt: disabled ? null : nextAt(e, now), ranToday: this.#deps.ranToday(e.workflow), disabled };
+      return { ...e, nextAt: disabled ? null : nextAt(e, now, e.skipHolidays !== false ? this.#deps.holiday : undefined), ranToday: this.#deps.ranToday(e.workflow), disabled };
     });
   }
 }
 
-function nextAt(e: ScheduleEntry, now: Date): string | null {
+function nextAt(e: ScheduleEntry, now: Date, holiday?: (asOf: string) => string | null): string | null {
   if (!e.days.length) return null;
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 15; i++) {
     const d = new Date(now);
     d.setDate(now.getDate() + i);
     const [h, m] = e.at.split(":").map(Number);
     d.setHours(h!, m!, 0, 0);
-    if (e.days.includes(d.getDay()) && d > now) return d.toISOString();
+    if (e.days.includes(d.getDay()) && d > now && !holiday?.(d.toISOString().slice(0, 10))) return d.toISOString();
   }
   return null;
 }

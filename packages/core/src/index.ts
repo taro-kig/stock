@@ -12,7 +12,7 @@ export type { Scorecard, LabelCard } from "./eval/scorecard.ts";
 export type { AccountState, Fill } from "./execution/paper.ts";
 export type { OrderTicket } from "./execution/broker.ts";
 export type { Proposal } from "./strategy/portfolio.ts";
-export { today, toIsoDate, type IsoDate } from "./util/dates.ts";
+export { addDays, today, toIsoDate, type IsoDate } from "./util/dates.ts";
 export { loadDotEnv } from "./util/env.ts";
 export { KNOWN_SETTINGS, SettingsStore, settingDefs, type SettingDef, type SettingSource, type SettingStatus } from "./util/settings.ts";
 export { NOTIFY_EVENTS, type NotifyEvent } from "./config.ts";
@@ -28,3 +28,5 @@ export { defaultGoldenSet, defaultVersions, EVALUABLE, runPromptEval, type Promp
 export type { EvalReport } from "./eval/promptEval.ts";
 export { PromptStore, type EvalJob, type EvalJobStatus, type PromptSwitch } from "./prompts/store.ts";
 export { editConfig, saveConfigValue } from "./util/configFile.ts";
+export { isUsTradingDay, usHoliday, usHolidaysBetween, usMarketHolidays, usTradingDays, US_HOLIDAY_JA } from "./util/marketCalendar.ts";
+export { EarningsStore, fetchEarningsCalendar, parseEarningsCsv, type EarningsEntry, type EarningsMap, type NextEarnings } from "./data/earnings.ts";

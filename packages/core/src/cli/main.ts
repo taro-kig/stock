@@ -20,6 +20,7 @@ import { loadWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec } 
 import { loadDotEnv } from "../util/env.ts";
 import { assertSettingName, SettingsStore, settingDefs } from "../util/settings.ts";
 import { backupDir, listBackups, runBackup } from "../util/backup.ts";
+import { usTradingDays } from "../util/marketCalendar.ts";
 import { c, money, num, pct, status, table } from "./format.ts";
 
 const HELP = `stockai — mid-term AI trading workflows
@@ -237,7 +238,9 @@ async function cmdRun(file: string): Promise<void> {
     if (!opt.from || !opt.to) throw new Error("--from and --to go together");
     if (!s.fake) console.error(c.yellow("warning: replaying the past with real LLMs is optimistic — models may know what happened (DESIGN §9)."));
     let last: RunResult | undefined;
-    for (const d of weekdays(assertIsoDate(opt.from), assertIsoDate(opt.to), Number(opt.step))) {
+    // US config: exchange trading days (holidays skipped); otherwise weekdays
+    const days = s.config.market.currency === "USD" ? usTradingDays : weekdays;
+    for (const d of days(assertIsoDate(opt.from), assertIsoDate(opt.to), Number(opt.step))) {
       last = await engine.run(spec, { asOf: d });
       const acct = tryOutput<AccountState>(last, "execute", "account");
       const fills = tryOutput<Fill[]>(last, "execute", "fills") ?? [];

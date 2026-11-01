@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { backupDue, backupStatus, defaultGoldenSet, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { ImportResult, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
+import { addDays, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { CalendarView, ImportResult, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
@@ -162,6 +162,8 @@ export function createApp(o: AppOptions): App {
     },
     ranToday: (w) => ranToday(s, w, clock),
     isDisabled: (w) => s.runStore.disabled(w) !== null,
+    // US config: no runs on exchange holidays (weekday closures; weekends are handled by `days`)
+    ...(s.config.market.currency === "USD" ? { holiday: (d: string) => usHoliday(d) } : {}),
     clock,
   });
 
@@ -216,6 +218,48 @@ export function createApp(o: AppOptions): App {
     s.runStore.setDisabled(name, disabled, note.slice(0, 200), clock());
     broadcast({ type: "workflow_state", workflow: name, disabled });
     return { name, disabled: s.runStore.disabled(name) };
+  }
+
+  function calendarView(fromQ?: string, toQ?: string): CalendarView {
+    const now = clock();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const today = local(now);
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) - 7); // from last week's Monday
+    const from = fromQ ?? local(monday);
+    const to = toQ ?? addDays(from, 41);
+    if (to < from || addDays(from, 120) < to) throw new HttpError(400, "range: from <= to, at most 120 days");
+    const us = s.config.market.currency === "USD";
+    const held = s.heldTickers();
+    const names = (t: string) => s.watchlist.entries[t]?.name ?? t;
+    const tickers = [...new Set([...s.watchlist.tickers, ...Object.keys(held)])];
+    const lastFetch = us ? s.earnings.lastFetch() : null;
+    const schedule: CalendarView["schedule"] = [];
+    for (let d = today > from ? today : from; d <= to; d = addDays(d, 1)) {
+      const [y, m, dd] = d.split("-").map(Number) as [number, number, number];
+      for (const e of scheduleEntries) {
+        const [hh, mm] = e.at.split(":").map(Number) as [number, number];
+        const fire = new Date(y, m - 1, dd, hh, mm, 0, 0);
+        if (!e.days.includes(fire.getDay()) || fire < now) continue;
+        const h = us && e.skipHolidays !== false ? usHoliday(fire.toISOString().slice(0, 10)) : null;
+        const off = s.runStore.disabled(e.workflow);
+        schedule.push({ date: d, at: e.at, workflow: e.workflow, skipped: off ? "無効" : h ? `休場（${US_HOLIDAY_JA[h] ?? h}）` : null });
+      }
+    }
+    return {
+      from, to, today, market: us ? "us" : "jp",
+      holidays: us ? usHolidaysBetween(from, to).map((h) => ({ date: h.date, name: h.nameJa })) : [],
+      earnings: us
+        ? s.earnings.between(tickers, from, to).map((e) => ({
+            date: e.reportDate, ticker: e.ticker, name: names(e.ticker), time: e.time, estimate: e.estimate, held: e.ticker in held,
+            daysAway: Math.round((Date.parse(`${e.reportDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000),
+          }))
+        : [],
+      schedule,
+      runs: s.runStore.listRuns(1000).filter((r) => r.asOf >= from && r.asOf <= to).map((r) => ({ date: r.asOf, workflow: r.workflow, status: r.status, runId: r.runId })),
+      earningsSource: { configured: Boolean(s.env["ALPHAVANTAGE_API_KEY"]), lastFetch: lastFetch?.fetchedAt ?? null, rows: lastFetch?.rows ?? null },
+    };
   }
 
   const CONFIG_KEY: Record<PromptFamily, "event" | "judge" | "redTeam" | "universe"> = { event: "event", judge: "judge", redteam: "redTeam", universe: "universe" };
@@ -482,6 +526,11 @@ export function createApp(o: AppOptions): App {
         const budget = e instanceof Error && e.name === "BudgetExceeded";
         throw new HttpError(budget ? 429 : 400, e instanceof Error ? e.message : String(e));
       }
+    }
+    if (req.method === "GET" && path === "/api/calendar") {
+      const q = (k: string) => url.searchParams.get(k) ?? "";
+      const iso = /^\d{4}-\d{2}-\d{2}$/;
+      return send(res, 200, calendarView(iso.test(q("from")) ? q("from") : undefined, iso.test(q("to")) ? q("to") : undefined));
     }
     if (req.method === "GET" && path === "/api/prompts") return send(res, 200, promptsView());
     if (req.method === "GET" && (g = m(/^\/api\/prompts\/evals\/(\d+)$/))) {

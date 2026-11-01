@@ -3,6 +3,7 @@
 #   GEMINI_API_KEY / DEEPSEEK_API_KEY  … LLM
 #   TWELVEDATA_API_KEY                 … 米国株の日足（無料プラン: 800 回/日, 8 回/分）
 #   SEC_USER_AGENT                     … SEC EDGAR の利用条件で必須: "stockai you@example.com"
+#   ALPHAVANTAGE_API_KEY               … 決算予定（任意。無料キー、1日1回だけ使う）
 dataDir: data
 
 harness:
@@ -102,6 +103,7 @@ backup:
 # Automatic daily runs while the web server is up (`npm run web`). Server local time.
 # The US close is 05:00 (summer) / 06:00 (winter) JST, so these run the next morning in Japan,
 # Tuesday–Saturday. The run date is the UTC date, i.e. the US trading day just closed.
+# Runs whose run date is a US market holiday are skipped (skipHolidays: true by default).
 schedule:
   - { workflow: workflows/daily-rules.yaml, at: "06:40", days: [2, 3, 4, 5, 6] }
   - { workflow: workflows/daily-ai.yaml, at: "06:45", days: [2, 3, 4, 5, 6] }

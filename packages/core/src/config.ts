@@ -93,6 +93,8 @@ export const AppConfig = z.strictObject({
         at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM"),
         /** 0 = Sunday … 6 = Saturday */
         days: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5]),
+        /** Skip when the run date is an exchange holiday (US market calendar; weekends are left to `days`). */
+        skipHolidays: z.boolean().default(true),
       }),
     )
     .default([]),

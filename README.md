@@ -54,6 +54,7 @@ config/       config.example.yaml (米国株), config.jp.example.yaml (日本株
 | 6 ノード | ノードの一覧（ポート型・パラメータ） |
 | 7 設定 | **API キーの入力**（Gemini / DeepSeek / Twelve Data / SEC / Webull …）。保存先と、各キーがどこから来ているか（設定画面 / .env / シェル）を表示 |
 | 8 プロンプト | **プロンプトの版管理**: 組み込み / 自作の版、新しい版の作成（指示文の編集・差分）、正解データでの評価、切り替え（[docs/prompts.md](docs/prompts.md)） |
+| 9 カレンダー | 6週間の月表示: 米国市場の**休場日**、ウォッチリスト・保有銘柄の**決算日**（寄り前 / 引け後）、自動実行の予定（休場日は取り消し線）、過去の実行結果。右に直近の決算一覧（[docs/us.md](docs/us.md)） |
 
 | 承認 | 確度 |
 |---|---|
@@ -167,6 +168,7 @@ npm run stockai -- settings clear GEMINI_API_KEY
 | `GEMINI_API_KEY` | Gemini（イベント抽出・判断） | Google AI Studio |
 | `DEEPSEEK_API_KEY` | DeepSeek（多数決の2つ目） | DeepSeek Platform |
 | `TWELVEDATA_API_KEY` | 米国株の日足（無料: 800 回/日） | twelvedata.com |
+| `ALPHAVANTAGE_API_KEY` | 米国株の決算予定（無料: 25 回/日、1日1回だけ使う）。無くても動く（決算のルールが働かないだけ） | alphavantage.co |
 | `SEC_USER_AGENT` | SEC EDGAR（キー不要。名前と連絡先メール、例 `stockai you@example.com`） | — |
 | `JQUANTS_API_KEY` | 日本株の株価（`data.pricesJQuants`）。Free プランは直近12週間が取れないので日次運用には Light 以上 | J-Quants ダッシュボードの API Keys |
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | 別ベンダーを試す場合 | 各社のコンソール |

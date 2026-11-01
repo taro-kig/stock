@@ -8,6 +8,7 @@ import { navigate, TABS, useRoute, type View } from "./router.ts";
 import { Approvals } from "./views/Approvals.tsx";
 import { Help } from "./views/Help.tsx";
 import { Nodes } from "./views/Nodes.tsx";
+import { Calendar } from "./views/Calendar.tsx";
 import { Overview } from "./views/Overview.tsx";
 import { Prompts } from "./views/Prompts.tsx";
 import { Runs } from "./views/Runs.tsx";
@@ -15,7 +16,7 @@ import { Scorecard } from "./views/Scorecard.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Workflows } from "./views/Workflows.tsx";
 
-const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", prompts: "プロンプト", editor: "編集" };
+const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", prompts: "プロンプト", calendar: "カレンダー", editor: "編集" };
 
 interface Toast {
   id: number;
@@ -98,6 +99,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         {route.view === "nodes" && <Nodes param={route.param} />}
         {route.view === "settings" && <Settings toast={toast} />}
         {route.view === "prompts" && <Prompts param={route.param} toast={toast} />}
+        {route.view === "calendar" && <Calendar />}
         {route.view === "editor" && <Editor key={route.param ?? "new"} name={route.param} toast={toast} />}
       </main>
 

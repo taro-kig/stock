@@ -13,11 +13,12 @@ nodes:
   # ── prices & factors (no LLM) ────────────────────────────────
   prices:     { use: data.pricesTwelveData, ui: { x: 0, y: 280 } }
   factors:    { use: signal.factors, in: { prices: prices }, ui: { x: 260, y: 280 } }
+  earnings:   { use: data.earnings, onError: skip, ui: { x: 0, y: 500 } }
   score:      { use: signal.score, in: { factors: factors, events: eventScore }, ui: { x: 1820, y: 160 } }
   account:    { use: portfolio.ibkrAccount, in: { prices: prices }, ui: { x: 260, y: 500 } }
   # ── decision → hard limits → approval → execution ────────────
-  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: history, account: account }, onError: fallback, ui: { x: 2080, y: 280 } }
-  propose:    { use: portfolio.propose, in: { judgments: decide, factors: factors, account: account }, ui: { x: 2340, y: 280 } }
+  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: history, account: account, earnings: earnings }, onError: fallback, ui: { x: 2080, y: 280 } }
+  propose:    { use: portfolio.propose, in: { judgments: decide, factors: factors, account: account, earnings: earnings }, ui: { x: 2340, y: 280 } }
   approve:    { use: gate.approval, in: { proposals: propose }, params: { mode: manual }, ui: { x: 2600, y: 280 } }
   execute:    { use: broker.ibkr, in: { proposals: approve, prices: prices, account: account }, ui: { x: 2860, y: 280 } }
   # ── grading (確度の答え合わせ) ──────────────────────────────────
