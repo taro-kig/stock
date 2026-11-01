@@ -72,8 +72,8 @@ export class RunStore {
         run_id TEXT, node_id TEXT, decision TEXT, note TEXT, decided_at TEXT, PRIMARY KEY (run_id, node_id));`);
   }
 
-  createRun(runId: string, workflow: string, asOf: string, specJson: string): void {
-    this.#db.prepare("INSERT INTO wf_runs VALUES (?,?,?,?,?,?,?)").run(runId, workflow, asOf, "running", new Date().toISOString(), null, specJson);
+  createRun(runId: string, workflow: string, asOf: string, specJson: string, createdAt: Date = new Date()): void {
+    this.#db.prepare("INSERT INTO wf_runs VALUES (?,?,?,?,?,?,?)").run(runId, workflow, asOf, "running", createdAt.toISOString(), null, specJson);
   }
 
   setRunStatus(runId: string, status: RunStatus): void {

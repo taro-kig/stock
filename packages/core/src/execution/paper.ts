@@ -99,6 +99,20 @@ export class PaperBook {
     return { account, asOf, currency: a.currency, cash: a.cash / m, equity, peakEquity, mode: tradingMode(equity, peakEquity, risk), positions };
   }
 
+  /** Daily equity per account, for charts. */
+  equityHistory(): Array<{ account: string; currency: "JPY" | "USD"; points: Array<[IsoDate, number]> }> {
+    const rows = this.#db
+      .prepare("SELECT e.account, a.currency, e.as_of, e.equity_minor FROM paper_equity e JOIN paper_accounts a USING (account) ORDER BY e.account, e.as_of")
+      .all() as Array<{ account: string; currency: "JPY" | "USD"; as_of: string; equity_minor: number }>;
+    const out = new Map<string, { account: string; currency: "JPY" | "USD"; points: Array<[IsoDate, number]> }>();
+    for (const r of rows) {
+      const e = out.get(r.account) ?? { account: r.account, currency: r.currency, points: [] };
+      e.points.push([r.as_of, r.equity_minor / MINOR[r.currency]]);
+      out.set(r.account, e);
+    }
+    return [...out.values()];
+  }
+
   fillsForRun(runId: string, account: string): Fill[] {
     const rows = this.#db.prepare("SELECT * FROM paper_fills WHERE run_id = ? AND account = ? ORDER BY rowid").all(runId, account) as Array<{
       run_id: string; account: string; as_of: string; ticker: string; side: "buy" | "sell"; shares: number; price: number; fee_minor: number; reason: string;

@@ -56,3 +56,9 @@ ibkr:
   limitOffsetBps: 50      # buy limit = close +0.5%, sell limit = close -0.5%, rounded to the tick grid
   maxOrderValue: 2000000  # hard cap per buy order (account currency)
   maxOrdersPerRun: 6
+
+# Automatic daily runs while the web server is up (`npm run web`). Server local time.
+# The baseline runs first so the AI workflow reuses its cached nodes.
+schedule:
+  - { workflow: workflows/daily-rules.yaml, at: "16:30" }
+  - { workflow: workflows/daily-ai.yaml, at: "16:35" }

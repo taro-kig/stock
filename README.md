@@ -6,6 +6,8 @@ AI に渡す権限は、判断を全件記録して答え合わせした **実�
 
 設計: **[docs/DESIGN.md](docs/DESIGN.md)**
 
+![overview](docs/images/overview.png)
+
 ## 特徴
 
 - **ワークフロー**: 処理は型付きノードのグラフ (`workflows/*.yaml`)。キャッシュ・失敗時の方針・承認待ち/再開・過去日付の再生・全入出力の記録
@@ -27,12 +29,54 @@ packages/core/src/
   workflow/   エンジン (型付きポート, 検証, キャッシュ, 承認, 再生, イベントログ)
   nodes/      組み込みノード (stockai nodes で一覧)
   cli/        CLI
+apps/web/     Web UI (React + Vite) と API サーバー (node:http, SSE, 実行キュー, スケジューラ)
 workflows/    daily-ai / daily-rules (本番), ibkr-paper (IBKR ペーパー口座), demo-ai / demo-rules (オフラインデモ)
 deploy/ibkr/  IB Gateway の Docker 構成
 config/       config.example.yaml
 ```
 
-## 使い方
+## Web UI
+
+ターミナル風の Web 画面。キーボードだけで操作できる（`?` でキー一覧、`t` で ink / paper テーマ、`u` で値動きの色を日本式 ⇄ 米国式）。
+
+| 画面 | 内容 |
+|---|---|
+| 1 概要 | 承認待ち・ワークフローの状態と次回実行・口座の推移・確度・LLM コスト |
+| 2 実行 | 実行履歴、判断 / 注文 / 約定 / 口座 / 採点、フローのグラフ（ノードごとの状態・計測・エラー） |
+| 3 承認 | 注文の一覧と根拠（AI の判断理由・撤回条件）。`a` / `x` を2回押して承認 / 却下 |
+| 4 確度 | AI とルールの的中率、95% 下限、実効標本、確信度別、昇格判定 |
+| 5 フロー | ワークフローのグラフ、今日 / 過去日付での実行 |
+| 6 ノード | ノードの一覧（ポート型・パラメータ） |
+
+| 承認 | 確度 |
+|---|---|
+| ![approvals](docs/images/approvals.png) | ![scorecard](docs/images/scorecard.png) |
+
+```bash
+npm run web                     # UI をビルドしてサーバー起動 → http://127.0.0.1:4317
+npm run web -- --fake           # API キーなし (疑似モデル)
+npm run web:server & npm run web:ui   # 開発: Vite (http://127.0.0.1:5173) + API サーバー
+```
+
+- 既定で `127.0.0.1` のみで待ち受ける。他の端末から使う場合は `STOCKAI_WEB_TOKEN` を設定して `--host 0.0.0.0`（トークンなしでは起動を拒否）。初回は `http://host:4317/?token=...` で開く
+- 実行はキューで1つずつ処理。進行状況はサーバーからリアルタイムに反映される
+
+## 日次運用（確度の記録）
+
+`config/config.yaml` の `schedule` に書いたワークフローが、Web サーバーの起動中に毎日自動で実行される。
+
+```yaml
+schedule:
+  - { workflow: workflows/daily-rules.yaml, at: "16:30" }   # 比較用ベースライン（先に実行し、共通ノードをキャッシュ）
+  - { workflow: workflows/daily-ai.yaml, at: "16:35" }      # AI 判断（承認ゲートで停止）
+```
+
+1. 常時起動のマシンで `npm run web` を動かしておく（API キーは環境変数）
+2. 毎日の判断は承認しなくても記録・採点される（`record` / `grade` は承認ゲートの手前で動く）
+3. 注文を承認するとペーパー口座で約定する。承認しなければ 12 時間で自動的に却下扱い
+4. 「4 確度」で AI とルールの差を見る。実効標本が 100 を超え、下限が 50% を上回り、ルールに勝ったら次の段階を検討する
+
+## 使い方 (CLI)
 
 Node.js 22.18 以上。
 
@@ -63,6 +107,6 @@ npm run stockai -- graph workflows/daily-ai.yaml # ノード UI 用のグラフ 
 
 ## ステータス
 
-Phase 1.5 完了 (TypeScript 版コア + ワークフロー + AI 判断 + ペーパー執行 + 採点 + IBKR 接続)。
-IBKR 接続は疑似ブローカーでテスト済みだが、実機の IB Gateway ではまだ確認していない ([docs/ibkr.md](docs/ibkr.md) のチェックリスト)。
-次は Web UI (TUI 風の画面 → ノード UI)。本リポジトリは投資助言ではない。
+Phase 2 完了 (コア + ワークフロー + AI 判断 + ペーパー執行 + 採点 + IBKR 接続 + Web UI + 自動実行)。
+IBKR 接続は疑似ブローカーでテスト済みだが、実機では未確認 ([docs/ibkr.md](docs/ibkr.md))。IBKR の口座開設は保留中で、当面はペーパー口座で確度を記録する。
+次は実データでの日次記録と、ノードエディタ。本リポジトリは投資助言ではない。

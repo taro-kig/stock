@@ -82,6 +82,8 @@ export function proposeRebalance(inp: RebalanceInput, cfg: RiskConfig, opt: Reba
   if (inp.mode !== "normal" || !inp.regimeOk) return out;
   const eligible = inp.eligible ? new Set(inp.eligible) : null;
   const held = new Set(remaining.map((p) => p.ticker));
+  // never buy back what this same rebalance just sold (e.g. a stop hit on a still top-ranked name)
+  const exitedNow = new Set(out.filter((p) => p.action === "sell").map((p) => p.ticker));
   const sectorValue = new Map<string, number>();
   for (const p of remaining) {
     const px = inp.candidates[p.ticker]?.price ?? p.entryPrice;
@@ -91,7 +93,7 @@ export function proposeRebalance(inp: RebalanceInput, cfg: RiskConfig, opt: Reba
   for (const t of ranked.slice(0, opt.topN)) {
     if (slots <= 0) break;
     const c = inp.candidates[t];
-    if (held.has(t) || !c || !c.trendOk || c.blockedReason || (eligible && !eligible.has(t))) continue;
+    if (held.has(t) || exitedNow.has(t) || !c || !c.trendOk || c.blockedReason || (eligible && !eligible.has(t))) continue;
     const shares = positionSize(inp.equity, c.price, c.atr, cfg);
     if (shares === 0) continue;
     const value = shares * c.price;

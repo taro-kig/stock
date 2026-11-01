@@ -45,6 +45,15 @@ describe("proposeRebalance", () => {
     const props = proposeRebalance(base({ positions: { D: pos("D"), A: pos("A") }, regimeOk: false, thesisBroken: ["D"] }), RiskConfig.parse({}), { ...opt, topN: 2 });
     expect(props.map((p) => [p.action, p.ticker])).toEqual([["sell", "D"]]);
   });
+  it("does not buy back a name sold in the same rebalance", () => {
+    const cfg = RiskConfig.parse({ riskPerTrade: 0.05 });
+    // A is top-ranked but its trailing stop is hit (high 1200, ATR 20 -> stop 1140 > price 1000)
+    const props = proposeRebalance(base({ positions: { A: { ...pos("A"), highestClose: 1200 } } }), cfg, { ...opt, topN: 2 });
+    expect(props.filter((p) => p.ticker === "A").map((p) => p.action)).toEqual(["sell"]);
+    expect(props.find((p) => p.ticker === "A")?.reason).toBe("stop hit");
+    expect(props.filter((p) => p.action === "buy").map((p) => p.ticker)).toEqual(["B"]);
+  });
+
   it("only buys eligible tickers and keeps exempted holdings", () => {
     const cfg = RiskConfig.parse({ riskPerTrade: 0.05 });
     const props = proposeRebalance(base({ eligible: ["C"], keep: ["D"], positions: { D: pos("D") } }), cfg, { ...opt, topN: 1 });

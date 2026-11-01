@@ -29,7 +29,10 @@ export interface NodeDef<P extends z.ZodObject, I extends PortDecls, O extends P
   title: string;
   category: NodeCategory;
   description: string;
-  /** Bump when behaviour changes: invalidates the node cache. */
+  /**
+   * Bump whenever the node's behaviour changes (including logic it calls into):
+   * cached outputs are keyed by it, so a stale version silently replays old results.
+   */
   version: number;
   cache: CachePolicy;
   params: P;

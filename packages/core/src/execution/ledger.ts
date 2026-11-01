@@ -66,6 +66,13 @@ export class BrokerLedger {
     return out;
   }
 
+  equityHistory(): Array<{ account: string; points: Array<[IsoDate, number]> }> {
+    const rows = this.#db.prepare("SELECT account, as_of, equity FROM broker_equity ORDER BY account, as_of").all() as Array<{ account: string; as_of: string; equity: number }>;
+    const out = new Map<string, Array<[IsoDate, number]>>();
+    for (const r of rows) out.set(r.account, [...(out.get(r.account) ?? []), [r.as_of, r.equity]]);
+    return [...out.entries()].map(([account, points]) => ({ account, points }));
+  }
+
   /** Records equity and returns the running peak (for the drawdown kill switch). */
   recordEquity(account: string, asOf: IsoDate, equity: number): number {
     this.#db.prepare("INSERT OR REPLACE INTO broker_equity VALUES (?,?,?)").run(account, asOf, equity);

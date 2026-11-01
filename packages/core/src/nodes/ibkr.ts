@@ -60,6 +60,8 @@ export const ibkrBroker = defineNode({
   async run(ctx, p, i) {
     const s = ctx.services;
     const cfg = s.ibkrConfig;
+    if (i.proposals.length === 0) return { orders: [] }; // e.g. rejected or timed-out approval
+    // also blocks approving yesterday's proposals today: stale prices must not reach the market
     if (!ctx.live && !p.dryRun) throw new Error("broker.ibkr only sends orders for today's run (use dryRun to replay)");
     return withBroker(ctx, async (b) => {
       const a = await b.account();

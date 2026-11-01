@@ -21,7 +21,7 @@ export const approvalGate = defineNode({
     if (p.mode === "auto" || i.proposals.length === 0) return { proposals: i.proposals };
     const a = ctx.approval();
     if (a) return { proposals: a.decision === "approve" ? i.proposals : [] };
-    if (Date.now() - ctx.runCreatedAt.getTime() > p.timeoutHours * 3_600_000) {
+    if (ctx.wallNow().getTime() - ctx.runCreatedAt.getTime() > p.timeoutHours * 3_600_000) {
       ctx.log(`approval timed out -> ${p.onTimeout}`);
       return { proposals: p.onTimeout === "approve" ? i.proposals : [] };
     }

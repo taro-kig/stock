@@ -2,12 +2,20 @@
   "name": "stockai",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
-  "engines": { "node": ">=22.18" },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "stockai": "node --disable-warning=ExperimentalWarning packages/core/src/cli/main.ts",
-    "test": "npm test -w @stockai/core",
-    "typecheck": "npm run typecheck -w @stockai/core",
-    "check": "npm run typecheck && npm test"
+    "web": "npm run build -w @stockai/web && node --disable-warning=ExperimentalWarning apps/web/server/main.ts",
+    "web:server": "node --disable-warning=ExperimentalWarning apps/web/server/main.ts",
+    "web:ui": "npm run dev -w @stockai/web",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check": "npm run typecheck && npm test && npm run build -w @stockai/web"
   }
 }

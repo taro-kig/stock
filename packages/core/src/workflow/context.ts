@@ -27,6 +27,8 @@ export interface NodeContext {
   readonly now: Date;
   readonly live: boolean;
   readonly runCreatedAt: Date;
+  /** Real (engine) wall clock — unlike `now`, not pinned to the run date in replays. */
+  wallNow(): Date;
   readonly services: Services;
   log(message: string, data?: unknown): void;
   /** Additive per-node metric, shown in run views (e.g. llm calls, docs skipped). */

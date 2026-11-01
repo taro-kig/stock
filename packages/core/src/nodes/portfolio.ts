@@ -28,7 +28,7 @@ export const proposeNode = defineNode({
   category: "risk",
   description:
     "Turns judgments into orders under hard limits: ATR sizing, lot rounding, max weight/positions/sector, stops, drawdown kill switch. The AI decides what; these rules decide how much.",
-  version: 1,
+  version: 2, // v2: no buy-back of a name sold in the same rebalance
   cache: "inputs",
   params: z.object({
     topN: z.number().int().positive().default(5),

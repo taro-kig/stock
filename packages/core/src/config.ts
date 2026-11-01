@@ -44,6 +44,17 @@ export const AppConfig = z.strictObject({
   risk: RiskConfig.prefault({}),
   /** Interactive Brokers via IB Gateway (docs/ibkr.md). */
   ibkr: IbkrConfig.optional(),
+  /** Runs started automatically by the web server (local time of the server). */
+  schedule: z
+    .array(
+      z.strictObject({
+        workflow: z.string(),
+        at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM"),
+        /** 0 = Sunday … 6 = Saturday */
+        days: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5]),
+      }),
+    )
+    .default([]),
 });
 export type AppConfig = z.output<typeof AppConfig>;
 

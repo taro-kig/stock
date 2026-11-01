@@ -1,0 +1,115 @@
+/** JSON shapes exchanged between the web server and the UI. */
+import type { AccountState, Fill, Judgment, NodeDescription, OrderTicket, Proposal, Scorecard } from "@stockai/core";
+
+export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
+export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
+
+export interface RunSummary {
+  runId: string;
+  workflow: string;
+  asOf: string;
+  status: RunStatus;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface PortRef {
+  node: string;
+  port: string;
+}
+
+export interface NodeView {
+  id: string;
+  type: string;
+  title: string;
+  category: string;
+  status: NodeStatus;
+  durationMs: number;
+  error: string | null;
+  metrics: Record<string, number>;
+  summary: Record<string, unknown>;
+  /** Column in the DAG (longest path from a source). */
+  layer: number;
+  params: Record<string, unknown>;
+  onError: string;
+  inputs: Array<{ name: string; type: string; optional: boolean; from: PortRef | null }>;
+  outputs: Array<{ name: string; type: string }>;
+}
+
+export interface EdgeView {
+  from: PortRef;
+  to: PortRef;
+  type: string;
+}
+
+export interface Highlights {
+  judgments?: { node: string; source: "ai" | "rules"; items: Judgment[] };
+  proposals?: { node: string; approved: boolean; items: Proposal[] };
+  fills?: Fill[];
+  orders?: OrderTicket[];
+  account?: AccountState;
+  scorecard?: Scorecard;
+}
+
+export interface WaitingGate {
+  node: string;
+  message: string;
+  proposals: Proposal[];
+}
+
+export interface RunDetail {
+  run: RunSummary;
+  description: string;
+  nodes: NodeView[];
+  edges: EdgeView[];
+  highlights: Highlights;
+  waiting: WaitingGate[];
+  /** ticker -> company name (from the watchlist) */
+  names: Record<string, string>;
+}
+
+export interface WorkflowInfo {
+  name: string;
+  file: string;
+  description: string;
+  problems: string[];
+  nodeCount: number;
+  lastRun: RunSummary | null;
+}
+
+export interface ScheduleItem {
+  workflow: string;
+  file: string;
+  at: string;
+  days: number[];
+  nextAt: string | null;
+  ranToday: RunSummary | null;
+}
+
+export interface EquitySeries {
+  account: string;
+  kind: "paper" | "broker";
+  currency: string | null;
+  points: Array<[string, number]>;
+}
+
+export interface Overview {
+  now: string;
+  fake: boolean;
+  pending: Array<{ run: RunSummary; gates: WaitingGate[] }>;
+  workflows: WorkflowInfo[];
+  recent: RunSummary[];
+  equity: EquitySeries[];
+  scorecard: Scorecard | null;
+  cost: { spentToday: number; dailyLimit: number; byProvider: Array<{ provider: string; calls: number; costUsd: number }> };
+  schedule: ScheduleItem[];
+  queue: { running: string | null; pending: number };
+}
+
+export type NodeCatalog = NodeDescription[];
+
+/** Pushed on /api/stream. */
+export type StreamEvent =
+  | { type: "hello"; now: string }
+  | { type: "queued"; runId: string; workflow: string }
+  | { type: "run_event"; runId: string; event: Record<string, unknown> };

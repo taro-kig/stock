@@ -51,7 +51,7 @@ export class Engine {
     this.validate(spec);
     const asOf = opts.asOf ?? toIsoDate(this.#clock());
     const runId = opts.runId ?? `${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)}-${spec.name}-${randomUUID().slice(0, 6)}`;
-    this.#o.store.createRun(runId, spec.name, asOf, JSON.stringify(spec));
+    this.#o.store.createRun(runId, spec.name, asOf, JSON.stringify(spec), this.#clock());
     return this.#execute(spec, runId, asOf, {});
   }
 
@@ -148,7 +148,7 @@ export class Engine {
 
       const metrics: Record<string, number> = {};
       const ctx: NodeContext = {
-        runId, workflow: spec.name, nodeId: id, asOf, now, live, runCreatedAt, services,
+        runId, workflow: spec.name, nodeId: id, asOf, now, live, runCreatedAt, services, wallNow: this.#clock,
         log: (message, data) => this.#emit(runId, { type: "log", node: id, message, data }),
         metric: (name, v) => {
           metrics[name] = (metrics[name] ?? 0) + v;
