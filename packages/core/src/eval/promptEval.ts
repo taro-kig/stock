@@ -111,6 +111,14 @@ function usage(b: CostTracker) {
   };
 }
 
+/** A model that fails its first calls at the transport level (no key, blocked host, outage) is skipped. */
+const GIVE_UP_AFTER = 3;
+function giveUp(error: string | undefined, row: ModelRow, consecutive: number): boolean {
+  if (!error?.startsWith("llm:") || consecutive < GIVE_UP_AFTER) return false;
+  row.failures.push({ id: "(model)", reason: `skipped: first ${GIVE_UP_AFTER} calls could not reach the model — check the API key and network access` });
+  return true;
+}
+
 const docOf = (c: EventCase) => ({ ...c.doc, url: `golden:${c.id}`, fetchedAt: "2026-01-01T00:00:00.000Z", sourceWeight: 1, alsoSeenIn: [] });
 
 export async function evalEvents(set: EventGoldenSet, versions: EventPromptVersion[], o: EvalOptions): Promise<EvalReport> {
@@ -125,14 +133,17 @@ export async function evalEvents(set: EventGoldenSet, versions: EventPromptVersi
         const { caller, budget } = tracker(o);
         const row: ModelRow = { version, model: model.name, n: set.cases.length, schemaOk: 0, accepted: 0, correct: 0, accuracy: 0, fields: {}, costUsd: 0, inputTokens: 0, outputTokens: 0, failures: [] };
         for (const f of FIELDS) row.fields[f] = { right: 0, total: 0 };
+        let unreachable = 0;
         for (const c of set.cases) {
           o.onProgress?.(`${version} ${model.name} ${c.id}`);
           const doc = docOf(c);
           const r = await caller.call(model, EventExtraction, { schemaName: "EventExtraction", system: prompt.system, user: prompt.user(doc, c.candidates), promptVersion: version });
           if (!r.value) {
             row.failures.push({ id: c.id, reason: r.error ?? "no output" });
+            if (giveUp(r.error, row, ++unreachable)) break;
             continue;
           }
+          unreachable = -Infinity; // reached the model at least once: never give up on transport errors after that
           row.schemaOk++;
           const rejected = validateEvent(r.value, { doc, candidates: c.candidates, priority: new Set() });
           const s = scoreEvent(c, r.value);
@@ -197,14 +208,17 @@ export async function evalJudge(set: JudgeGoldenSet, versions: JudgePromptVersio
         const row: ModelRow = { version, model: model.name, n: set.cases.length, schemaOk: 0, accepted: 0, correct: 0, accuracy: 0, fields: {}, costUsd: 0, inputTokens: 0, outputTokens: 0, failures: [] };
         const stances: Record<Stance, number> = { bullish: 0, bearish: 0, neutral: 0, abstain: 0 };
         let misread = 0;
+        let unreachable = 0;
         for (const c of set.cases) {
           o.onProgress?.(`${version} ${model.name} ${c.id}`);
           const dossier = judgeCaseDossier(c, version);
           const r = await caller.call(model, TradeJudgment, { schemaName: "TradeJudgment", system: JUDGE_PROMPTS[version].system, user: dossier.text, promptVersion: version });
           if (!r.value) {
             row.failures.push({ id: c.id, reason: r.error ?? "no output" });
+            if (giveUp(r.error, row, ++unreachable)) break;
             continue;
           }
+          unreachable = -Infinity;
           row.schemaOk++;
           const rejected = validateJudgment(r.value, { dossier, priority: false });
           if (rejected) {

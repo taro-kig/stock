@@ -7,6 +7,7 @@ import { evalEvents, evalJudge, judgeCaseDossier, scoreEvent } from "../src/eval
 import { StructuredCaller } from "../src/harness/structured.ts";
 import { FakeProvider } from "../src/llm/fake.ts";
 import { heuristicResponder } from "../src/llm/heuristic.ts";
+import { LLMError } from "../src/llm/types.ts";
 import { EventExtractor } from "../src/signals/extractor.ts";
 import { EventExtraction } from "../src/signals/models.ts";
 import { EVENT_PROMPTS } from "../src/signals/prompts.ts";
@@ -94,6 +95,13 @@ describe("evalEvents / evalJudge", () => {
     expect(r.rows[0]!.failures.some((f) => f.reason.includes("ungrounded"))).toBe(true);
     const capped = await evalEvents(sub, ["event-v1"], { models: [liar], pricing: { liar: [1_000_000, 0] }, budgetUsd: 0.01 });
     expect(capped.stoppedByBudget).toBe(true);
+  });
+
+  it("skips a model it cannot reach instead of failing every case slowly", async () => {
+    const down = { name: "down", model: "down", generate: async () => { throw new LLMError("connection refused"); } };
+    const r = await evalEvents(sub, ["event-v1"], { models: [down], pricing: {}, budgetUsd: 1 });
+    expect(r.rows[0]!.failures.length).toBe(4); // 3 cases + the skip note
+    expect(r.rows[0]!.failures.at(-1)?.reason).toMatch(/skipped: first 3 calls could not reach the model/);
   });
 
   it("judge sanity: the offline heuristic is caught going bearish on a TOB target", async () => {

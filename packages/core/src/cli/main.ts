@@ -286,10 +286,10 @@ async function cmdEval(task: string): Promise<void> {
     if (bad.length) throw new Error(`unknown version(s) ${bad.join(", ")} (have: ${all.join(", ")})`);
     return want as T[];
   };
-  const all = s.allModels();
-  const names = opt.models?.split(",").map((x) => x.trim()) ?? null;
-  const models = names ? all.filter((m) => names.includes(m.name)) : all;
-  if (!models.length) throw new Error(`no models matched ${opt.models} (have: ${all.map((m) => m.name).join(", ")})`);
+  const names = opt.models?.split(",").map((x) => x.trim()).filter(Boolean);
+  const models = s.allModels(names);
+  if (!models.length) throw new Error(`no models to evaluate (configured: ${s.modelNames().join(", ")})`);
+  if (opt.ensemble && models.length < 2 && !s.fake) throw new Error("--ensemble needs the production pair (tier1) with keys for both; run without --ensemble to score one model");
   const common = {
     models, pricing: s.fake ? Object.fromEntries(models.map((m) => [m.model, [0, 0] as const])) : s.config.pricing,
     budgetUsd: Number(opt.budget), maxRetries: s.config.harness.maxRetries,

@@ -133,14 +133,26 @@ export class Services {
     return spec ? buildProvider(spec, this.env) : undefined;
   }
 
-  /** Every configured model by name (tier1, tier2, redTeam); --fake gives the offline pair. */
-  allModels(): LLMProvider[] {
-    if (this.fake) return this.tier1();
+  /** Names of every configured model (tier1, tier2, redTeam). */
+  modelNames(): string[] {
+    if (this.fake) return this.tier1().map((p) => p.name);
     const m = this.config.models;
     if (!m) throw new Error("config.models is required (or run with --fake)");
-    const specs = [...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])];
-    const unique = [...new Map(specs.map((s) => [s.name, s])).values()];
-    return unique.map((s) => buildProvider(s, this.env));
+    return [...new Set([...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])].map((s) => s.name))];
+  }
+
+  /**
+   * Builds the named models (all when names is omitted). Only the requested ones need an API key,
+   * so e.g. `--models deepseek` works without GEMINI_API_KEY.
+   */
+  allModels(names?: readonly string[]): LLMProvider[] {
+    if (this.fake) return this.tier1().filter((p) => !names || names.includes(p.name));
+    const m = this.config.models;
+    if (!m) throw new Error("config.models is required (or run with --fake)");
+    const specs = [...new Map([...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])].map((s) => [s.name, s])).values()];
+    const unknown = (names ?? []).filter((n) => !specs.some((s) => s.name === n));
+    if (unknown.length) throw new Error(`unknown model(s) ${unknown.join(", ")} (configured: ${specs.map((s) => s.name).join(", ")})`);
+    return specs.filter((s) => !names || names.includes(s.name)).map((s) => buildProvider(s, this.env));
   }
 
   /** Today's LLM spend so far (0 if nothing has touched the budget yet). */
