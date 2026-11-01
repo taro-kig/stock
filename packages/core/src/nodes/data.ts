@@ -84,6 +84,120 @@ export const stooqPrices = defineNode({
   },
 });
 
+const JQUANTS_URL = "https://api.jquants.com/v2/equities/bars/daily";
+const JQUANTS_RETRY_WAIT_MS = 120_000; // 429 carries no Retry-After; J-Quants recommends waiting up to 2 minutes
+const JQUANTS_MAX_429 = 2;
+
+/** The fields we read from one /v2/equities/bars/daily record. Days without trades are all null. */
+export interface JQuantsRow {
+  Date: string;
+  AdjO: number | null;
+  AdjH: number | null;
+  AdjL: number | null;
+  AdjC: number | null;
+  AdjVo: number | null;
+}
+
+/** Split-adjusted bars, dropping days without trades. */
+export function parseJQuantsBars(rows: readonly JQuantsRow[]): Bar[] {
+  const bars: Bar[] = [];
+  for (const r of rows) {
+    if (r.AdjO === null || r.AdjH === null || r.AdjL === null || r.AdjC === null) continue;
+    bars.push({ date: r.Date, open: r.AdjO, high: r.AdjH, low: r.AdjL, close: r.AdjC, volume: r.AdjVo ?? 0 });
+  }
+  return bars.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** 401/403: no other ticker can succeed either, so the node stops instead of waiting through the rest. */
+export class JQuantsAuthError extends Error {}
+
+export interface JQuantsClientOptions {
+  apiKey: string;
+  requestsPerMinute: number;
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** Rate-limited client; every page counts as one request. */
+export function jquantsClient(o: JQuantsClientOptions) {
+  const fetchImpl = o.fetchImpl ?? fetch;
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const spacingMs = Math.ceil((60_000 / o.requestsPerMinute) * 1.1); // the limit uses a sliding window: keep a margin
+  let requested = false;
+
+  async function page(code: string, paginationKey: string | undefined): Promise<{ data: JQuantsRow[]; pagination_key?: string }> {
+    const url = new URL(JQUANTS_URL);
+    url.searchParams.set("code", code);
+    if (paginationKey) url.searchParams.set("pagination_key", paginationKey);
+    for (let limited = 0; ; limited++) {
+      if (requested) await sleep(spacingMs);
+      requested = true;
+      const res = await fetchImpl(url, { headers: { "x-api-key": o.apiKey }, signal: AbortSignal.timeout(30_000) });
+      if (res.status === 429 && limited < JQUANTS_MAX_429) {
+        await sleep(JQUANTS_RETRY_WAIT_MS);
+        continue;
+      }
+      if (res.status === 401 || res.status === 403) throw new JQuantsAuthError(`J-Quants rejected the API key (HTTP ${res.status})`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as { data: JQuantsRow[]; pagination_key?: string };
+    }
+  }
+
+  return {
+    async bars(code: string): Promise<Bar[]> {
+      const rows: JQuantsRow[] = [];
+      let key: string | undefined;
+      do {
+        const r = await page(code, key);
+        rows.push(...r.data);
+        key = r.pagination_key;
+      } while (key);
+      return parseJQuantsBars(rows);
+    },
+  };
+}
+
+export const jquantsPrices = defineNode({
+  type: "data.pricesJQuants",
+  title: "Prices (J-Quants)",
+  category: "data",
+  description: "Downloads split-adjusted daily bars from J-Quants (JPX). Needs JQUANTS_API_KEY. Fails rather than decide on stale prices: the Free plan omits the latest 12 weeks.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    requestsPerMinute: z.number().positive().default(5), // Free: 5, Light: 60, Standard: 120
+    maxStaleDays: z.number().int().positive().default(7),
+  }),
+  inputs: {},
+  outputs: { prices: { type: "Prices" } },
+  async run(ctx, p) {
+    const apiKey = ctx.services.env["JQUANTS_API_KEY"];
+    if (!apiKey) throw new Error("JQUANTS_API_KEY is not set (.env)");
+    const client = jquantsClient({ apiKey, requestsPerMinute: p.requestsPerMinute });
+    const prices: Prices = {};
+    let stale = 0;
+    for (const t of universe(ctx)) {
+      try {
+        const bars = barsUntil(await client.bars(t), ctx.asOf);
+        const last = bars.at(-1)?.date;
+        if (!last || (Date.parse(ctx.asOf) - Date.parse(last)) / 86_400_000 > p.maxStaleDays) {
+          ctx.log(`jquants ${t} is stale: latest bar ${last ?? "none"}, run date ${ctx.asOf}`);
+          stale++;
+          continue;
+        }
+        prices[t] = bars;
+      } catch (e) {
+        if (e instanceof JQuantsAuthError) throw e;
+        ctx.log(`jquants ${t} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!Object.keys(prices).length) {
+      throw new Error(stale ? `J-Quants prices are older than ${p.maxStaleDays} days (the Free plan omits the latest 12 weeks)` : "no price data from J-Quants");
+    }
+    return { prices };
+  },
+});
+
 /** mulberry32: small, fast, seedable PRNG. */
 function rng(seed: number): () => number {
   let a = seed >>> 0;

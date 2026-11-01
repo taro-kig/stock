@@ -4,8 +4,21 @@ data/
 *.sqlite-*
 config/config.yaml
 .env
+.env.*
+!.env.example
 dist/
 coverage/
 deploy/ibkr/.env
 deploy/ibkr/secrets/
 apps/web/dist/
+# secrets and credentials
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*-token.json
+*.token
+credentials*.json
+# server logs may echo request details
+*.log

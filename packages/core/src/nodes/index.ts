@@ -1,6 +1,6 @@
 import { NodeRegistry } from "../workflow/registry.ts";
 import { paperBroker } from "./broker.ts";
-import { csvPrices, stooqPrices, syntheticPrices } from "./data.ts";
+import { csvPrices, jquantsPrices, stooqPrices, syntheticPrices } from "./data.ts";
 import { aiDecide, rulesDecide } from "./decide.ts";
 import { recordPredictions, scorecardNode } from "./evaluation.ts";
 import { dedupNode, watchlistFilter } from "./filters.ts";
@@ -16,7 +16,7 @@ export function builtinRegistry(): NodeRegistry {
     rssSource, fixtureSource,
     dedupNode, watchlistFilter,
     extractEvents,
-    csvPrices, stooqPrices, syntheticPrices,
+    csvPrices, jquantsPrices, stooqPrices, syntheticPrices,
     eventHistory, eventScoreNode, factorsNode, scoreNode,
     rulesDecide, aiDecide,
     accountNode, ibkrAccount, webullAccount, proposeNode,

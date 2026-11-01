@@ -1,5 +1,5 @@
 name: daily-ai
-description: "本番: RSS + Stooq 価格。AI アンサンブルが判断し、人の承認後にペーパー約定。"
+description: "本番: RSS + J-Quants 価格。AI アンサンブルが判断し、人の承認後にペーパー約定。"
 nodes:
   # ── information ───────────────────────────────────────────────
   news:       { use: source.rss, onError: skip, ui: { x: 0, y: 0 } }
@@ -9,7 +9,7 @@ nodes:
   history:    { use: signal.eventHistory, in: { today: extract }, ui: { x: 1040, y: 0 } }
   eventScore: { use: signal.eventScores, in: { events: history }, ui: { x: 1300, y: 0 } }
   # ── prices & factors (no LLM) ────────────────────────────────
-  prices:     { use: data.pricesStooq, params: { market: jp }, ui: { x: 0, y: 220 } }
+  prices:     { use: data.pricesJQuants, params: { requestsPerMinute: 60 }, ui: { x: 0, y: 220 } }
   factors:    { use: signal.factors, in: { prices: prices }, ui: { x: 260, y: 220 } }
   score:      { use: signal.score, in: { factors: factors, events: eventScore }, ui: { x: 1560, y: 110 } }
   account:    { use: portfolio.account, in: { prices: prices }, ui: { x: 260, y: 440 } }

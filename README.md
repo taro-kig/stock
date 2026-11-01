@@ -126,6 +126,7 @@ $EDITOR .env          # GEMINI_API_KEY=... / DEEPSEEK_API_KEY=... などを記�
 |---|---|---|
 | `GEMINI_API_KEY` | Gemini（イベント抽出・判断） | Google AI Studio |
 | `DEEPSEEK_API_KEY` | DeepSeek（多数決の2つ目） | DeepSeek Platform |
+| `JQUANTS_API_KEY` | 株価（`data.pricesJQuants`）。Free プランは直近12週間が取れないので日次運用には Light 以上 | J-Quants ダッシュボードの API Keys |
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | 別ベンダーを試す場合 | 各社のコンソール |
 | `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` | ウィブル証券 | 開発者サイトで申請（[docs/webull.md](docs/webull.md)） |
 | `STOCKAI_WEB_TOKEN` | Web UI を外部から開く場合のみ | 自分で決めた長いランダム文字列 |
