@@ -131,3 +131,15 @@ describe("backup API", () => {
     expect((await call<{ count: number; doneToday: boolean }>("GET", "/api/backup")).body).toMatchObject({ count: 1, doneToday: true });
   });
 });
+
+describe("AI ticker suggestions", () => {
+  it("is offered for US configs only", async () => {
+    const { call } = await start();
+    const r = await call<{ error: string }>("POST", "/api/universe/suggest", { theme: "半導体", count: 5 });
+    expect(r.status).toBe(400); // the test config is the Japanese one
+    expect(r.body.error).toMatch(/USD/);
+    expect((await call<{ currency: string }>("GET", "/api/config/watchlist")).body.currency).toBe("JPY");
+    expect((await call("POST", "/api/universe/suggest", { theme: "x" })).status).toBe(400);
+  });
+});
+

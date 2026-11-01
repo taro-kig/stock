@@ -9,6 +9,7 @@ export function heuristicResponder(req: LLMRequest): string {
   if (req.user.includes("# 反証の依頼")) return JSON.stringify({ found: false, severity: 0, reason: "", evidence: [] });
   if (req.user.includes("# 銘柄資料")) return judge(req.user);
   if (req.user.includes("# 候補銘柄")) return extract(req.user);
+  if (req.user.includes("# 銘柄探し")) return suggest(req.user);
   return "{}";
 }
 
@@ -54,4 +55,22 @@ function judge(user: string): string {
     invalidation: stance === "neutral" ? [] : ["トレンド判定が反転したら撤回"],
     evidence: [trendLine, momLine],
   });
+}
+
+/** Fixed sample for offline demos of "find stocks for a theme" (not a recommendation). */
+const SAMPLE_UNIVERSE = [
+  ["AVGO", "Broadcom", "semis"], ["AMD", "Advanced Micro Devices", "semis"], ["CRWD", "CrowdStrike", "tech"],
+  ["PANW", "Palo Alto Networks", "tech"], ["NOW", "ServiceNow", "tech"], ["ISRG", "Intuitive Surgical", "healthcare"],
+  ["CAT", "Caterpillar", "industrials"], ["NEE", "NextEra Energy", "utilities"], ["PLD", "Prologis", "real_estate"],
+  ["LIN", "Linde", "materials"], ["HD", "Home Depot", "consumer"], ["PG", "Procter & Gamble", "staples"],
+] as const;
+
+function suggest(user: string): string {
+  const exclude = new Set((user.match(/^除外: (.*)$/m)?.[1] ?? "").split(",").map((t) => t.trim()));
+  const n = Number(user.match(/^候補数: (\d+)$/m)?.[1] ?? 10);
+  const theme = user.match(/^テーマ: (.*)$/m)?.[1] ?? "";
+  const candidates = SAMPLE_UNIVERSE.filter(([t]) => !exclude.has(t))
+    .slice(0, n)
+    .map(([ticker, name, sector]) => ({ ticker, name, aliases: [], sector, reason: `（疑似モデルの固定サンプル）${theme}` }));
+  return JSON.stringify({ candidates });
 }

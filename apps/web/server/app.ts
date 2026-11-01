@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { backupDue, backupStatus, editableConfigPath, Engine, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { backupDue, backupStatus, editableConfigPath, Engine, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -395,9 +395,20 @@ export function createApp(o: AppOptions): App {
         throw new HttpError(500, `バックアップに失敗しました: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    if (req.method === "POST" && path === "/api/universe/suggest") {
+      const body = await readJson(req);
+      const parsed = SuggestRequest.safeParse({ theme: body["theme"], count: body["count"], size: body["size"] });
+      if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      try {
+        return send(res, 200, await suggestTickers(s, parsed.data, clock()));
+      } catch (e) {
+        const budget = e instanceof Error && e.name === "BudgetExceeded";
+        throw new HttpError(budget ? 429 : 400, e instanceof Error ? e.message : String(e));
+      }
+    }
     if (req.method === "GET" && path === "/api/config/watchlist") {
       return send(res, 200, {
-        watchlist: s.config.watchlist, benchmark: s.config.market.benchmark ?? "",
+        watchlist: s.config.watchlist, benchmark: s.config.market.benchmark ?? "", currency: s.config.market.currency,
         file: o.configPath ? editableConfigPath(o.configPath) : null, loadedFrom: o.configPath ?? null,
       } satisfies WatchlistView);
     }

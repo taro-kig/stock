@@ -19,3 +19,4 @@ export { NOTIFY_EVENTS, type NotifyEvent } from "./config.ts";
 export { discordPayload, isDiscordWebhookUrl, sendDiscord, type Notice, type NoticeField } from "./notify/discord.ts";
 export { backupDir, backupDue, backupStatus, listBackups, runBackup, selectKept, type BackupFile, type BackupStatus } from "./util/backup.ts";
 export { editableConfigPath, saveWatchlist, WatchlistInput } from "./util/configFile.ts";
+export { namesMatch, SECTORS, SIZES, suggestTickers, SuggestRequest, verify, type Candidate, type SuggestResult } from "./universe/suggest.ts";

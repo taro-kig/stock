@@ -4,6 +4,7 @@ import type { WatchlistView } from "../../shared/types.ts";
 import { post, put, useApi } from "../api.ts";
 import { Empty, ErrorLine, Kbd, Pane } from "../components/ui.tsx";
 import { time } from "../format.ts";
+import { SuggestBox, type NewRow } from "./SuggestBox.tsx";
 
 type Toast = (m: string, err?: boolean) => void;
 
@@ -115,6 +116,17 @@ export function WatchlistPane({ toast }: { toast: Toast }) {
         {dirty && <button className="btn" type="button" onClick={() => load(data)}>元に戻す</button>}
         <button className="btn primary" type="button" disabled={!dirty || invalid || busy || rows.length === 0} onClick={() => void save()}>保存</button>
       </div>
+      {data.currency === "USD" && (
+        <SuggestBox
+          toast={toast}
+          onAdd={(add: NewRow[]) =>
+            setRows((rs) => {
+              const have = new Set(rs.map((r) => r.ticker.trim()));
+              return [...rs, ...add.filter((a) => !have.has(a.ticker)).map((a) => ({ key: nextKey++, ...a, isNew: true }))];
+            })
+          }
+        />
+      )}
       {invalid && dirty && <p className="warn">ティッカー（英大文字・数字・. -、10 文字まで）と名前は必須。重複は不可{dupes.size ? `: ${[...dupes].join(", ")}` : ""}</p>}
     </Pane>
   );

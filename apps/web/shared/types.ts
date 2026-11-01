@@ -137,6 +137,8 @@ export interface ImportResult {
 export interface WatchlistView {
   watchlist: Record<string, { name: string; aliases: string[]; sector: string }>;
   benchmark: string;
+  /** AI ticker suggestions are offered for USD (US stocks) only. */
+  currency: "JPY" | "USD";
   /** Where edits are saved (config/config.yaml; created from the example on first save). */
   file: string | null;
   loadedFrom: string | null;

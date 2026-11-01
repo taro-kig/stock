@@ -471,3 +471,12 @@ select.input { padding-right: 0.5ch; }
 .t.watchlist td { padding-top: 2px; padding-bottom: 2px; }
 .t.watchlist .input { width: 100%; }
 .input.bad { border-color: var(--fail); }
+
+/* ── AI ticker suggestions ──────────────────────────────────── */
+.suggest { margin-top: var(--lh); padding-top: calc(var(--lh) * 0.75); border-top: 1px dashed var(--line-2); display: grid; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: inherit; font-size: 12px; padding: 1px 1ch; background: transparent; color: var(--fg-2); border: 1px solid var(--line-2); cursor: pointer; }
+.chip:hover { border-color: var(--dim); color: var(--fg); }
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.suggest-result { border-left: 2px solid var(--accent); padding-left: 1.5ch; }
+.suggest-result td { vertical-align: top; }
