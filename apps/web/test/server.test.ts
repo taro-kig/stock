@@ -23,6 +23,7 @@ function workflowsDir(gate: "auto" | "manual" = "auto"): string {
 }
 
 let app: App | undefined;
+let lastDir = "";
 afterEach(async () => {
   await app?.close();
   app = undefined;
@@ -30,8 +31,9 @@ afterEach(async () => {
 
 async function start(opts: { gate?: "auto" | "manual"; token?: string; clock?: () => Date } = {}) {
   const services = new Services(loadConfig(join(ROOT, "config/config.example.yaml")), { fake: true, dbPath: ":memory:" });
+  lastDir = workflowsDir(opts.gate);
   app = createApp({
-    services, registry: builtinRegistry(), workflowsDir: workflowsDir(opts.gate),
+    services, registry: builtinRegistry(), workflowsDir: lastDir,
     ...(opts.token ? { token: opts.token } : {}), ...(opts.clock ? { clock: opts.clock } : {}),
   });
   await new Promise<void>((r) => app!.server.listen(0, "127.0.0.1", () => r()));
@@ -122,6 +124,29 @@ describe("web server", () => {
     expect(done.highlights.proposals?.approved).toBe(true);
     expect(done.highlights.proposals?.items).toEqual([]); // rejected by timeout
     expect(done.highlights.fills).toEqual([]);
+  });
+
+  it("validates and saves edited workflows as YAML", async () => {
+    const { api, post } = await start();
+    const put = <T,>(path: string, body: unknown) => api<T>(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const { body: wf } = await api<{ graph: { nodes: unknown[] } }>("/api/workflows/demo-rules");
+    expect(wf.graph.nodes).toHaveLength(15);
+    const spec = { name: "my-flow", nodes: { p: { use: "data.pricesSynthetic", ui: { x: 10, y: 20 } }, f: { use: "signal.factors", in: { prices: "p" } } } };
+    expect((await post<{ problems: string[] }>("/api/workflows/validate", { spec })).body.problems).toEqual([]);
+    const bad = { name: "my-flow", nodes: { f: { use: "signal.factors", in: { prices: "nope.prices" } } } };
+    expect((await post<{ problems: string[] }>("/api/workflows/validate", { spec: bad })).body.problems.join()).toMatch(/unknown node "nope"/);
+    expect((await post("/api/workflows/validate", { spec: { name: "Bad Name", nodes: {} } })).status).toBe(422);
+
+    expect((await put("/api/workflows/other", { spec })).status).toBe(400);
+    const saved = await put<{ file: string; problems: string[] }>("/api/workflows/my-flow", { spec, create: true });
+    expect(saved.status).toBe(200);
+    expect(readFileSync(join(lastDir, "my-flow.yaml"), "utf8")).toContain("p: { use: data.pricesSynthetic, ui: { x: 10, y: 20 } }");
+    expect((await put("/api/workflows/my-flow", { spec, create: true })).status).toBe(409);
+    // overwrite keeps a backup; drafts with problems are saved but reported
+    const r = await put<{ problems: string[] }>("/api/workflows/my-flow", { spec: { ...bad, name: "my-flow" } });
+    expect(r.body.problems.length).toBeGreaterThan(0);
+    expect(readFileSync(join(lastDir, "my-flow.yaml.bak"), "utf8")).toContain("data.pricesSynthetic");
+    expect((await api<Array<{ name: string }>>("/api/workflows")).body.map((w) => w.name)).toContain("my-flow");
   });
 
   it("requires the token when configured", async () => {

@@ -3,7 +3,8 @@ import type { Overview as OverviewData, StreamEvent } from "../shared/types.ts";
 import { PulseContext, useApi, useStream } from "./api.ts";
 import { time, until, usd } from "./format.ts";
 import { useKeys } from "./keys.ts";
-import { navigate, useRoute, VIEWS, type View } from "./router.ts";
+import { Editor } from "./editor/Editor.tsx";
+import { navigate, TABS, useRoute, type View } from "./router.ts";
 import { Approvals } from "./views/Approvals.tsx";
 import { Help } from "./views/Help.tsx";
 import { Nodes } from "./views/Nodes.tsx";
@@ -12,7 +13,7 @@ import { Runs } from "./views/Runs.tsx";
 import { Scorecard } from "./views/Scorecard.tsx";
 import { Workflows } from "./views/Workflows.tsx";
 
-const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード" };
+const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", editor: "編集" };
 
 interface Toast {
   id: number;
@@ -49,7 +50,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
   }, []);
 
   useKeys({
-    ...Object.fromEntries(VIEWS.map((v, i) => [String(i + 1), () => navigate(v)])),
+    ...Object.fromEntries(TABS.map((v, i) => [String(i + 1), () => navigate(v)])),
     "?": () => setHelp((h) => !h),
     Escape: () => setHelp(false),
     t: toggleTheme,
@@ -60,7 +61,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
   const pending = data?.pending.reduce((n, p) => n + p.gates.length, 0) ?? 0;
   const next = data?.schedule.filter((s) => s.nextAt).sort((a, b) => (a.nextAt! < b.nextAt! ? -1 : 1))[0];
   const busy = data?.queue.running;
-  const split = route.view === "runs" || route.view === "workflows" || route.view === "nodes";
+  const split = route.view === "runs" || route.view === "workflows" || route.view === "nodes" || route.view === "editor";
 
   useEffect(() => {
     document.title = pending ? `(${pending}) stockai` : "stockai";
@@ -71,8 +72,8 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
       <header className="topbar">
         <div className="brand"><span className="brand-mark">▁▃▆</span>stockai</div>
         <nav className="tabs">
-          {VIEWS.map((v, i) => (
-            <a key={v} className="tab" href={`#/${v}`} aria-current={route.view === v ? "page" : undefined}>
+          {TABS.map((v, i) => (
+            <a key={v} className="tab" href={`#/${v}`} aria-current={route.view === v || (v === "workflows" && route.view === "editor") ? "page" : undefined}>
               <span className="key">{i + 1}</span>
               {LABELS[v]}
               {v === "approvals" && pending > 0 && <span className="count">{pending}</span>}
@@ -93,6 +94,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         {route.view === "scorecard" && <Scorecard card={data?.scorecard} />}
         {route.view === "workflows" && <Workflows param={route.param} toast={toast} />}
         {route.view === "nodes" && <Nodes param={route.param} />}
+        {route.view === "editor" && <Editor key={route.param ?? "new"} name={route.param} toast={toast} />}
       </main>
 
       <footer className="statusline">

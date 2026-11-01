@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { parse as parseYaml } from "yaml";
+import { Document, isMap, parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { NodeRegistry } from "./registry.ts";
 
@@ -43,6 +43,30 @@ export function parseWorkflow(text: string): WorkflowSpec {
 
 export function loadWorkflow(path: string): WorkflowSpec {
   return parseWorkflow(readFileSync(path, "utf8"));
+}
+
+/** Drops values equal to the defaults so saved files stay short and diff-friendly. */
+function compactNode(c: NodeConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = { use: c.use };
+  if (Object.keys(c.params).length) out["params"] = c.params;
+  if (Object.keys(c.in).length) out["in"] = c.in;
+  if (c.after.length) out["after"] = c.after;
+  if (c.onError !== "abort") out["onError"] = c.onError;
+  if (!c.cache) out["cache"] = false;
+  if (c.ui.x !== undefined || c.ui.y !== undefined) out["ui"] = { x: Math.round(c.ui.x ?? 0), y: Math.round(c.ui.y ?? 0) };
+  return out;
+}
+
+/** YAML with one line per node (flow style), in declaration order. Parses back to an equal spec. */
+export function stringifyWorkflow(spec: WorkflowSpec): string {
+  const doc = new Document({
+    name: spec.name,
+    ...(spec.description ? { description: spec.description } : {}),
+    nodes: Object.fromEntries(Object.entries(spec.nodes).map(([id, c]) => [id, compactNode(c)])),
+  });
+  const nodes = doc.get("nodes");
+  if (isMap(nodes)) for (const item of nodes.items) if (isMap(item.value)) item.value.flow = true;
+  return doc.toString({ lineWidth: 0, flowCollectionPadding: true });
 }
 
 export interface PortRef {

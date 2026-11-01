@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { Engine, toGraph, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { Engine, stringifyWorkflow, toGraph, validateWorkflow, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { Overview, RunDetail, StreamEvent } from "../shared/types.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -174,7 +174,25 @@ export function createApp(o: AppOptions): App {
     if (req.method === "GET" && path === "/api/workflows") return send(res, 200, workflows().map((w) => workflowInfo(w, s, registry)));
     if (req.method === "GET" && (g = m(/^\/api\/workflows\/([\w-]+)$/))) {
       const w = byName(g[1]!);
-      return send(res, 200, { info: workflowInfo(w, s, registry), graph: toGraphSafe(w) });
+      return send(res, 200, { info: workflowInfo(w, s, registry), graph: toGraphSafe(w), spec: w.spec });
+    }
+    if (req.method === "POST" && path === "/api/workflows/validate") {
+      const spec = parseSpec((await readJson(req))["spec"]);
+      const problems = validateWorkflow(spec, registry);
+      return send(res, 200, { problems, graph: problems.some((p) => p.includes("unknown node type")) ? null : toGraphSafe({ name: spec.name, file: "", spec, error: null }) });
+    }
+    if (req.method === "PUT" && (g = m(/^\/api\/workflows\/([\w-]+)$/))) {
+      const body = await readJson(req);
+      const spec = parseSpec(body["spec"]);
+      if (spec.name !== g[1]) throw new HttpError(400, `spec.name (${spec.name}) must match the URL (${g[1]})`);
+      const existing = workflows().find((w) => w.name === spec.name);
+      if (body["create"] === true && existing) throw new HttpError(409, `workflow ${spec.name} already exists`);
+      const file = existing?.file ?? join(o.workflowsDir, `${spec.name}.yaml`);
+      if (!resolve(file).startsWith(resolve(o.workflowsDir))) throw new HttpError(400, "refusing to write outside the workflows directory");
+      if (existsSync(file)) copyFileSync(file, `${file}.bak`);
+      writeFileSync(file, stringifyWorkflow(spec), "utf8");
+      // invalid graphs may be saved as drafts; runs refuse them until fixed
+      return send(res, 200, { file, problems: validateWorkflow(spec, registry) });
     }
     if (req.method === "POST" && (g = m(/^\/api\/workflows\/([\w-]+)\/run$/))) {
       const body = await readJson(req);
@@ -218,6 +236,12 @@ export function createApp(o: AppOptions): App {
       return;
     }
     throw new HttpError(404, "not found");
+  }
+
+  function parseSpec(v: unknown): WorkflowSpec {
+    const r = WorkflowSpec.safeParse(v);
+    if (!r.success) throw new HttpError(422, r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+    return r.data;
   }
 
   function toGraphSafe(w: WorkflowFile) {

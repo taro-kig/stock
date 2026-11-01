@@ -22,7 +22,7 @@ const H = 46;
 const GAP = { LR: { along: 48, across: 14 }, TB: { along: 30, across: 18 } } as const;
 export type Orientation = "LR" | "TB";
 
-const CATEGORY_HUE: Record<string, string> = {
+export const CATEGORY_HUE: Record<string, string> = {
   source: "var(--pt-Documents)", filter: "var(--pt-Matches)", llm: "var(--pt-Events)", data: "var(--pt-Prices)",
   signal: "var(--pt-Factors)", decision: "var(--pt-Judgments)", risk: "var(--pt-Account)", gate: "var(--wait)",
   execution: "var(--pt-Fills)", eval: "var(--pt-Scorecard)",

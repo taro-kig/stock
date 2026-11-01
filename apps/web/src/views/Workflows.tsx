@@ -30,6 +30,8 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
 
   useKeys({
     r: () => void run(),
+    e: () => sel && navigate("editor", sel.name),
+    n: () => navigate("editor", null),
     j: () => wfs[step(idx, wfs.length, 1)] && navigate("workflows", wfs[step(idx, wfs.length, 1)]!.name),
     k: () => wfs[step(idx, wfs.length, -1)] && navigate("workflows", wfs[step(idx, wfs.length, -1)]!.name),
   });
@@ -40,6 +42,7 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
     <div className="split-view">
       <nav className="split-list">
         <div className="list-head"><span>ワークフロー {wfs.length}</span><span>j/k</span></div>
+        <div style={{ padding: "0 2ch calc(var(--lh) * 0.5)" }}><button className="btn" onClick={() => navigate("editor", null)}>＋ 新規 <kbd>n</kbd></button></div>
         {wfs.map((w) => (
           <div key={w.name} className="list-item" aria-selected={w === sel} onClick={() => navigate("workflows", w.name)}>
             {w.problems.length ? <span className="fail">✕</span> : w.lastRun ? <Status s={w.lastRun.status} label={false} /> : <span className="faint">·</span>}
@@ -58,6 +61,7 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
             </div>
             {sel.problems.length > 0 && <div className="callout fail">{sel.problems.map((p) => <div key={p}>✕ {p}</div>)}</div>}
             <div className="btn-row">
+              <button className="btn" onClick={() => navigate("editor", sel.name)}>編集 <kbd>e</kbd></button>
               <button className="btn primary" onClick={() => void run()} disabled={sel.problems.length > 0}>{asOf ? `${asOf} で実行` : "今日の分を実行"} <kbd>r</kbd></button>
               <input className="input" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} title="過去日付で再生（空欄 = 今日）" />
               {asOf && <button className="btn" onClick={() => setAsOf("")}>今日に戻す</button>}
@@ -79,7 +83,7 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
                 </>
               )}
             </Pane>
-            <p className="faint">いずれノードエディタでこのグラフを直接編集できるようにします。いまは YAML（<Kbd>{sel.file}</Kbd>）が正です。</p>
+            <p className="faint">保存先は YAML（<Kbd>{sel.file}</Kbd>）。エディタで保存すると直前の版が <Kbd>.bak</Kbd> に残ります。</p>
           </div>
         )}
       </section>

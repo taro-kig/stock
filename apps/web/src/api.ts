@@ -28,6 +28,15 @@ async function parse<T>(res: Response): Promise<T> {
 export const get = async <T,>(path: string): Promise<T> => parse<T>(await fetch(path, { headers: headers() }));
 export const post = async <T,>(path: string, body: unknown): Promise<T> =>
   parse<T>(await fetch(path, { method: "POST", headers: { ...headers(), "content-type": "application/json" }, body: JSON.stringify(body) }));
+export const put = async <T,>(path: string, body: unknown): Promise<T> =>
+  parse<T>(await fetch(path, { method: "PUT", headers: { ...headers(), "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+const listeners = new Set<(e: StreamEvent) => void>();
+/** Subscribe to raw stream events (e.g. live node status in the editor). Returns an unsubscribe function. */
+export function onStream(fn: (e: StreamEvent) => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 
 /** Increments whenever the server reports activity; views refetch on change. */
 export const PulseContext = createContext(0);
@@ -45,6 +54,7 @@ export function useStream(onEvent: (e: StreamEvent) => void): { connected: boole
     es.onmessage = (m) => {
       const e = JSON.parse(m.data as string) as StreamEvent;
       cb.current(e);
+      for (const l of listeners) l(e);
       // coalesce bursts (a run emits one event per node)
       window.clearTimeout(timer);
       timer = window.setTimeout(() => setPulse((p) => p + 1), 250);

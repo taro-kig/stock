@@ -5,7 +5,9 @@ import { Services } from "../src/services.ts";
 import { WaitingForInput } from "../src/workflow/context.ts";
 import { Engine } from "../src/workflow/engine.ts";
 import { defineNode, NodeRegistry } from "../src/workflow/registry.ts";
-import { parseWorkflow, toGraph, validateWorkflow, WorkflowError } from "../src/workflow/spec.ts";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { parseWorkflow, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError } from "../src/workflow/spec.ts";
 
 let calls: Record<string, number>;
 const bump = (k: string) => (calls[k] = (calls[k] ?? 0) + 1);
@@ -183,5 +185,17 @@ nodes:
     expect(r2.output("s", "n")).toBe(5);
     expect(calls["const:5"]).toBe(1);
     expect(calls["gate"]).toBe(2);
+  });
+});
+
+describe("stringifyWorkflow", () => {
+  it("round-trips every shipped workflow", () => {
+    const dir = resolve(import.meta.dirname, "../../../workflows");
+    for (const f of readdirSync(dir).filter((x) => x.endsWith(".yaml"))) {
+      const spec = parseWorkflow(readFileSync(resolve(dir, f), "utf8"));
+      const text = stringifyWorkflow(spec);
+      expect(parseWorkflow(text)).toEqual(spec);
+      expect(text.split("\n").filter((l) => l.startsWith("  ") && l.includes("use:")).length).toBe(Object.keys(spec.nodes).length);
+    }
   });
 });
