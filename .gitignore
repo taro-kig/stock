@@ -7,7 +7,7 @@ coverage/
 .vite/
 
 # ── local data: runs, prices, paper accounts, API keys (settings.sqlite) ──
-data/
+/data/
 *.sqlite
 *.sqlite-*
 *.db
