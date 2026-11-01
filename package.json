@@ -1,0 +1,13 @@
+{
+  "name": "stockai",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "stockai": "node --disable-warning=ExperimentalWarning packages/core/src/cli/main.ts",
+    "test": "npm test -w @stockai/core",
+    "typecheck": "npm run typecheck -w @stockai/core",
+    "check": "npm run typecheck && npm test"
+  }
+}

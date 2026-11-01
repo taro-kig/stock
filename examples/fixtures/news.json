@@ -1,0 +1,110 @@
+[
+ {
+  "source": "tdnet_demo",
+  "url": "https://example.invalid/0",
+  "title": "トヨタ自動車、通期営業利益予想を上方修正",
+  "body": "トヨタ自動車は12日、2027年3月期の連結営業利益予想を上方修正すると発表した。北米での販売が想定を上回った。",
+  "publishedAt": "2026-05-12T07:10:00Z",
+  "fetchedAt": "2026-05-12T07:10:00Z",
+  "sourceWeight": 1.0
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/1",
+  "title": "トヨタ自動車、通期営業利益予想を上方修正 - デモ新聞",
+  "body": "トヨタ自動車は12日、2027年3月期の連結営業利益予想を上方修正すると発表した。北米での販売が想定を上回った。",
+  "publishedAt": "2026-05-12T08:00:00Z",
+  "fetchedAt": "2026-05-12T08:00:00Z",
+  "sourceWeight": 0.8
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/2",
+  "title": "ソニーグループ、半導体事業で下方修正",
+  "body": "ソニーグループはイメージセンサー事業の売上高見通しを下方修正した。スマートフォン向け需要の減速が響く。",
+  "publishedAt": "2026-05-20T06:30:00Z",
+  "fetchedAt": "2026-05-20T06:30:00Z",
+  "sourceWeight": 0.8
+ },
+ {
+  "source": "tdnet_demo",
+  "url": "https://example.invalid/3",
+  "title": "キーエンス、自社株買いを発表",
+  "body": "キーエンスは発行済み株式の2%を上限とする自社株買いを実施すると発表した。取得期間は6月から12月まで。",
+  "publishedAt": "2026-06-03T07:00:00Z",
+  "fetchedAt": "2026-06-03T07:00:00Z",
+  "sourceWeight": 1.0
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/4",
+  "title": "三菱UFJ、増配を発表 年間配当を引き上げ",
+  "body": "三菱UFJフィナンシャル・グループは年間配当を前期比で増配すると発表した。資本効率の改善を進める。",
+  "publishedAt": "2026-06-18T06:00:00Z",
+  "fetchedAt": "2026-06-18T06:00:00Z",
+  "sourceWeight": 0.8
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/5",
+  "title": "ホンダ、四輪事業の見通しを下方修正",
+  "body": "本田技研工業は四輪事業の営業利益見通しを下方修正した。中国市場での販売不振が続いている。",
+  "publishedAt": "2026-07-08T07:30:00Z",
+  "fetchedAt": "2026-07-08T07:30:00Z",
+  "sourceWeight": 0.8
+ },
+ {
+  "source": "tdnet_demo",
+  "url": "https://example.invalid/6",
+  "title": "ソフトバンクグループ、投資損益が改善し最高益",
+  "body": "ソフトバンクグループの四半期決算は投資損益の改善で最高益となった。保有株式の評価益が寄与した。",
+  "publishedAt": "2026-07-29T06:45:00Z",
+  "fetchedAt": "2026-07-29T06:45:00Z",
+  "sourceWeight": 1.0
+ },
+ {
+  "source": "tdnet_demo",
+  "url": "https://example.invalid/7",
+  "title": "トヨタ自動車、第1四半期決算 増配を発表",
+  "body": "トヨタ自動車は第1四半期決算と同時に中間配当の増配を発表した。原価改善が進んだ。",
+  "publishedAt": "2026-08-06T07:00:00Z",
+  "fetchedAt": "2026-08-06T07:00:00Z",
+  "sourceWeight": 1.0
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/8",
+  "title": "天気: 週末は全国的に晴れ",
+  "body": "週末は全国的に晴れる見込み。行楽日和となりそうだ。",
+  "publishedAt": "2026-08-25T05:00:00Z",
+  "fetchedAt": "2026-08-25T05:00:00Z",
+  "sourceWeight": 0.5
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/9",
+  "title": "ソニー、ゲーム事業の利益見通しを上方修正",
+  "body": "ソニーグループはゲーム事業の営業利益見通しを上方修正した。新作タイトルの販売が好調だった。",
+  "publishedAt": "2026-09-10T07:20:00Z",
+  "fetchedAt": "2026-09-10T07:20:00Z",
+  "sourceWeight": 0.8
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/10",
+  "title": "キーエンス、海外売上が過去最高益を更新",
+  "body": "キーエンスの上期決算は海外売上の伸びで最高益を更新した。北米と中国が好調だった。",
+  "publishedAt": "2026-09-30T06:10:00Z",
+  "fetchedAt": "2026-09-30T06:10:00Z",
+  "sourceWeight": 0.8
+ },
+ {
+  "source": "news_demo",
+  "url": "https://example.invalid/11",
+  "title": "ホンダ、二輪好調で通期予想を上方修正",
+  "body": "本田技研工業は二輪事業の好調を受け通期の営業利益予想を上方修正した。アジアでの販売が伸びた。",
+  "publishedAt": "2026-10-21T07:40:00Z",
+  "fetchedAt": "2026-10-21T07:40:00Z",
+  "sourceWeight": 0.8
+ }
+]

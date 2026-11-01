@@ -1,69 +1,46 @@
-# Copy to config/config.yaml (git-ignored) and edit.
-# API keys are read from environment variables, never from this file.
-
-data_dir: data
+# Copy to config/config.yaml (git-ignored) and edit. API keys come from environment variables only.
+dataDir: data
 
 harness:
-  daily_budget_usd: 0.50     # H5: hard daily cap for all LLM calls
-  quorum: 2                  # H3: votes needed to accept an extraction
-  max_retries: 2             # H1: re-asks on invalid JSON / schema errors
+  dailyBudgetUsd: 0.5   # H5: hard daily cap for all LLM calls
+  quorum: 2             # H3: votes needed to accept an output
+  maxRetries: 2         # H1: re-asks on invalid JSON / schema errors
 
-# Tier 1: cheap models from *different vendors* (uncorrelated errors).
-# Model ids and prices change often — check the providers' current docs.
+# Cheap models from *different vendors* (uncorrelated errors). Model ids and prices change often.
 models:
   tier1:
-    - name: gemini-lite
-      provider: gemini
-      model: gemini-2.5-flash-lite
-      api_key_env: GEMINI_API_KEY
-    - name: deepseek
-      provider: openai_compat
-      base_url: https://api.deepseek.com/v1
-      model: deepseek-chat
-      api_key_env: DEEPSEEK_API_KEY
-    # A 3rd member makes 2-of-3 voting possible; it is only called on disagreement.
-    # - name: openrouter-qwen
-    #   provider: openai_compat
-    #   base_url: https://openrouter.ai/api/v1
-    #   model: qwen/qwen-2.5-72b-instruct
-    #   api_key_env: OPENROUTER_API_KEY
-  # Tier 2: tie-breaker for disagreements on important items only.
-  tier2:
-    name: gemini-flash
-    provider: gemini
-    model: gemini-2.5-flash
-    api_key_env: GEMINI_API_KEY
+    - { name: gemini-lite, provider: gemini, model: gemini-2.5-flash-lite, apiKeyEnv: GEMINI_API_KEY }
+    - { name: deepseek, provider: openai_compat, baseUrl: "https://api.deepseek.com/v1", model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }
+    # A 3rd member enables 2-of-3 voting; it is only called when the first two disagree.
+    # - { name: qwen, provider: openai_compat, baseUrl: "https://openrouter.ai/api/v1", model: qwen/qwen-2.5-72b-instruct, apiKeyEnv: OPENROUTER_API_KEY }
+  tier2: { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
+  # redTeam defaults to tier2 when omitted.
 
-# USD per 1M tokens [input, output]. ASSUMED values — verify before relying on budget numbers.
-# Models missing here are charged at a pessimistic fallback price.
+# USD per 1M tokens [input, output]. ASSUMED values — verify. Unlisted models are charged a pessimistic price.
 pricing:
   gemini-2.5-flash-lite: [0.10, 0.40]
   gemini-2.5-flash: [0.30, 2.50]
   deepseek-chat: [0.27, 1.10]
 
 sources:
-  - name: google_news_jp_kessan
-    url: "https://news.google.com/rss/search?q=%E6%B1%BA%E7%AE%97+%E4%B8%8A%E6%96%B9%E4%BF%AE%E6%AD%A3&hl=ja&gl=JP&ceid=JP:ja"
-    weight: 0.8
-  - name: google_news_jp_toyota
-    url: "https://news.google.com/rss/search?q=%E3%83%88%E3%83%A8%E3%82%BF&hl=ja&gl=JP&ceid=JP:ja"
-    weight: 0.8
+  - { name: google_news_jp_kessan, url: "https://news.google.com/rss/search?q=%E6%B1%BA%E7%AE%97+%E4%B8%8A%E6%96%B9%E4%BF%AE%E6%AD%A3&hl=ja&gl=JP&ceid=JP:ja", weight: 0.8 }
 
-# Tier 0 prefilter: only documents mentioning these get sent to an LLM.
+market:
+  currency: JPY
+  benchmark: "1306"     # TOPIX ETF, used for relative strength, regime filter and grading
+
 watchlist:
-  "7203": {name: トヨタ自動車, aliases: [トヨタ, Toyota]}
-  "6758": {name: ソニーグループ, aliases: [ソニー, Sony]}
-  "9984": {name: ソフトバンクグループ, aliases: [ソフトバンクG, SoftBank Group]}
-  "8306": {name: 三菱UFJフィナンシャル・グループ, aliases: [三菱UFJ, MUFG]}
-  "6861": {name: キーエンス, aliases: [Keyence]}
-
-# Held tickers: disagreements about these are always escalated to Tier 2.
-holdings: []
+  "7203": { name: トヨタ自動車, aliases: [トヨタ, Toyota], sector: auto }
+  "7267": { name: 本田技研工業, aliases: [ホンダ, Honda], sector: auto }
+  "6758": { name: ソニーグループ, aliases: [ソニー, Sony], sector: electronics }
+  "6861": { name: キーエンス, aliases: [Keyence], sector: electronics }
+  "8306": { name: 三菱UFJフィナンシャル・グループ, aliases: [三菱UFJ, MUFG], sector: bank }
+  "9984": { name: ソフトバンクグループ, aliases: [ソフトバンクG, SoftBank Group], sector: telecom }
 
 risk:
-  risk_per_trade: 0.0075
-  stop_atr_mult: 2.5
-  max_weight: 0.10
-  max_positions: 12
-  max_sector_weight: 0.30
-  lot_size: 100
+  riskPerTrade: 0.0075
+  stopAtrMult: 2.5
+  maxWeight: 0.15
+  maxPositions: 6
+  maxSectorWeight: 0.35
+  lotSize: 100

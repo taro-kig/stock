@@ -1,48 +1,63 @@
 # stockai — 安価な LLM で動く中期 AI 株トレーディングシステム
 
-数週間〜数ヶ月保有の **中期売買** を、Gemini Flash-Lite 級などの **安いモデルの組み合わせ** で行うためのシステム。
-安いモデルの弱点 (幻覚・ブレ・形式崩れ) を **ハーネス** (機械的な検証と多数決) で補い、低コストと高い信頼性を両立させる。
+数週間〜数ヶ月保有の **中期売買** を、Gemini Flash-Lite 級などの **安いモデルの組み合わせ** で行うシステム。
+**AI が「何を・いつ」売買するかを判断し、決定論的なルールが「いくら・どこまで損するか」を縛る。**
+AI に渡す権限は、判断を全件記録して答え合わせした **実測の確度** に応じて段階的に広げる。
 
-設計の全体像は **[docs/DESIGN.md](docs/DESIGN.md)** を参照。
+設計: **[docs/DESIGN.md](docs/DESIGN.md)**
 
-## 基本方針
+## 特徴
 
-- **LLM は「文章 → 構造化データ」の変換だけ。** 売買判断・サイズ・損切りは決定論的ルール
-- **中期なので日次バッチ。** リアルタイム不要で LLM 代は月数ドル規模
-- **安いモデルは「数」と「検証」で補う:** 異系統モデルの多数決 + 引用の原文照合 + スキーマ検証
-- **迷ったら何もしない:** 合意なし・予算超過・データ異常 → シグナル無し / 新規エントリー停止
+- **ワークフロー**: 処理は型付きノードのグラフ (`workflows/*.yaml`)。キャッシュ・失敗時の方針・承認待ち/再開・過去日付の再生・全入出力の記録
+- **ハーネス**: スキーマ検証 + 再試行 / 原文照合 / 異系統モデルの多数決 / 事実の読み取りチェック / 反対役の拒否権 / キャッシュ / 日次予算
+- **確度の計測**: AI とルールのベースラインを並走させ、20営業日後に採点。重なりを除いた実効標本数と Wilson 下限で昇格を判定
+- **fail-safe**: 合意なし → 棄権、予算超過・反対役の失敗 → 買わない
 
 ## 構成
 
 ```
-src/stockai/
-  llm/          プロバイダ (Gemini, OpenAI互換=DeepSeek/OpenRouter/Groq等, テスト用Fake)
-  harness/      信頼性ハーネス
-    structured.py  H1 JSON + スキーマ検証 + エラー内容を添えた再試行
-    grounding.py   H2 引用が原文に実在するかの文字列照合 (幻覚対策)
-    ensemble.py    H3 異系統モデルの多数決・早期打ち切り・重要案件のみ上位モデルへ昇格
-    cache.py       H4 コンテンツハッシュキャッシュ (同じ記事に二度課金しない)
-    budget.py      H5 日次予算の上限
-  signals/      収集(RSS)・重複除去・銘柄辞書フィルタ・イベント抽出・スコア集約・テクニカル指標
-  strategy/     スコア合成・ポジションサイズ・損切り・キルスイッチ・リバランス提案
-  pipeline.py   日次パイプライン (Phase 0: 収集 → 抽出 → イベントスコア)
+packages/core/src/
+  harness/    H1–H5: structured / grounding / ensemble / cache / budget
+  llm/        Gemini, OpenAI互換 (DeepSeek/OpenRouter/Groq…), Fake, オフライン用ヒューリスティック
+  signals/    RSS, 重複除去, 銘柄辞書, イベント抽出, イベントスコア, テクニカル指標
+  ai/         AI 売買判断 (資料作成, 読み取りチェック, 反対役)
+  strategy/   ファクター, スコア合成, リスク制限, リバランス提案
+  execution/  ペーパー口座
+  eval/       判断の記録と採点 (scorecard)
+  workflow/   エンジン (型付きポート, 検証, キャッシュ, 承認, 再生, イベントログ)
+  nodes/      組み込みノード (stockai nodes で一覧)
+  cli/        CLI
+workflows/    daily-ai / daily-rules (本番), demo-ai / demo-rules (オフラインデモ)
+config/       config.example.yaml
 ```
 
 ## 使い方
 
+Node.js 22.18 以上。
+
 ```bash
-pip install -e '.[dev]'
-pytest                                    # テスト
+npm install
+npm run check                       # 型チェック + テスト
 
-cp config/config.example.yaml config/config.yaml   # 編集する
+# オフラインデモ (API キー不要・無料。疑似モデル + 合成価格なので成績に意味はない)
+npm run stockai -- run workflows/demo-rules.yaml --from 2026-05-04 --to 2026-10-30 --step 5 --fake
+npm run stockai -- run workflows/demo-ai.yaml    --from 2026-05-04 --to 2026-10-30 --step 5 --fake
+
+# 本番 (要 API キー)。daily-ai は承認ゲートで止まる
+cp config/config.example.yaml config/config.yaml
 export GEMINI_API_KEY=... DEEPSEEK_API_KEY=...
-python -m stockai.pipeline --config config/config.yaml
+npm run stockai -- run workflows/daily-rules.yaml
+npm run stockai -- run workflows/daily-ai.yaml
+npm run stockai -- approve <runId> approve      # または --reject
+npm run stockai -- resume <runId>
 
-# API キーなしで配線だけ確認 (LLM は常に「無関係」と答えるダミー)
-python -m stockai.pipeline --config config/config.example.yaml --fake
+npm run stockai -- runs                          # 実行履歴
+npm run stockai -- show <runId>                  # ノード状態・判断・注文・採点
+npm run stockai -- nodes                         # ノード一覧 (--json でポート/パラメータの JSON Schema)
+npm run stockai -- graph workflows/daily-ai.yaml # ノード UI 用のグラフ JSON
 ```
 
 ## ステータス
 
-Phase 0 (設計 + ハーネス中核)。実際の発注機能はまだ無い。ロードマップは DESIGN.md §10。
-本リポジトリは投資助言ではない。
+Phase 1 完了 (TypeScript 版コア + ワークフロー + AI 判断 + ペーパー執行 + 採点)。
+次は Web UI (TUI 風の画面 → ノード UI)。実際の発注機能はまだ無い。本リポジトリは投資助言ではない。
