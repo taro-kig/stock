@@ -4,7 +4,7 @@
 **AI が「何を・いつ」売買するかを判断し、決定論的なルールが「いくら・どこまで損するか」を縛る。**
 AI に渡す権限は、判断を全件記録して答え合わせした **実測の確度** に応じて段階的に広げる。
 
-**既定は米国株**（価格 Twelve Data・開示 SEC EDGAR・英語ニュース）。日本株用の設定も残している。
+**既定は米国株**（価格 Twelve Data・開示 SEC EDGAR（8-K・13D）・インサイダー売買（Form 4）・決算予定・英語ニュース）。日本株用の設定も残している。
 
 設計: **[docs/DESIGN.md](docs/DESIGN.md)** ・ 米国株: **[docs/us.md](docs/us.md)** ・ プロンプトと評価: **[docs/prompts.md](docs/prompts.md)** ・ MCP: **[docs/mcp.md](docs/mcp.md)**
 

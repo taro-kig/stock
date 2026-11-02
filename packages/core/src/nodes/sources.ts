@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { DocumentSchema, type Document } from "../signals/models.ts";
-import { SEC_ITEMS, SecClient } from "../data/sec.ts";
+import { parseForm4, rawForm4Document, summarizeInsider, type InsiderMap } from "../data/insider.ts";
+import { accessionPath, SEC_ITEMS, SecClient, type Filing } from "../data/sec.ts";
 import { fetchFeed } from "../signals/rss.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -69,10 +70,11 @@ export const secFilings = defineNode({
   category: "source",
   description:
     "US company filings (8-K etc.) for the watchlist from SEC EDGAR, free. Needs SEC_USER_AGENT with a contact e-mail. Point-in-time: a filing counts from the moment EDGAR accepted it, so past dates can be replayed.",
-  version: 1,
+  version: 2, // v2: Schedule 13D by default
   cache: "daily",
   params: z.object({
-    forms: z.array(z.string()).default(["8-K"]),
+    /** 8-K: material events. Schedule 13D: someone crossed 5% with intent to influence (activists); "SC 13D" before 2025, "SCHEDULE 13D" after. */
+    forms: z.array(z.string()).default(["8-K", "SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"]),
     lookbackDays: z.number().positive().default(3),
     fetchText: z.boolean().default(true),
     maxChars: z.number().int().positive().default(6000),
@@ -108,6 +110,7 @@ export const secFilings = defineNode({
           const at = Date.parse(f.acceptedAt);
           if (!forms.has(f.form.toUpperCase()) || at <= from || at > ctx.now.getTime()) continue;
           const items = f.items.map((i) => `Item ${i} ${SEC_ITEMS[i] ?? ""}`.trim());
+          const formNote = /13D/i.test(f.form) ? "Schedule 13D: beneficial ownership over 5% with intent to influence (activist / control)" : "";
           let text = "";
           if (p.fetchText) {
             try {
@@ -119,7 +122,7 @@ export const secFilings = defineNode({
           docs.push({
             source: "sec_edgar",
             url: f.url,
-            title: `${s.watchlist.name(t)} (${t}) ${f.form}${items.length ? `: ${items.join("; ")}` : f.description ? `: ${f.description}` : ""}`,
+            title: `${s.watchlist.name(t)} (${t}) ${f.form}${items.length ? `: ${items.join("; ")}` : formNote ? `: ${formNote}` : f.description ? `: ${f.description}` : ""}`,
             body: [`Form ${f.form} filed ${f.filingDate}`, text].filter(Boolean).join("\n\n"),
             publishedAt: f.acceptedAt,
             fetchedAt: f.acceptedAt,
@@ -136,5 +139,74 @@ export const secFilings = defineNode({
     ctx.metric("failed", failed);
     if (tickers.length > 0 && failed === tickers.length) throw new Error("all SEC requests failed");
     return { docs };
+  },
+});
+
+export const insiderTrades = defineNode({
+  type: "data.insider",
+  title: "Insider trades (SEC Form 4)",
+  category: "data",
+  description:
+    "Open-market buys and sells by officers, directors and 10% owners of the watched (and held) US stocks, from SEC Form 4 (filed within 2 business days). Downloads only new filings; a trade counts from the moment EDGAR accepted it. Needs SEC_USER_AGENT; without it the node stays green and outputs nothing.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    windowDays: z.number().int().min(7).max(365).default(90),
+    userAgentEnv: z.string().default("SEC_USER_AGENT"),
+    /** Upper bound of Form 4 documents downloaded per run (the first run fills the window). */
+    maxFilings: z.number().int().min(1).default(300),
+  }),
+  inputs: {},
+  outputs: { insider: { type: "Insider" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const tickers = [...new Set([...s.watchlist.tickers, ...Object.keys(s.heldTickers())])];
+    if (ctx.live) {
+      const ua = s.env[p.userAgentEnv];
+      if (!ua) {
+        ctx.log(`${p.userAgentEnv} is not set: no insider trades (settings screen)`);
+        ctx.metric("disabled", 1);
+        return { insider: {} };
+      }
+      const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
+      const map = await sec.tickerMap();
+      const since = ctx.now.getTime() - (p.windowDays + 7) * 86_400_000;
+      let fetched = 0;
+      let failed = 0;
+      for (const t of tickers) {
+        const cik = map[t.toUpperCase()];
+        if (cik === undefined) continue;
+        let filings: Filing[];
+        try {
+          filings = (await sec.submissions(cik)).filings;
+        } catch (e) {
+          failed++;
+          ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
+          continue;
+        }
+        for (const f of filings) {
+          if ((f.form !== "4" && f.form !== "4/A") || Date.parse(f.acceptedAt) < since || Date.parse(f.acceptedAt) > ctx.now.getTime()) continue;
+          if (s.insider.has(f.accession)) continue;
+          if (fetched >= p.maxFilings) break;
+          try {
+            const xml = await sec.text(`${accessionPath(f.cik, f.accession)}/${rawForm4Document(f.primaryDocument)}`);
+            const trades = parseForm4(xml, { accession: f.accession, filedAt: f.acceptedAt });
+            // the filing is about the issuer whose list it came from, whatever symbol the filer typed
+            s.insider.save(f.accession, t, f.acceptedAt, trades.map((x) => ({ ...x, ticker: t })));
+            fetched++;
+          } catch (e) {
+            failed++;
+            ctx.log(`${t} ${f.accession}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      }
+      ctx.metric("downloaded", fetched);
+      ctx.metric("failed", failed);
+    }
+    const insider: InsiderMap = {};
+    for (const t of tickers) insider[t] = summarizeInsider(t, s.insider.trades(t, ctx.asOf, ctx.now, p.windowDays), p.windowDays);
+    ctx.metric("withBuys", Object.values(insider).filter((x) => x.buys > 0).length);
+    ctx.metric("clusters", Object.values(insider).filter((x) => x.cluster).length);
+    return { insider };
   },
 });

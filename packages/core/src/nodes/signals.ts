@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { insiderScore } from "../data/insider.ts";
 import { eventScores } from "../signals/aggregate.ts";
 import type { EventRecord } from "../signals/models.ts";
 import { computeFactors } from "../strategy/factors.ts";
@@ -73,11 +74,11 @@ export const scoreNode = defineNode({
   type: "signal.score",
   title: "Composite score",
   category: "signal",
-  description: "Weighted, clipped z-scores of factors (and event scores, if connected).",
+  description: "Weighted, clipped z-scores of factors (and event scores and insider buying, if connected).",
   version: 1,
   cache: "inputs",
   params: z.object({ weights: z.record(z.string(), z.number()).default(DEFAULT_WEIGHTS) }),
-  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true } },
+  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true } },
   outputs: { scores: { type: "Scores" } },
   async run(_ctx, p, i) {
     const rows = Object.values(i.factors.rows);
@@ -87,6 +88,8 @@ export const scoreNode = defineNode({
       relStrength: col((r) => r.relStrength),
     };
     if (i.events) factors["event"] = col((r) => i.events?.[r.ticker] ?? 0);
+    // an empty map means "not available" (no SEC_USER_AGENT): leave the factor out rather than score everyone 0
+    if (i.insider && Object.keys(i.insider).length) factors["insider"] = col((r) => insiderScore(i.insider?.[r.ticker]));
     return { scores: compositeScore(factors, rows.map((r) => r.ticker), p.weights) };
   },
 });

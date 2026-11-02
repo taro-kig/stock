@@ -7,6 +7,20 @@ import type { EventRecord } from "../signals/models.ts";
 import type { FactorRow } from "../strategy/factors.ts";
 import type { Position } from "../strategy/portfolio.ts";
 import type { NextEarnings } from "../data/earnings.ts";
+import type { InsiderSummary } from "../data/insider.ts";
+
+const usd = (x: number) => (x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}k`);
+
+/** Dossier lines for insider trades: open-market buys matter, sales mostly do not. */
+function insiderLines(s: InsiderSummary): string[] {
+  const head = `## インサイダー売買（直近${s.windowDays}日・役員等の市場での売買、SEC Form 4）`;
+  if (!s.buys && !s.sells) return [head, "(なし)"];
+  const lines = [head];
+  lines.push(s.buys ? `買い: ${s.buyers}人・${s.buys}件・${usd(s.buyValue)}${s.cluster ? "（30日以内に3人以上が購入）" : ""}` : "買い: なし");
+  for (const b of s.topBuys) lines.push(`- ${b.date} ${b.owner}（${b.title}）${b.value !== null ? usd(b.value) : `${b.shares}株`}`);
+  if (s.sells) lines.push(`売り: ${s.sellers}人・${s.sells}件・${usd(s.sellValue)}${s.plannedSells ? `（うち${s.plannedSells}件は事前の売却計画 10b5-1）` : ""}`);
+  return lines;
+}
 import type { IsoDate } from "../util/dates.ts";
 import {
   JUDGE_PROMPT_VERSION, JUDGE_PROMPTS, RED_TEAM_PROMPT_VERSION, RED_TEAM_PROMPTS,
@@ -74,6 +88,8 @@ export function buildDossier(args: {
   position?: Position | undefined;
   /** Next earnings report: undefined = no calendar connected (no section), null = none known. */
   earnings?: NextEarnings | null | undefined;
+  /** Insider trades (Form 4): undefined = not connected (no section). */
+  insider?: InsiderSummary | undefined;
 }, variant: DossierVariant = "v1"): Dossier {
   const { row, events, position } = args;
   const trend: TrendRead = row.trend ?? "unknown";
@@ -102,6 +118,7 @@ export function buildDossier(args: {
     ...evLines,
     "## 保有状況",
     posLine,
+    ...(args.insider === undefined ? [] : insiderLines(args.insider)),
     ...(args.earnings === undefined
       ? []
       : [

@@ -1,5 +1,6 @@
 /** Cross-sectional composite score (DESIGN §6.2). Deterministic, no LLM. */
-export const DEFAULT_WEIGHTS: Record<string, number> = { momentum: 0.35, event: 0.35, relStrength: 0.15, quality: 0.15 };
+/** Factors that are not connected are skipped and the rest renormalized (insider needs the Form 4 input). */
+export const DEFAULT_WEIGHTS: Record<string, number> = { momentum: 0.35, event: 0.35, relStrength: 0.15, quality: 0.15, insider: 0.15 };
 
 /** z-scores clipped to ±clip; non-finite inputs become 0 (neutral). */
 export function zscores(values: Record<string, number | null | undefined>, clip = 3): Record<string, number> {

@@ -9,12 +9,12 @@ import { ibkrAccount, ibkrBroker, webullAccount, webullBroker } from "./brokers.
 import { extractEvents } from "./llm.ts";
 import { accountNode, proposeNode } from "./portfolio.ts";
 import { eventHistory, eventScoreNode, factorsNode, scoreNode } from "./signals.ts";
-import { fixtureSource, rssSource, secFilings } from "./sources.ts";
+import { fixtureSource, insiderTrades, rssSource, secFilings } from "./sources.ts";
 import { universeApply, universeReview } from "./universe.ts";
 
 export function builtinRegistry(): NodeRegistry {
   return new NodeRegistry().register(
-    rssSource, secFilings, fixtureSource,
+    rssSource, secFilings, fixtureSource, insiderTrades,
     mergeDocs, dedupNode, watchlistFilter,
     extractEvents,
     csvPrices, jquantsPrices, twelveDataPrices, stooqPrices, syntheticPrices, earningsCalendar,

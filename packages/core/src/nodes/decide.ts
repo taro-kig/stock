@@ -53,6 +53,7 @@ export const aiDecide = defineNode({
     events: { type: "Events", optional: true },
     account: { type: "Account", optional: true },
     earnings: { type: "Earnings", optional: true },
+    insider: { type: "Insider", optional: true },
   },
   outputs: { judgments: { type: "Judgments" } },
   fallback: () => ({ judgments: {} }),
@@ -78,6 +79,7 @@ export const aiDecide = defineNode({
         position: i.account?.positions[t],
         // an empty calendar means "not available" (no key): leave the section out rather than claim "no report"
         earnings: i.earnings && Object.keys(i.earnings).length ? (i.earnings[t] ?? null) : undefined,
+        insider: i.insider && Object.keys(i.insider).length ? i.insider[t] : undefined,
       }, variant);
       try {
         judgments[t] = await judge.judge(dossier, held.includes(t));
