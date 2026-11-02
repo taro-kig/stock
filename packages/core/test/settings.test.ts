@@ -62,8 +62,9 @@ describe("SettingsStore", () => {
     settings.set("GEMINI_API_KEY", "old-key-0123456789");
     const cfg = AppConfig.parse({ watchlist: {}, models: { tier1: [{ name: "g", provider: "gemini", model: "gemini-2.5-flash-lite", apiKeyEnv: "GEMINI_API_KEY" }], tier2: { name: "g2", provider: "gemini", model: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY" } } });
     const s = new Services(cfg, { dbPath: ":memory:", env, settings });
-    const before = s.tier1();
+    const before = s.voters("judge")[0];
+    expect(s.voters("judge")[0]).toBe(before); // cached
     settings.set("GEMINI_API_KEY", "new-key-0123456789");
-    expect(s.tier1()).not.toBe(before);
+    expect(s.voters("judge")[0]).not.toBe(before);
   });
 });

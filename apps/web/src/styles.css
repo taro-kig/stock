@@ -543,3 +543,7 @@ select.input { padding-right: 0.5ch; }
 .link { background: none; border: 0; padding: 0; color: var(--info); cursor: pointer; }
 .link:hover { text-decoration: underline; }
 .link:disabled { color: var(--faint); cursor: default; text-decoration: none; }
+.model-use { display: grid; gap: 4px; }
+.model-use-row { flex-wrap: nowrap; gap: 1ch; }
+.model-use-row select.input { flex: 1; min-width: 0; }
+.model-use-label { width: 18ch; flex: none; }

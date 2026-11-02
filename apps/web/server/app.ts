@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, FALLBACK_PRICE_PER_M, listModels, ModelSpecInput, saveModels, testModel, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { CalendarView, ImportResult, ModelsView, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
+import { addDays, vendorOf, defaultSingle, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { CalendarView, ImportResult, ModelsView, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
@@ -297,18 +297,79 @@ export function createApp(o: AppOptions): App {
           goldenSet: EVALUABLE.includes(family) ? defaultGoldenSet(s, family) : null,
           versions: s.prompts.list(family).map((p) => ({ ...p, usedBy: [...(p.version === active ? ["config"] : []), ...(usage[family][p.version] ?? [])] })),
           evals: s.promptStore.evals(family, 10),
+          models: familyModels(family),
         };
       }),
       switches: s.promptStore.switches(30),
       models: s.fake ? ["fake-a", "fake-b"] : s.modelNames(),
+      pool: (s.config.models?.pool ?? []).map((x) => ({ name: x.name, model: x.model, vendor: VENDORS[vendorOf(x)].label, keySet: Boolean(s.env[x.apiKeyEnv]) })),
+      quorum: s.config.harness.quorum,
       editable: Boolean(o.configPath),
       fake: s.fake,
     };
   }
 
-  function modelRoles(): ModelsView["roles"] {
-    const mdl = s.config.models;
-    return mdl ? { tier1: mdl.tier1, tier2: mdl.tier2 ?? null, redTeam: mdl.redTeam ?? null } : { tier1: [], tier2: null, redTeam: null };
+  /** Where each pool model is used: config (models.use) and workflow nodes that pick models themselves. */
+  function modelUsage(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    const add = (n: unknown, what: string) => {
+      if (typeof n !== "string" || n === NO_MODEL) return;
+      (out[n] ??= []).includes(what) || out[n]!.push(what);
+    };
+    const m = s.config.models;
+    if (m) {
+      for (const f of ["event", "judge"] as const) {
+        m.use[f].vote.forEach((n, i) => add(n, `${FAMILY_LABELS[f]}・${i < s.config.harness.quorum ? "投票" : "割れたときの票"}`));
+        add(m.use[f].escalation, `${FAMILY_LABELS[f]}・エスカレーション`);
+      }
+      add(defaultSingle(m, "redteam"), FAMILY_LABELS.redteam);
+      add(defaultSingle(m, "universe"), FAMILY_LABELS.universe);
+    }
+    for (const w of workflows()) {
+      for (const n of Object.values(w.spec?.nodes ?? {})) {
+        for (const k of ["models", "escalation", "redTeamModel", "model"]) {
+          const v = n.params[k];
+          for (const x of Array.isArray(v) ? v : [v]) add(x, `${w.name}（ノード）`);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** What a family uses, and which workflows choose their own models for it. */
+  function familyModels(f: PromptFamily): PromptFamilyView["models"] {
+    const keys: Record<PromptFamily, { types: string[]; params: string[] }> = {
+      event: { types: ["llm.extractEvents"], params: ["models", "escalation"] },
+      judge: { types: ["decide.ai"], params: ["models", "escalation"] },
+      redteam: { types: ["decide.ai"], params: ["redTeamModel"] },
+      universe: { types: ["universe.review"], params: ["model"] },
+    };
+    const overriddenBy = workflows()
+      .filter((w) => Object.values(w.spec?.nodes ?? {}).some((n) => keys[f].types.includes(n.use) && keys[f].params.some((k) => n.params[k] !== undefined)))
+      .map((w) => w.name);
+    const m = s.config.models;
+    if (f === "event" || f === "judge") return { kind: "vote", vote: m?.use[f].vote ?? [], escalation: m?.use[f].escalation ?? null, overriddenBy };
+    return { kind: "single", model: m?.use[f] ?? null, effective: m ? (defaultSingle(m, f) ?? null) : null, overriddenBy };
+  }
+
+  /** One line describing what a family uses, for the switch history. */
+  function describeUse(f: ModelUse): string {
+    const m = s.config.models;
+    if (!m) return "—";
+    if (f === "event" || f === "judge") return `${m.use[f].vote.join(" + ")}${m.use[f].escalation ? ` / 割れたら ${m.use[f].escalation}` : ""}`;
+    return defaultSingle(m, f) ?? "なし";
+  }
+
+  /** Runs a config.yaml edit; validation errors become 400s with readable messages. */
+  function configEdit<T>(fn: () => T): T {
+    try {
+      return fn();
+    } catch (e) {
+      const msg = e instanceof Error && "issues" in e
+        ? (e as { issues: Array<{ path: PropertyKey[]; message: string }> }).issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`).join("; ")
+        : e instanceof Error ? e.message : String(e);
+      throw new HttpError(400, msg);
+    }
   }
 
   function switchPrompt(family: PromptFamily, version: string, source: string) {
@@ -486,9 +547,9 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "GET" && path === "/api/models") {
       return send(res, 200, {
-        roles: modelRoles(), pricing: s.config.pricing, fallbackPrice: [...FALLBACK_PRICE_PER_M],
+        pool: s.config.models?.pool ?? [], usedBy: modelUsage(), pricing: s.config.pricing, fallbackPrice: [...FALLBACK_PRICE_PER_M],
         vendors: VENDOR_IDS.map((id) => ({ ...VENDORS[id], keySet: Boolean(s.env[VENDORS[id].apiKeyEnv]) })),
-        quorum: s.config.harness.quorum, dailyBudgetUsd: s.config.harness.dailyBudgetUsd,
+        dailyBudgetUsd: s.config.harness.dailyBudgetUsd,
         editable: Boolean(o.configPath), file: o.configPath ? editableConfigPath(o.configPath) : null, fake: s.fake,
       } satisfies ModelsView);
     }
@@ -523,23 +584,34 @@ export function createApp(o: AppOptions): App {
       if (!o.configPath) throw new HttpError(404, "this server was started without a config file");
       const body = await readJson(req);
       // Optimistic concurrency, like the watchlist: refuse if the file changed since the screen loaded.
-      if (JSON.stringify(body["previous"] ?? null) !== JSON.stringify(modelRoles())) {
+      if (JSON.stringify(body["previous"] ?? null) !== JSON.stringify(s.config.models?.pool ?? [])) {
         throw new HttpError(409, "モデル設定が読み込み時から変わっています。画面を再読み込みしてから編集してください");
       }
-      const quorum = s.config.harness.quorum;
-      if (!Array.isArray(body["tier1"]) || body["tier1"].length < quorum) {
-        throw new HttpError(400, `多数決は ${quorum} 票の一致で採用するので、投票メンバーは ${quorum} つ以上必要です（harness.quorum）`);
-      }
-      let r: ReturnType<typeof saveModels>;
-      try {
-        r = saveModels(o.configPath, { tier1: body["tier1"], tier2: body["tier2"] ?? null, redTeam: body["redTeam"] ?? null, pricing: body["pricing"] ?? {} } as never);
-      } catch (e) {
-        const msg = e instanceof Error && "issues" in e ? (e as { issues: Array<{ path: PropertyKey[]; message: string }> }).issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
-        throw new HttpError(400, msg);
-      }
+      const keep = new Set((Array.isArray(body["pool"]) ? body["pool"] : []).map((x: { name?: unknown }) => String(x?.name)));
+      const usage = modelUsage();
+      const gone = Object.keys(usage).filter((n) => !keep.has(n));
+      if (gone.length) throw new HttpError(400, gone.map((n) => `${n} は使用中です（${usage[n]!.join("、")}）`).join("; ") + "。先に別のモデルに切り替えてから外してください");
+      const r = configEdit(() => saveModelPool(o.configPath!, { pool: body["pool"], pricing: body["pricing"] ?? {} } as never));
       s.updateModels(r.config.models, r.config.pricing);
       broadcast({ type: "config_changed" });
       return send(res, 200, { ok: true, file: r.file, created: r.created });
+    }
+    if (req.method === "PUT" && (g = m(/^\/api\/models\/use\/([a-z]+)$/))) {
+      if (!o.configPath) throw new HttpError(404, "this server was started without a config file");
+      const use = g[1] as ModelUse;
+      if (!MODEL_USES.includes(use)) throw new HttpError(404, `unknown use ${use}`);
+      const value = (await readJson(req))["value"] as ModelUseValue;
+      const quorum = s.config.harness.quorum;
+      if ((use === "event" || use === "judge") && (!value || typeof value !== "object" || !Array.isArray(value.vote) || value.vote.length < quorum)) {
+        throw new HttpError(400, `多数決は ${quorum} 票の一致で採用するので、投票するモデルは ${quorum} つ以上必要です（harness.quorum）`);
+      }
+      const from = describeUse(use);
+      const r = configEdit(() => saveModelUse(o.configPath!, use, value));
+      s.updateModels(r.config.models, r.config.pricing);
+      const to = describeUse(use);
+      if (from !== to) s.promptStore.logSwitch({ at: clock().toISOString(), family: use, from: `モデル: ${from}`, to: `モデル: ${to}`, source: "ui" });
+      broadcast({ type: "config_changed" });
+      return send(res, 200, { ok: true, file: r.file, changed: from !== to });
     }
     if (req.method === "GET" && path === "/api/settings") {
       const st = s.settings;

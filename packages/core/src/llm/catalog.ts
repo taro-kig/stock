@@ -197,27 +197,18 @@ export const ModelSpecInput = z.discriminatedUnion("provider", [
 ]);
 const Price = z.tuple([z.number().min(0).max(1000), z.number().min(0).max(1000)]);
 
-export const ModelsInput = z
+/** The model pool as edited on the settings screen. Which family uses which model is set on the prompts screen. */
+export const PoolInput = z
   .strictObject({
-    tier1: z.array(ModelSpecInput).min(1, "投票メンバーは 1 つ以上").max(5, "投票メンバーは 5 つまで"),
-    tier2: ModelSpecInput.nullable(),
-    redTeam: ModelSpecInput.nullable(),
-    /** Prices for the models above (merged into config.pricing; other entries are kept). */
+    pool: z.array(ModelSpecInput).min(1, "モデルを 1 つ以上登録してください").max(12, "登録できるモデルは 12 個まで"),
+    /** Prices for these models (merged into config.pricing; other entries are kept). */
     pricing: z.record(z.string(), Price).default({}),
   })
   .superRefine((m, ctx) => {
-    const all = [...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])];
-    const byName = new Map<string, z.infer<typeof ModelSpecInput>>();
-    for (const s of all) {
-      const prev = byName.get(s.name);
-      if (prev && JSON.stringify(prev) !== JSON.stringify(s)) ctx.addIssue({ code: "custom", message: `name "${s.name}" が別のモデルにも使われています` });
-      byName.set(s.name, s);
-    }
-    const seen = new Set<string>();
-    for (const s of m.tier1) {
-      const k = `${s.provider}|${"baseUrl" in s ? s.baseUrl : ""}|${s.model}`;
-      if (seen.has(k)) ctx.addIssue({ code: "custom", message: `投票メンバーに同じモデル（${s.model}）が 2 回入っています。多数決は別モデル・別ベンダーで意味を持ちます` });
-      seen.add(k);
+    const names = new Set<string>();
+    for (const s of m.pool) {
+      if (names.has(s.name)) ctx.addIssue({ code: "custom", message: `名前「${s.name}」が 2 回使われています` });
+      names.add(s.name);
     }
   });
-export type ModelsInput = z.input<typeof ModelsInput>;
+export type PoolInput = z.input<typeof PoolInput>;

@@ -1,7 +1,5 @@
 import { z } from "zod";
 import { SecClient } from "../data/sec.ts";
-import { FakeProvider } from "../llm/fake.ts";
-import { heuristicResponder } from "../llm/heuristic.ts";
 import type { LLMProvider } from "../llm/types.ts";
 import type { Services } from "../services.ts";
 
@@ -146,18 +144,11 @@ export function verify(c: Omit<Candidate, "status" | "problem" | "listing">, lis
   return { ...base, listing: l, status: "ok", problem: null };
 }
 
-function provider(s: Services): LLMProvider {
-  if (s.fake) return new FakeProvider("fake-a", heuristicResponder);
-  const p = s.tier2() ?? s.tier1()[0];
-  if (!p) throw new Error("no model configured (config.models)");
-  return p;
-}
-
-export async function suggestTickers(s: Services, req: SuggestRequest, now: Date = new Date(), promptVersion?: string): Promise<SuggestResult> {
+export async function suggestTickers(s: Services, req: SuggestRequest, now: Date = new Date(), promptVersion?: string, model?: string): Promise<SuggestResult> {
   if (s.config.market.currency !== "USD") throw new Error("銘柄探しは米国株の設定（market.currency: USD）でのみ使えます");
   const r = SuggestRequest.parse(req);
   const exclude = new Set([...s.watchlist.tickers, ...(s.config.market.benchmark ? [s.config.market.benchmark] : [])].map(normTicker));
-  const p = provider(s);
+  const p: LLMProvider = s.universeModel(model);
   // Ask for a few extra: some will fail verification.
   const want = Math.min(40, Math.ceil(r.count * 1.5));
   const user =

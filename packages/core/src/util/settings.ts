@@ -1,3 +1,4 @@
+import { usedModelNames } from "../llm/roles.ts";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -57,7 +58,8 @@ export function settingDefs(config?: AppConfig): SettingDef[] {
   const defs = new Map(KNOWN_SETTINGS.map((d) => [d.name, d]));
   const referenced: string[] = [];
   if (config) {
-    const models = [...(config.models?.tier1 ?? []), ...(config.models?.tier2 ? [config.models.tier2] : []), ...(config.models?.redTeam ? [config.models.redTeam] : [])];
+    const used = config.models ? usedModelNames(config.models) : [];
+    const models = (config.models?.pool ?? []).filter((m) => used.includes(m.name));
     for (const m of models) if ("apiKeyEnv" in m && typeof m.apiKeyEnv === "string") referenced.push(m.apiKeyEnv);
     if (config.webull) referenced.push(config.webull.appKeyEnv, config.webull.appSecretEnv);
   }

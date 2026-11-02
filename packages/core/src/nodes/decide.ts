@@ -46,6 +46,12 @@ export const aiDecide = defineNode({
     /** Prompt versions for this workflow (default: config.prompts.judge / redTeam). Two workflows with different versions = a live A/B test. */
     promptVersion: z.string().optional(),
     redTeamVersion: z.string().optional(),
+    /** Voting models for this workflow, in call order (default: models.use.judge.vote). */
+    models: z.array(z.string()).min(1).optional(),
+    /** Tie-breaker model, or "none" (default: models.use.judge.escalation). */
+    escalation: z.string().optional(),
+    /** Red-team model, or "none" (default: models.use.redteam). */
+    redTeamModel: z.string().optional(),
   }),
   inputs: {
     factors: { type: "Factors" },
@@ -60,10 +66,10 @@ export const aiDecide = defineNode({
   async run(ctx, p, i) {
     const s = ctx.services;
     const judgePrompt = s.prompts.judge(p.promptVersion ?? s.config.prompts.judge);
-    const judge = new Judge(s.caller, s.tier1(), {
+    const judge = new Judge(s.caller, s.voters("judge", p.models), {
       quorum: p.quorum ?? s.config.harness.quorum,
-      escalation: s.tier2(),
-      redTeam: p.redTeam ? s.redTeam() : undefined,
+      escalation: s.escalation("judge", p.escalation),
+      redTeam: p.redTeam ? s.redTeam(p.redTeamModel) : undefined,
       prompt: judgePrompt,
       redTeamPrompt: s.prompts.redTeam(p.redTeamVersion ?? s.config.prompts.redTeam),
     });

@@ -14,7 +14,17 @@ interface Schema {
 }
 
 /** Options for free-text params whose valid values are known (e.g. prompt versions). */
-export type Choices = Record<string, { options: string[]; defaultLabel: string }>;
+export type Choices = Record<string, {
+  options: string[];
+  defaultLabel: string;
+  /** Option value → label (e.g. "none" → "使わない"). */
+  labels?: Record<string, string>;
+  /** An ordered list of options (e.g. voting models). */
+  multi?: boolean;
+  /** Fewest items that make sense (multi). */
+  min?: number;
+  unknownLabel?: string;
+}>;
 
 function Field({ k, p, value, required, onSet, choice }: { k: string; p: Prop; value: unknown; required: boolean; onSet: (v: unknown) => void; choice?: Choices[string] | undefined }) {
   const type = Array.isArray(p.type) ? p.type[0] : p.type;
@@ -28,14 +38,40 @@ function Field({ k, p, value, required, onSet, choice }: { k: string; p: Prop; v
     </div>
   );
 
+  if (choice?.multi) {
+    const list = Array.isArray(value) ? value.map(String) : [];
+    const rest = choice.options.filter((o) => !list.includes(o));
+    const commitList = (l: string[]) => onSet(l.length ? l : undefined);
+    return (
+      <div className="ed-field">
+        {label}
+        {list.length === 0 && <span className="faint">{choice.defaultLabel}</span>}
+        {list.map((o, i) => (
+          <div key={o} className="btn-row" style={{ gap: "0.5ch", flexWrap: "nowrap" }}>
+            <span className="ellipsis" style={{ flex: 1 }}>{i + 1}. {choice.labels?.[o] ?? o}{choice.options.includes(o) ? "" : `（${choice.unknownLabel ?? "不明"}）`}</span>
+            <button className="btn icon" type="button" disabled={i === 0} aria-label="上へ" onClick={() => { const c = [...list]; [c[i - 1], c[i]] = [c[i]!, c[i - 1]!]; commitList(c); }}>↑</button>
+            <button className="btn icon" type="button" aria-label="外す" onClick={() => commitList(list.filter((x) => x !== o))}>✕</button>
+          </div>
+        ))}
+        {list.length > 0 && choice.min !== undefined && list.length < choice.min && <span className="warn">{choice.min} つ以上必要（quorum）</span>}
+        {rest.length > 0 && (
+          <select className="input" value="" onChange={(e) => e.target.value && commitList([...list, e.target.value])}>
+            <option value="">＋ 追加</option>
+            {rest.map((o) => <option key={o} value={o}>{choice.labels?.[o] ?? o}</option>)}
+          </select>
+        )}
+      </div>
+    );
+  }
+
   if (choice) {
     return (
       <label className="ed-field">
         {label}
         <select className="input" value={typeof value === "string" ? value : ""} onChange={(e) => onSet(e.target.value === "" ? undefined : e.target.value)}>
           <option value="">{choice.defaultLabel}</option>
-          {typeof value === "string" && !choice.options.includes(value) && <option value={value}>{value}（不明な版）</option>}
-          {choice.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          {typeof value === "string" && !choice.options.includes(value) && <option value={value}>{value}（{choice.unknownLabel ?? "不明な版"}）</option>}
+          {choice.options.map((o) => <option key={o} value={o}>{choice.labels?.[o] ?? o}</option>)}
         </select>
       </label>
     );

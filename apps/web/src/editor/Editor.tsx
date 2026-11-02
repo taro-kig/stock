@@ -9,7 +9,7 @@ import { navigate } from "../router.ts";
 import * as M from "./model.ts";
 import { ParamsForm, type Choices } from "./ParamsForm.tsx";
 
-/** Prompt-version params become dropdowns of the versions that exist. */
+/** Prompt-version and model params become dropdowns of the versions / models that exist. */
 function promptChoices(use: string, prompts: PromptsView | undefined): Choices | undefined {
   if (!prompts) return undefined;
   const fam = (f: string) => {
@@ -27,6 +27,31 @@ function promptChoices(use: string, prompts: PromptsView | undefined): Choices |
     set("redTeamVersion", "redteam");
   }
   if (use === "universe.review") set("promptVersion", "universe");
+
+  // Model params become dropdowns of the registered models (settings → モデル).
+  const names = prompts.pool.map((p) => p.name);
+  const labels = Object.fromEntries(prompts.pool.map((p) => [p.name, `${p.name} — ${p.model}`]));
+  const fm = (f: string) => prompts.families.find((x) => x.family === f)?.models;
+  const voteDefault = (f: string) => {
+    const m = fm(f);
+    return m?.kind === "vote" ? `既定（config: ${m.vote.join(" + ")}）` : "既定";
+  };
+  const escDefault = (f: string) => {
+    const m = fm(f);
+    return m?.kind === "vote" ? `既定（config: ${m.escalation ?? "使わない"}）` : "既定";
+  };
+  const singleDefault = (f: string) => {
+    const m = fm(f);
+    return m?.kind === "single" ? `既定（config: ${m.effective ?? "なし"}）` : "既定";
+  };
+  const model = { unknownLabel: "未登録のモデル" };
+  if (use === "llm.extractEvents" || use === "decide.ai") {
+    const f = use === "llm.extractEvents" ? "event" : "judge";
+    out["models"] = { ...model, options: names, labels, multi: true, min: prompts.quorum, defaultLabel: voteDefault(f) };
+    out["escalation"] = { ...model, options: [...names, "none"], labels: { ...labels, none: "使わない" }, defaultLabel: escDefault(f) };
+  }
+  if (use === "decide.ai") out["redTeamModel"] = { ...model, options: [...names, "none"], labels: { ...labels, none: "使わない" }, defaultLabel: singleDefault("redteam") };
+  if (use === "universe.review") out["model"] = { ...model, options: names, labels, defaultLabel: singleDefault("universe") };
   return Object.keys(out).length ? out : undefined;
 }
 

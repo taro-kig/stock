@@ -8,15 +8,22 @@ harness:
   quorum: 2             # H3: votes needed to accept an output
   maxRetries: 2         # H1: re-asks on invalid JSON / schema errors
 
-# Cheap models from *different vendors* (uncorrelated errors). Model ids and prices change often.
+# Models (settings screen → モデル: vendor, model id, price, test). Names are what `use` and workflow nodes refer to.
+# Model ids and prices change often.
 models:
-  tier1:
+  pool:
     - { name: gemini-lite, provider: gemini, model: gemini-2.5-flash-lite, apiKeyEnv: GEMINI_API_KEY }
     - { name: deepseek, provider: openai_compat, baseUrl: "https://api.deepseek.com/v1", model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }
-    # A 3rd member enables 2-of-3 voting; it is only called when the first two disagree.
+    - { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
     # - { name: qwen, provider: openai_compat, baseUrl: "https://openrouter.ai/api/v1", model: qwen/qwen-2.5-72b-instruct, apiKeyEnv: OPENROUTER_API_KEY }
-  tier2: { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
-  # redTeam defaults to tier2 when omitted.
+  # Which models each prompt family uses (prompts screen; a workflow node can override with models / escalation / redTeamModel / model).
+  # vote: cheap models from *different vendors* (uncorrelated errors). The first `harness.quorum` are always called,
+  # a 3rd only when they disagree. escalation: tie-breaker for important disagreements.
+  use:
+    event: { vote: [gemini-lite, deepseek], escalation: gemini-flash }
+    judge: { vote: [gemini-lite, deepseek], escalation: gemini-flash }
+    redteam: gemini-flash
+    universe: gemini-flash
 
 # Prompt versions (docs/prompts.md). Compare with `stockai eval events|judge` before switching.
 prompts:

@@ -5,31 +5,25 @@ import { get, post, put, useApi } from "../api.ts";
 import { Empty, ErrorLine, Kbd, Pane } from "../components/ui.tsx";
 
 type Toast = (m: string, err?: boolean) => void;
-type Role = "tier1" | "tier2" | "redTeam";
 type TestResult = { status: "ok" | "warn" | "fail" | "skip" | "busy"; detail: string; hint?: string };
 
 interface Row {
   key: number;
-  role: Role;
+  /** Name in config.yaml: what the prompts screen and workflow nodes refer to. Fixed once saved. */
+  name: string;
+  isNew: boolean;
   vendor: VendorId;
   model: string;
-  /** Config name: kept for existing members, derived from the model id for new / changed ones. */
-  name: string;
   baseUrl: string;
   apiKeyEnv: string;
   priceIn: string;
   priceOut: string;
 }
 
-const ROLE: Record<Role, { label: string; help: string }> = {
-  tier1: { label: "投票", help: "毎回呼ばれる。別ベンダーを混ぜると誤りが重なりにくい" },
-  tier2: { label: "エスカレーション", help: "投票が割れ、しかも重要なときだけ呼ばれる" },
-  redTeam: { label: "レッドチーム", help: "強気の結論に反論する役。未設定ならエスカレーション用を使う" },
-};
-
 const MARK: Record<TestResult["status"], [string, string]> = {
   ok: ["✓", "ok"], warn: ["!", "warn"], fail: ["✗", "fail"], skip: ["–", "faint"], busy: ["…", "dim"],
 };
+const NAME = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 
 let nextKey = 1;
 const slug = (model: string) =>
@@ -49,35 +43,28 @@ function vendorOf(spec: ModelSpec, vendors: ModelsView["vendors"]): VendorId {
   return v?.id ?? "custom";
 }
 
-function toRows(d: ModelsView): Row[] {
-  const one = (role: Role, s: ModelSpec): Row => ({
-    key: nextKey++, role, vendor: vendorOf(s, d.vendors), model: s.model, name: s.name,
+const toRows = (d: ModelsView): Row[] =>
+  d.pool.map((s) => ({
+    key: nextKey++, name: s.name, isNew: false, vendor: vendorOf(s, d.vendors), model: s.model,
     baseUrl: s.provider === "openai_compat" ? s.baseUrl : "", apiKeyEnv: s.apiKeyEnv,
     priceIn: num(d.pricing[s.model]?.[0]), priceOut: num(d.pricing[s.model]?.[1]),
-  });
-  return [
-    ...d.roles.tier1.map((s) => one("tier1", s)),
-    ...(d.roles.tier2 ? [one("tier2", d.roles.tier2)] : []),
-    ...(d.roles.redTeam ? [one("redTeam", d.roles.redTeam)] : []),
-  ];
-}
+  }));
 
 function specOf(r: Row, vendors: ModelsView["vendors"]): ModelSpec {
   const v = vendors.find((x) => x.id === r.vendor)!;
   const apiKeyEnv = r.vendor === "custom" ? r.apiKeyEnv.trim() : v.apiKeyEnv;
-  if (v.provider === "gemini") return { provider: "gemini", name: r.name, model: r.model.trim(), apiKeyEnv };
-  return { provider: "openai_compat", name: r.name, model: r.model.trim(), baseUrl: r.vendor === "custom" ? r.baseUrl.trim() : v.baseUrl!, apiKeyEnv };
+  if (v.provider === "gemini") return { provider: "gemini", name: r.name.trim(), model: r.model.trim(), apiKeyEnv };
+  return { provider: "openai_compat", name: r.name.trim(), model: r.model.trim(), baseUrl: r.vendor === "custom" ? r.baseUrl.trim() : v.baseUrl!, apiKeyEnv };
 }
 
 function payload(rows: Row[], vendors: ModelsView["vendors"]) {
-  const pick = (role: Role) => rows.filter((r) => r.role === role).map((r) => specOf(r, vendors));
   const pricing: Record<string, [number, number]> = {};
   for (const r of rows) {
     const a = Number(r.priceIn);
     const b = Number(r.priceOut);
     if (r.model.trim() && r.priceIn.trim() && r.priceOut.trim() && Number.isFinite(a) && Number.isFinite(b)) pricing[r.model.trim()] = [a, b];
   }
-  return { tier1: pick("tier1"), tier2: pick("tier2")[0] ?? null, redTeam: pick("redTeam")[0] ?? null, pricing };
+  return { pool: rows.map((r) => specOf(r, vendors)), pricing };
 }
 
 /** Lists of the models each vendor offers (fetched with the user's key; built-in list otherwise). */
@@ -111,11 +98,15 @@ function useModelLists(wanted: Want[]) {
   return { lists, loading, keyOf, refresh: (w: Want) => load(w, true) };
 }
 
+/**
+ * The models that may be used (vendor, model id, price). Which prompt uses which model is chosen
+ * on the prompts screen; a workflow node can pick its own.
+ */
 export function ModelsPane({ toast }: { toast: Toast }) {
   const { data, error, reload } = useApi<ModelsView>("/api/models");
   const [rows, setRows] = useState<Row[]>([]);
   const [base, setBase] = useState<string | null>(null);
-  const [previous, setPrevious] = useState<ModelsView["roles"] | null>(null);
+  const [previous, setPrevious] = useState<ModelsView["pool"] | null>(null);
   const [tests, setTests] = useState<Record<number, TestResult>>({});
   const [busy, setBusy] = useState(false);
   const vendors = data?.vendors ?? [];
@@ -126,7 +117,7 @@ export function ModelsPane({ toast }: { toast: Toast }) {
     const r = toRows(d);
     setRows(r);
     setBase(JSON.stringify(payload(r, d.vendors)));
-    setPrevious(d.roles);
+    setPrevious(d.pool);
     setTests({});
   };
   useEffect(() => {
@@ -143,30 +134,24 @@ export function ModelsPane({ toast }: { toast: Toast }) {
 
   const problems = useMemo(() => {
     const p: string[] = [];
-    const t1 = rows.filter((r) => r.role === "tier1");
-    if (data && t1.length < data.quorum) p.push(`多数決は ${data.quorum} 票の一致で採用するので、投票メンバーは ${data.quorum} つ以上必要です`);
-    if (rows.some((r) => !r.model.trim())) p.push("モデルが空の行があります");
+    if (!rows.length) p.push("モデルを 1 つ以上登録してください");
+    if (rows.some((r) => !r.model.trim())) p.push("モデル ID が空の行があります");
+    if (rows.some((r) => !NAME.test(r.name.trim()))) p.push("名前は英小文字・数字・. _ -（40 文字まで）");
+    const names = rows.map((r) => r.name.trim());
+    const dup = names.filter((n, i) => names.indexOf(n) !== i);
+    if (dup.length) p.push(`名前が重複しています: ${[...new Set(dup)].join(", ")}`);
     if (rows.some((r) => r.vendor === "custom" && (!/^https?:\/\/.+/.test(r.baseUrl.trim()) || !/^[A-Z][A-Z0-9_]*$/.test(r.apiKeyEnv.trim()))))
       p.push("その他（OpenAI 互換）は Base URL（http(s)://…）とキーの名前（英大文字・数字・_）が必要です");
-    const seen = new Set<string>();
-    for (const r of t1) {
-      const k = `${r.vendor}|${r.baseUrl}|${r.model.trim()}`;
-      if (seen.has(k)) p.push(`投票に同じモデル（${r.model.trim()}）が 2 回入っています`);
-      seen.add(k);
-    }
     return p;
-  }, [rows, data]);
+  }, [rows]);
 
   if (error) return <ErrorLine error={error} />;
   if (!data || base === null) return null;
 
-  const uniqueName = (wantedName: string, key: number, spec: ModelSpec | null) => {
-    // The same model may fill two roles under one name; otherwise names must differ.
-    const taken = rows.filter((r) => r.key !== key).map((r) => ({ name: r.name, spec: JSON.stringify({ ...specOf(r, vendors), name: "" }) }));
-    const same = (n: string) => taken.find((t) => t.name === n);
-    const mine = spec ? JSON.stringify({ ...spec, name: "" }) : "";
-    let n = wantedName;
-    for (let i = 2; same(n) && same(n)!.spec !== mine; i++) n = `${wantedName.slice(0, 36)}-${i}`;
+  const uniqueName = (wanted: string, key: number) => {
+    const taken = new Set(rows.filter((r) => r.key !== key).map((r) => r.name.trim()));
+    let n = wanted;
+    for (let i = 2; taken.has(n); i++) n = `${wanted.slice(0, 36)}-${i}`;
     return n;
   };
   const set = (key: number, patch: Partial<Row>) =>
@@ -175,8 +160,8 @@ export function ModelsPane({ toast }: { toast: Toast }) {
         if (r.key !== key) return r;
         const next = { ...r, ...patch };
         if (patch.model !== undefined || patch.vendor !== undefined) {
-          next.name = uniqueName(slug(next.model.trim() || next.vendor), key, specOf({ ...next, name: "" }, vendors));
-          // Fill the price from the vendor list / the pricing table when the model changes.
+          // A new row follows its model id; a saved one keeps its name (prompts and nodes refer to it).
+          if (next.isNew && patch.name === undefined) next.name = uniqueName(slug(next.model.trim() || next.vendor), key);
           const known = data.pricing[next.model.trim()] ?? listFor(next)?.models.find((m) => m.id === next.model.trim())?.price;
           if (known) [next.priceIn, next.priceOut] = [String(known[0]), String(known[1])];
           else if (patch.model !== undefined) [next.priceIn, next.priceOut] = ["", ""];
@@ -184,19 +169,16 @@ export function ModelsPane({ toast }: { toast: Toast }) {
         return next;
       }),
     );
-  const add = (role: Role) => {
-    const v: VendorId = role === "tier1" && rows.some((r) => r.vendor === "gemini") ? "deepseek" : "gemini";
-    const def = vendors.find((x) => x.id === v)!.models[role === "tier1" ? 0 : 1] ?? vendors.find((x) => x.id === v)!.models[0];
+  const add = () => {
+    const v: VendorId = rows.some((r) => r.vendor === "gemini") && !rows.some((r) => r.vendor === "deepseek") ? "deepseek" : "gemini";
+    const def = vendors.find((x) => x.id === v)!.models.find((m) => !rows.some((r) => r.model === m.id)) ?? vendors.find((x) => x.id === v)!.models[0];
     const model = def?.id ?? "";
     const row: Row = {
-      key: nextKey++, role, vendor: v, model, name: "", baseUrl: "", apiKeyEnv: "",
+      key: nextKey++, name: "", isNew: true, vendor: v, model, baseUrl: "", apiKeyEnv: "",
       priceIn: num(data.pricing[model]?.[0] ?? def?.price?.[0]), priceOut: num(data.pricing[model]?.[1] ?? def?.price?.[1]),
     };
-    row.name = uniqueName(slug(model || v), row.key, specOf(row, vendors));
-    setRows((rs) => {
-      const at = role === "tier1" ? rs.filter((r) => r.role === "tier1").length : role === "tier2" ? rs.filter((r) => r.role !== "redTeam").length : rs.length;
-      return [...rs.slice(0, at), row, ...rs.slice(at)];
-    });
+    row.name = uniqueName(slug(model || v), row.key);
+    setRows((rs) => [...rs, row]);
   };
 
   async function test(r: Row) {
@@ -214,7 +196,8 @@ export function ModelsPane({ toast }: { toast: Toast }) {
     try {
       const res = await put<{ file: string; created: boolean }>("/api/models", { ...payload(rows, vendors), previous });
       setBase(current);
-      toast(`モデル設定を ${res.file} に保存しました${res.created ? "（新規作成）" : ""}。次の実行から使われます`);
+      setRows((rs) => rs.map((r) => ({ ...r, isNew: false })));
+      toast(`モデルを ${res.file} に保存しました${res.created ? "（新規作成）" : ""}`);
       reload();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), true);
@@ -223,22 +206,21 @@ export function ModelsPane({ toast }: { toast: Toast }) {
     }
   }
 
-  const t1 = rows.filter((r) => r.role === "tier1").length;
   const usedVendors = [...new Map(rows.map((r) => [keyOf(want(r)), r])).values()];
   const fb = data.fallbackPrice;
   return (
-    <Pane title="モデル" aux={`投票 ${t1} · ${data.quorum} 票一致で採用${dirty ? " · 未保存" : ""}`} className={dirty ? "focus" : ""}>
+    <Pane title="モデル" aux={`${rows.length} 個登録${dirty ? " · 未保存" : ""}`} className={dirty ? "focus" : ""}>
       <p className="dim">
-        役割ごとに使うモデルを選びます。モデルの候補はキーを使って各社の API から取得します（キーが無いときは代表的なものだけ）。
-        保存先 <code>{data.file ?? "—"}</code> の <code>models</code> と <code>pricing</code>。直前の版は <Kbd>.bak</Kbd> に残り、再起動なしで次の実行から使われます。
+        使えるモデルを登録します。<b>どのプロンプトでどのモデルを使うかは「8 プロンプト」で選びます</b>（ワークフローのノードで個別に指定も可）。
+        候補はキーを使って各社の API から取得します（キーが無いときは代表的なものだけ）。保存先 <code>{data.file ?? "—"}</code>、直前の版は <Kbd>.bak</Kbd>。
       </p>
-      {data.fake && <p className="warn">疑似モデル（--fake）で起動中のため、ここで選んだモデルは --fake なしで起動したときに使われます。</p>}
+      {data.fake && <p className="warn">疑似モデル（--fake）で起動中のため、ここで登録したモデルは --fake なしで起動したときに使われます。</p>}
       <table className="t models">
         <thead>
           <tr>
-            <th style={{ width: "15ch" }}>役割</th>
+            <th style={{ width: "20ch" }}>名前</th>
             <th style={{ width: "22ch" }}>ベンダー</th>
-            <th>モデル</th>
+            <th>モデル ID</th>
             <th style={{ width: "19ch" }} title="USD / 100 万トークン">価格 $/1M 入力・出力</th>
             <th style={{ width: "13ch" }} />
             <th />
@@ -251,12 +233,16 @@ export function ModelsPane({ toast }: { toast: Toast }) {
             const list = listFor(r);
             const t = tests[r.key];
             const keySet = r.vendor === "custom" ? null : v.keySet;
-            const removable = r.role !== "tier1" || t1 > 1;
+            const used = r.isNew ? [] : (data.usedBy[r.name] ?? []);
             return (
               <tr key={r.key}>
                 <td>
-                  <span className="fg2" title={ROLE[r.role].help}>{ROLE[r.role].label}</span>
-                  {r.role === "tier1" && t1 > 2 && rows.filter((x) => x.role === "tier1").indexOf(r) >= data.quorum && <div className="faint">割れたときだけ</div>}
+                  {r.isNew ? (
+                    <input className={`input ${NAME.test(r.name.trim()) ? "" : "bad"}`} style={{ width: "100%" }} value={r.name} spellCheck={false} onChange={(e) => set(r.key, { name: e.target.value })} aria-label="name" />
+                  ) : (
+                    <b>{r.name}</b>
+                  )}
+                  <div className="faint" title={used.join("\n")}>{used.length ? `使用中 ${used.length} か所` : r.isNew ? "新規" : "未使用"}</div>
                 </td>
                 <td>
                   <select className="input" value={r.vendor} onChange={(e) => set(r.key, { vendor: e.target.value as VendorId, model: vendors.find((x) => x.id === e.target.value)!.models[0]?.id ?? "" })} aria-label="vendor">
@@ -280,10 +266,7 @@ export function ModelsPane({ toast }: { toast: Toast }) {
                       <input className="input" style={{ flex: 1 }} value={r.apiKeyEnv} placeholder="KEY_NAME" spellCheck={false} onChange={(e) => set(r.key, { apiKeyEnv: e.target.value.toUpperCase() })} aria-label="API key name" />
                     </div>
                   )}
-                  <div className="faint">
-                    {info?.note ?? (list && !info && r.model.trim() ? (list.source === "api" ? "一覧に無い ID（テストで確認）" : "") : "")}
-                    {r.name !== slug(r.model.trim()) && <span title="config.yaml での名前（履歴・評価の表示に使う）"> name: {r.name}</span>}
-                  </div>
+                  <div className="faint">{info?.note ?? (list && !info && r.model.trim() && list.source === "api" ? "一覧に無い ID（テストで確認）" : "")}</div>
                 </td>
                 <td>
                   <div className="btn-row" style={{ gap: "0.5ch", flexWrap: "nowrap" }}>
@@ -303,18 +286,22 @@ export function ModelsPane({ toast }: { toast: Toast }) {
                   )}
                 </td>
                 <td>
-                  {removable && <button className="btn icon" type="button" title="外す" aria-label={`${r.model} を外す`} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>✕</button>}
+                  <button
+                    className="btn icon" type="button" disabled={used.length > 0}
+                    title={used.length ? `使用中のため外せません（${used.join("、")}）。プロンプト画面で別のモデルに切り替えてから外してください` : "外す"}
+                    aria-label={`${r.name} を外す`} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
+                  >
+                    ✕
+                  </button>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {rows.length === 0 && <Empty>config.yaml に models がありません</Empty>}
+      {rows.length === 0 && <Empty>モデルが登録されていません</Empty>}
       <div className="btn-row" style={{ marginTop: "calc(var(--lh) * 0.5)" }}>
-        <button className="btn" type="button" disabled={t1 >= 5} onClick={() => add("tier1")}>＋ 投票に追加</button>
-        {!rows.some((r) => r.role === "tier2") && <button className="btn" type="button" onClick={() => add("tier2")}>＋ エスカレーション</button>}
-        {!rows.some((r) => r.role === "redTeam") && <button className="btn" type="button" onClick={() => add("redTeam")}>＋ レッドチーム</button>}
+        <button className="btn" type="button" disabled={rows.length >= 12} onClick={add}>＋ モデルを追加</button>
         <span className="spacer" style={{ flex: 1 }} />
         {dirty && <button className="btn" type="button" onClick={() => load(data)}>元に戻す</button>}
         <button className="btn primary" type="button" disabled={!dirty || problems.length > 0 || busy || !data.editable} onClick={() => void save()}>保存</button>
@@ -337,7 +324,7 @@ export function ModelsPane({ toast }: { toast: Toast }) {
       </div>
       <p className="faint">
         価格は 1 日の上限（${data.dailyBudgetUsd}）の計算に使います。候補に出る価格は参考値なので各社の価格表で確認してください。
-        モデルを変えると LLM のキャッシュは効かなくなり、確度の記録はモデルごとに分かれます。プロンプトとの相性は「8 プロンプト」の評価で確かめられます。
+        保存済みのモデルの名前は変えられません（プロンプトやノードが名前で参照するため）。モデル ID を変えるとその名前を使う全ての箇所が新しいモデルになります。
       </p>
     </Pane>
   );

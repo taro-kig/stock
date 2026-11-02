@@ -45,6 +45,8 @@ export const universeReview = defineNode({
     checkLiquidity: z.boolean().default(true),
     /** Prompt version for suggestions (default: config.prompts.universe). */
     promptVersion: z.string().optional(),
+    /** Model for this workflow (default: models.use.universe). */
+    model: z.string().optional(),
   }),
   inputs: { prices: { type: "Prices" } },
   outputs: { changes: { type: "UniverseChanges" } },
@@ -111,7 +113,7 @@ export const universeReview = defineNode({
     const add: UniverseAdd[] = [];
     if (p.addCount > 0) {
       const theme = p.themes.length ? p.themes.join(" / ") : "今のウォッチリストのセクターの偏りを補う、流動性の高い米国株";
-      const r = await suggestTickers(s, { theme, count: Math.min(25, p.addCount + 3), size: p.size }, ctx.wallNow(), p.promptVersion);
+      const r = await suggestTickers(s, { theme, count: Math.min(25, p.addCount + 3), size: p.size }, ctx.wallNow(), p.promptVersion, p.model);
       ctx.metric("suggested", r.candidates.length);
       if (r.verificationError) notes.push(`追加候補は確認できなかったため出していない: ${r.verificationError}`);
       const rejected = r.candidates.filter((c) => c.status === "rejected");

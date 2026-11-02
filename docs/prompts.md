@@ -34,16 +34,17 @@ CLI でも同じ版を使える: `npm run stockai -- eval events --versions even
 
 ## ワークフローごとに版を指定する
 
-ノードのパラメータで、そのワークフローだけ別の版を使える（ノードエディタでは版の一覧から選べる）。指定しなければ `config.yaml` の既定。
+ノードのパラメータで、そのワークフローだけ別の版・別のモデルを使える（ノードエディタでは版・登録済みモデルの一覧から選べる）。指定しなければ `config.yaml` の既定（プロンプト画面の「使うモデル」）。
 
-| ノード | パラメータ |
-|---|---|
-| `llm.extractEvents` と `signal.eventHistory` | `promptVersion`（2つは同じ版にする） |
-| `decide.ai` | `promptVersion`（売買判断）、`redTeamVersion`（反対役） |
-| `universe.review` | `promptVersion`（銘柄探し） |
+| ノード | 版 | モデル |
+|---|---|---|
+| `llm.extractEvents` と `signal.eventHistory` | `promptVersion`（2つは同じ版にする） | `models`（投票、呼ぶ順）、`escalation`（`none` で使わない）※ `llm.extractEvents` のみ |
+| `decide.ai` | `promptVersion`（売買判断）、`redTeamVersion`（反対役） | `models`、`escalation`、`redTeamModel`（`none` で拒否権なし） |
+| `universe.review` | `promptVersion`（銘柄探し） | `model` |
 
 **実運用での A/B テスト**: `daily-ai.yaml` を複製して名前を変え（例 `daily-ai-v2`）、`decide.ai` に `promptVersion: judge-v2` を指定してスケジュールに足す。
 同じ日・同じ銘柄で2つの版の判断が別々のラベルで記録され、「4 確度」で並べて比べられる（LLM の費用は2倍）。
+モデルの A/B も同じやり方で、複製したワークフローの `decide.ai` に `models: [deepseek, gemini-flash]` などを指定する（確度はワークフロー名のラベルで分かれる）。
 
 ```yaml
 prompts:            # config.yaml の既定（画面で切り替えると書き換わる）

@@ -3,7 +3,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { IbkrConfig } from "./execution/ibkr.ts";
 import { WebullConfig } from "./execution/webull.ts";
-import { ModelSpec } from "./llm/factory.ts";
+import { ModelsConfig } from "./llm/roles.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
 export const NOTIFY_EVENTS = ["approval", "failure", "orders", "fills", "success", "backup"] as const;
@@ -22,16 +22,8 @@ export const AppConfig = z.strictObject({
       maxRetries: z.number().int().min(0).default(2),
     })
     .prefault({}),
-  models: z
-    .strictObject({
-      /** Cheap models from different vendors (uncorrelated errors). */
-      tier1: z.array(ModelSpec).min(1),
-      /** Tie-breaker for important disagreements only. */
-      tier2: ModelSpec.optional(),
-      /** May veto a bullish consensus. */
-      redTeam: ModelSpec.optional(),
-    })
-    .optional(),
+  /** Model pool and which models each prompt family uses (settings screen → モデル, prompts screen). */
+  models: ModelsConfig.optional(),
   /** Prompt versions in use. Compare candidates with `stockai eval` before switching. */
   prompts: z
     .strictObject({

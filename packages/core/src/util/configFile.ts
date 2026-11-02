@@ -3,7 +3,8 @@ import { basename, dirname, join } from "node:path";
 import { isMap, parseDocument, YAMLMap } from "yaml";
 import { z } from "zod";
 import { AppConfig } from "../config.ts";
-import { ModelsInput } from "../llm/catalog.ts";
+import { PoolInput } from "../llm/catalog.ts";
+import { MODEL_USES, NO_MODEL, usedModelNames, type ModelsConfig, type ModelUse } from "../llm/roles.ts";
 
 /** One watchlist row as edited in the UI. */
 export const WatchlistEntryInput = z.strictObject({
@@ -79,44 +80,100 @@ export function saveConfigValue(loadedFrom: string, path: string[], value: strin
   return editConfig(loadedFrom, (doc) => doc.setIn(path, value));
 }
 
+type Spec = ModelsConfig["pool"][number];
+const flowSpec = (doc: YamlDoc, spec: Spec) => {
+  // name first, like the hand-written examples
+  const n = doc.createNode({ name: spec.name, provider: spec.provider, ...(spec.provider === "openai_compat" ? { baseUrl: spec.baseUrl } : {}), model: spec.model, apiKeyEnv: spec.apiKeyEnv });
+  n.flow = true;
+  return n;
+};
+const useNode = (doc: YamlDoc, v: ModelsConfig["use"]["event"]) => {
+  const n = doc.createNode({ vote: v.vote, ...(v.escalation ? { escalation: v.escalation } : {}) });
+  n.flow = true;
+  return n;
+};
+
 /**
- * Replaces `models` (tier1 / tier2 / redTeam) and merges prices into `pricing`, keeping comments.
- * A null tier2 / redTeam removes it (redTeam then falls back to tier2).
+ * Makes sure `models` has the pool / use shape. A pre-v0.17 file (tier1 / tier2 / redTeam) is
+ * rewritten from its parsed form once (comments above `models` are kept).
  */
-export function saveModels(loadedFrom: string, input: ModelsInput): { file: string; created: boolean; config: AppConfig } {
-  const m = ModelsInput.parse(input);
+function modernizeModels(doc: YamlDoc, current: ModelsConfig | undefined): void {
+  const old = doc.get("models", true);
+  if (isMap(old) && old.has("pool")) return;
+  if (!current) throw new Error("config.models is not set: add models.pool to config.yaml first");
+  const map = new YAMLMap();
+  map.set(doc.createNode("pool"), doc.createNode(current.pool.map((x) => flowSpec(doc, x))));
+  const use = new YAMLMap();
+  use.set(doc.createNode("event"), useNode(doc, current.use.event));
+  use.set(doc.createNode("judge"), useNode(doc, current.use.judge));
+  if (current.use.redteam) use.set(doc.createNode("redteam"), doc.createNode(current.use.redteam));
+  if (current.use.universe) use.set(doc.createNode("universe"), doc.createNode(current.use.universe));
+  map.set(doc.createNode("use"), use);
+  if (isMap(old) && old.commentBefore) map.commentBefore = old.commentBefore;
+  doc.set("models", map);
+}
+
+function currentModels(doc: YamlDoc): ModelsConfig | undefined {
+  const r = AppConfig.shape.models.safeParse((doc.toJS() as { models?: unknown }).models);
+  return r.success ? r.data : undefined;
+}
+
+function mergePricing(doc: YamlDoc, pricing: Record<string, readonly [number, number]>): void {
+  if (!Object.keys(pricing).length) return;
+  if (!isMap(doc.get("pricing", true))) doc.set("pricing", new YAMLMap());
+  for (const [model, price] of Object.entries(pricing)) {
+    const old = doc.getIn(["pricing", model]) as unknown;
+    if (JSON.stringify((old as { toJSON?: () => unknown } | undefined)?.toJSON?.() ?? old) === JSON.stringify(price)) continue; // keep "0.10" as written
+    const n = doc.createNode([...price]);
+    n.flow = true;
+    doc.setIn(["pricing", model], n);
+  }
+}
+
+/**
+ * Replaces `models.pool` and merges prices into `pricing`, keeping comments. Fails (nothing written)
+ * when a model that `models.use` refers to is removed.
+ */
+export function saveModelPool(loadedFrom: string, input: PoolInput): { file: string; created: boolean; config: AppConfig } {
+  const m = PoolInput.parse(input);
   return editConfig(loadedFrom, (doc) => {
-    const flow = (spec: (typeof m.tier1)[number]) => {
-      // name first, like the hand-written examples
-      const { name, provider, model, ...rest } = spec;
-      const n = doc.createNode({ name, provider, ...("baseUrl" in rest ? { baseUrl: rest.baseUrl } : {}), model, apiKeyEnv: rest.apiKeyEnv });
-      n.flow = true;
-      return n;
-    };
-    if (!isMap(doc.get("models", true))) doc.set("models", new YAMLMap());
-    // setIn on the existing map keeps the keys' comments; the nodes' own comments are carried
-    // over (e.g. the commented-out 3rd member below tier1).
-    const keep = (key: string, node: ReturnType<typeof doc.createNode>) => {
-      const old = doc.getIn(["models", key], true) as { comment?: string | null; commentBefore?: string | null } | undefined;
-      if (old?.comment) node.comment = old.comment;
-      if (old?.commentBefore) node.commentBefore = old.commentBefore;
-      doc.setIn(["models", key], node);
-    };
-    keep("tier1", doc.createNode(m.tier1.map((s) => flow(s))));
-    for (const key of ["tier2", "redTeam"] as const) {
-      const spec = m[key];
-      if (spec) keep(key, flow(spec));
-      else doc.deleteIn(["models", key]);
+    const cur = currentModels(doc);
+    if (cur) {
+      const names = new Set(m.pool.map((x) => x.name));
+      const gone = usedModelNames(cur).filter((n) => !names.has(n));
+      if (gone.length) throw new Error(`${gone.join(", ")} はプロンプト画面のモデル設定で使われているので外せません。先に別のモデルに切り替えてください`);
+      modernizeModels(doc, cur);
+    } else {
+      // first models section: everything votes, no escalation
+      const vote = { vote: m.pool.slice(0, 2).map((x) => x.name) };
+      modernizeModels(doc, { pool: m.pool, use: { event: vote, judge: vote } });
     }
-    if (Object.keys(m.pricing).length) {
-      if (!isMap(doc.get("pricing", true))) doc.set("pricing", new YAMLMap());
-      for (const [model, price] of Object.entries(m.pricing)) {
-        const old = doc.getIn(["pricing", model]) as unknown;
-        if (JSON.stringify((old as { toJSON?: () => unknown } | undefined)?.toJSON?.() ?? old) === JSON.stringify(price)) continue; // keep "0.10" as written
-        const n = doc.createNode(price);
-        n.flow = true;
-        doc.setIn(["pricing", model], n);
-      }
+    const seq = doc.createNode(m.pool.map((x) => flowSpec(doc, x)));
+    const old = doc.getIn(["models", "pool"], true) as { comment?: string | null; commentBefore?: string | null } | undefined;
+    if (old?.comment) seq.comment = old.comment;
+    if (old?.commentBefore) seq.commentBefore = old.commentBefore;
+    doc.setIn(["models", "pool"], seq);
+    mergePricing(doc, m.pricing);
+  });
+}
+
+/** What one family uses: voters + escalation (event / judge) or one model (redteam / universe; null = the default). */
+export type ModelUseValue = { vote: string[]; escalation: string | null } | string | null;
+
+/** Sets `models.use.<family>`, keeping comments. */
+export function saveModelUse(loadedFrom: string, use: ModelUse, value: ModelUseValue): { file: string; created: boolean; config: AppConfig } {
+  if (!MODEL_USES.includes(use)) throw new Error(`unknown use ${use}`);
+  return editConfig(loadedFrom, (doc) => {
+    modernizeModels(doc, currentModels(doc));
+    if (use === "event" || use === "judge") {
+      if (!value || typeof value !== "object" || !Array.isArray(value.vote)) throw new Error(`${use}: { vote: [...], escalation } が必要です`);
+      const v = { vote: value.vote.map(String), ...(value.escalation && value.escalation !== NO_MODEL ? { escalation: String(value.escalation) } : {}) };
+      doc.setIn(["models", "use", use], useNode(doc, v));
+    } else if (value === null) {
+      doc.deleteIn(["models", "use", use]);
+    } else {
+      if (typeof value !== "string") throw new Error(`${use}: モデル名（文字列）が必要です`);
+      doc.setIn(["models", "use", use], value);
     }
   });
 }

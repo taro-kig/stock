@@ -128,12 +128,14 @@ export type StreamEvent =
   | { type: "prompt_eval"; id: number; status: string };
 
 export interface ModelsView {
-  roles: { tier1: ModelSpec[]; tier2: ModelSpec | null; redTeam: ModelSpec | null };
+  /** Registered models (config.yaml models.pool). */
+  pool: ModelSpec[];
+  /** Pool name → where it is used ("売買判断・投票", "daily-ai（ノード）", ...). Used models cannot be removed. */
+  usedBy: Record<string, string[]>;
   pricing: Record<string, readonly [number, number]>;
   /** Charged for models without a price (deliberately high). */
   fallbackPrice: number[];
   vendors: Array<Vendor & { keySet: boolean }>;
-  quorum: number;
   dailyBudgetUsd: number;
   editable: boolean;
   file: string | null;
@@ -185,12 +187,19 @@ export interface PromptFamilyView {
   goldenSet: string | null;
   versions: PromptVersionView[];
   evals: EvalJob[];
+  /** Models this family uses (config.yaml models.use); overriddenBy = workflows whose node picks its own. */
+  models:
+    | { kind: "vote"; vote: string[]; escalation: string | null; overriddenBy: string[] }
+    | { kind: "single"; model: string | null; effective: string | null; overriddenBy: string[] };
 }
 
 export interface PromptsView {
   families: PromptFamilyView[];
   switches: PromptSwitch[];
   models: string[];
+  /** Registered models (settings → モデル) to pick from. */
+  pool: Array<{ name: string; model: string; vendor: string; keySet: boolean }>;
+  quorum: number;
   /** Switching writes config.yaml; false when the server has no config path. */
   editable: boolean;
   fake: boolean;

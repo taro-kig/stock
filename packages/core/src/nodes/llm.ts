@@ -16,6 +16,10 @@ export const extractEvents = defineNode({
     quorum: z.number().int().min(1).optional(),
     /** Prompt version for this workflow (default: config.prompts.event). signal.eventHistory must use the same. */
     promptVersion: z.string().optional(),
+    /** Voting models for this workflow, in call order (default: models.use.event.vote). */
+    models: z.array(z.string()).min(1).optional(),
+    /** Tie-breaker model, or "none" (default: models.use.event.escalation). */
+    escalation: z.string().optional(),
   }),
   inputs: { matches: { type: "Matches" } },
   outputs: { events: { type: "Events" } },
@@ -24,7 +28,7 @@ export const extractEvents = defineNode({
     const s = ctx.services;
     const prompt = s.prompts.event(p.promptVersion ?? s.config.prompts.event);
     const version = prompt.version;
-    const extractor = new EventExtractor(s.caller, s.tier1(), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.tier2(), prompt });
+    const extractor = new EventExtractor(s.caller, s.voters("event", p.models), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.escalation("event", p.escalation), prompt });
     const events: EventRecord[] = [];
     for (const { doc, candidates } of i.matches) {
       s.docStore.saveDocument(doc);

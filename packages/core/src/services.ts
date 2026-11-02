@@ -10,6 +10,7 @@ import { CostTracker } from "./harness/budget.ts";
 import { LLMCache } from "./harness/cache.ts";
 import { StructuredCaller } from "./harness/structured.ts";
 import { buildProvider } from "./llm/factory.ts";
+import { defaultSingle, NO_MODEL, type ModelsConfig } from "./llm/roles.ts";
 import { FakeProvider } from "./llm/fake.ts";
 import { heuristicResponder } from "./llm/heuristic.ts";
 import type { LLMProvider } from "./llm/types.ts";
@@ -74,7 +75,8 @@ export class Services {
   #earnings?: EarningsStore;
   #insider?: InsiderStore;
   #configHash?: string | undefined;
-  #tier1?: LLMProvider[];
+  /** Built providers by pool name. */
+  readonly #models = new Map<string, LLMProvider>();
 
   constructor(config: AppConfig, opts: ServicesOptions = {}) {
     this.config = config;
@@ -88,7 +90,7 @@ export class Services {
     this.configPath = opts.configPath;
     // API clients read their key when built: rebuild them after a key changes.
     this.settings?.onChange(() => {
-      this.#tier1 = undefined;
+      this.#models.clear();
     });
   }
 
@@ -170,7 +172,7 @@ export class Services {
     const c = this.config as { models: AppConfig["models"]; pricing: AppConfig["pricing"] };
     c.models = models;
     c.pricing = pricing;
-    this.#tier1 = undefined;
+    this.#models.clear();
     // The cost tracker holds the price table; the caller holds the tracker.
     this.#budget = undefined;
     this.#caller = undefined;
@@ -217,44 +219,72 @@ export class Services {
     return this.config.risk;
   }
 
-  tier1(): LLMProvider[] {
-    if (this.#tier1) return this.#tier1;
-    if (this.fake) return (this.#tier1 = [new FakeProvider("fake-a", heuristicResponder), new FakeProvider("fake-b", heuristicResponder)]);
+  #modelsConfig(): ModelsConfig {
     if (!this.config.models) throw new Error("config.models is required (or run with --fake)");
-    return (this.#tier1 = this.config.models.tier1.map((s) => buildProvider(s, this.env)));
+    return this.config.models;
   }
 
-  tier2(): LLMProvider | undefined {
-    if (this.fake || !this.config.models?.tier2) return undefined;
-    return buildProvider(this.config.models.tier2, this.env);
+  #fakeModel(name: string): LLMProvider {
+    let p = this.#models.get(name);
+    if (!p) this.#models.set(name, (p = new FakeProvider(name, heuristicResponder)));
+    return p;
   }
 
-  redTeam(): LLMProvider | undefined {
-    if (this.fake) return new FakeProvider("fake-red", heuristicResponder);
-    const spec = this.config.models?.redTeam ?? this.config.models?.tier2;
-    return spec ? buildProvider(spec, this.env) : undefined;
+  /** One model from models.pool by name (built once; rebuilt after a key or model change). */
+  model(name: string): LLMProvider {
+    if (this.fake) return this.#fakeModel(name);
+    const hit = this.#models.get(name);
+    if (hit) return hit;
+    const m = this.#modelsConfig();
+    const spec = m.pool.find((x) => x.name === name);
+    if (!spec) throw new Error(`unknown model "${name}" (models.pool: ${m.pool.map((x) => x.name).join(", ")})`);
+    const p = buildProvider(spec, this.env);
+    this.#models.set(name, p);
+    return p;
   }
 
-  /** Names of every configured model (tier1, tier2, redTeam). */
+  /** Voting members for event extraction or judgments (`names` = a node's override). */
+  voters(use: "event" | "judge", names?: readonly string[]): LLMProvider[] {
+    if (this.fake) return [this.#fakeModel("fake-a"), this.#fakeModel("fake-b")];
+    return (names?.length ? names : this.#modelsConfig().use[use].vote).map((n) => this.model(n));
+  }
+
+  /** Tie-breaker for important disagreements, if any ("none" disables it). */
+  escalation(use: "event" | "judge", name?: string): LLMProvider | undefined {
+    if (this.fake || !this.config.models) return undefined;
+    const n = name ?? this.config.models.use[use].escalation;
+    return n && n !== NO_MODEL ? this.model(n) : undefined;
+  }
+
+  /** The red-team model, if any (default: models.use.redteam, else judge's escalation). */
+  redTeam(name?: string): LLMProvider | undefined {
+    if (this.fake) return this.#fakeModel("fake-red");
+    if (!this.config.models) return undefined;
+    const n = name ?? defaultSingle(this.config.models, "redteam");
+    return n && n !== NO_MODEL ? this.model(n) : undefined;
+  }
+
+  /** The model that proposes tickers for a theme / reviews the universe. */
+  universeModel(name?: string): LLMProvider {
+    if (this.fake) return this.#fakeModel("fake-a");
+    return this.model(name ?? defaultSingle(this.#modelsConfig(), "universe")!);
+  }
+
+  /** Names of every model in the pool. */
   modelNames(): string[] {
-    if (this.fake) return this.tier1().map((p) => p.name);
-    const m = this.config.models;
-    if (!m) throw new Error("config.models is required (or run with --fake)");
-    return [...new Set([...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])].map((s) => s.name))];
+    if (this.fake) return ["fake-a", "fake-b"];
+    return this.#modelsConfig().pool.map((x) => x.name);
   }
 
   /**
-   * Builds the named models (all when names is omitted). Only the requested ones need an API key,
+   * Builds the named pool models (all when names is omitted). Only the requested ones need an API key,
    * so e.g. `--models deepseek` works without GEMINI_API_KEY.
    */
   allModels(names?: readonly string[]): LLMProvider[] {
-    if (this.fake) return this.tier1().filter((p) => !names || names.includes(p.name));
-    const m = this.config.models;
-    if (!m) throw new Error("config.models is required (or run with --fake)");
-    const specs = [...new Map([...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])].map((s) => [s.name, s])).values()];
-    const unknown = (names ?? []).filter((n) => !specs.some((s) => s.name === n));
-    if (unknown.length) throw new Error(`unknown model(s) ${unknown.join(", ")} (configured: ${specs.map((s) => s.name).join(", ")})`);
-    return specs.filter((s) => !names || names.includes(s.name)).map((s) => buildProvider(s, this.env));
+    const all = this.modelNames();
+    const unknown = (names ?? []).filter((n) => !all.includes(n));
+    if (unknown.length) throw new Error(`unknown model(s) ${unknown.join(", ")} (configured: ${all.join(", ")})`);
+    return all.filter((n) => !names || names.includes(n)).map((n) => this.model(n));
   }
 
   /** Today's LLM spend so far (0 if nothing has touched the budget yet). */

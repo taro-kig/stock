@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { ModelsView, WatchlistView } from "../shared/types.ts";
+import type { ModelsView, PromptsView, WatchlistView } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -280,11 +280,12 @@ describe("models API", () => {
     return { call, services, cfgPath, fetched };
   }
 
-  it("shows the roles, lists each vendor's models and switches models without a restart", async () => {
+  it("registers models, lists each vendor's models, and picks models per prompt family without a restart", async () => {
     const { call, services, cfgPath, fetched } = await startUs();
     const view = (await call<ModelsView>("GET", "/api/models")).body;
-    expect(view.roles.tier1.map((m) => m.model)).toEqual(["gemini-2.5-flash-lite", "deepseek-chat"]);
-    expect(view.roles.tier2?.model).toBe("gemini-2.5-flash");
+    expect(view.pool.map((m) => m.name)).toEqual(["gemini-lite", "deepseek", "gemini-flash"]);
+    expect(view.usedBy["deepseek"]).toContain("売買判断・投票");
+    expect(view.usedBy["gemini-flash"]).toContain("反対役（拒否権）");
     expect(view.vendors.find((v) => v.id === "gemini")?.keySet).toBe(true);
     expect(view.vendors.find((v) => v.id === "deepseek")?.keySet).toBe(false);
 
@@ -297,24 +298,36 @@ describe("models API", () => {
     expect(d).toMatchObject({ source: "builtin", error: expect.stringMatching(/DEEPSEEK_API_KEY/) });
     expect((await call("GET", "/api/models/available/nope")).status).toBe(404);
 
-    const t = await call<{ status: string; detail: string }>("POST", "/api/models/test", { spec: view.roles.tier1[1] });
+    const t = await call<{ status: string; detail: string }>("POST", "/api/models/test", { spec: view.pool[1] });
     expect(t.body).toMatchObject({ status: "fail", detail: expect.stringMatching(/DEEPSEEK_API_KEY/) });
     expect((await call("POST", "/api/models/test", { spec: { provider: "gemini" } })).status).toBe(400);
 
-    const next = {
-      tier1: [{ ...view.roles.tier1[0]!, name: "gemini-9-pro", model: "gemini-9-pro" }, view.roles.tier1[1]!],
-      tier2: null, redTeam: view.roles.tier2, pricing: { "gemini-9-pro": [1, 5] },
-    };
-    expect((await call("PUT", "/api/models", next)).status).toBe(409); // no `previous`
-    expect((await call("PUT", "/api/models", { ...next, tier1: [next.tier1[0]], previous: view.roles })).status).toBe(400); // below quorum
-    const r = await call<{ file: string }>("PUT", "/api/models", { ...next, previous: view.roles });
-    expect(r.status).toBe(200);
-    expect(r.body.file).toBe(cfgPath);
-    expect(services.config.models?.tier1[0]?.model).toBe("gemini-9-pro");
-    expect(services.config.models?.tier2).toBeUndefined();
+    // register a model
+    const pool = [...view.pool, { name: "gemini-9-pro", provider: "gemini", model: "gemini-9-pro", apiKeyEnv: "GEMINI_API_KEY" }];
+    expect((await call("PUT", "/api/models", { pool, pricing: {} })).status).toBe(409); // no `previous`
+    const used = await call<{ error: string }>("PUT", "/api/models", { pool: view.pool.slice(1), previous: view.pool });
+    expect(used.status).toBe(400);
+    expect(used.body.error).toMatch(/gemini-lite は使用中/);
+    expect((await call("PUT", "/api/models", { pool, pricing: { "gemini-9-pro": [1, 5] }, previous: view.pool })).status).toBe(200);
     expect(services.budget.costOf("gemini-9-pro", 1_000_000, 1_000_000)).toBe(6);
     expect(readFileSync(cfgPath, "utf8")).toContain("gemini-9-pro: [ 1, 5 ]");
-    expect((await call<ModelsView>("GET", "/api/models")).body.roles.redTeam?.model).toBe("gemini-2.5-flash");
-    expect((await call("PUT", "/api/models", { ...next, previous: view.roles })).status).toBe(409); // stale now
+
+    // pick it for judgments (prompts screen)
+    const prompts = (await call<PromptsView>("GET", "/api/prompts")).body;
+    expect(prompts.pool.map((p) => p.name)).toContain("gemini-9-pro");
+    expect(prompts.families.find((f) => f.family === "judge")!.models).toMatchObject({ kind: "vote", vote: ["gemini-lite", "deepseek"], escalation: "gemini-flash" });
+    expect((await call("PUT", "/api/models/use/judge", { value: { vote: ["gemini-9-pro"], escalation: null } })).status).toBe(400); // below quorum
+    expect((await call("PUT", "/api/models/use/judge", { value: { vote: ["gemini-9-pro", "nope"], escalation: null } })).status).toBe(400);
+    const r = await call<{ changed: boolean }>("PUT", "/api/models/use/judge", { value: { vote: ["gemini-9-pro", "deepseek"], escalation: null } });
+    expect(r.body.changed).toBe(true);
+    expect(services.voters("judge", ["gemini-9-pro"]).map((m) => m.model)).toEqual(["gemini-9-pro"]);
+    expect(services.config.models!.use.judge).toEqual({ vote: ["gemini-9-pro", "deepseek"] });
+    expect(services.config.models!.use.event.vote).toEqual(["gemini-lite", "deepseek"]); // other families unchanged
+    expect(services.escalation("judge")).toBeUndefined();
+    expect((await call("PUT", "/api/models/use/redteam", { value: "none" })).status).toBe(200);
+    expect(services.redTeam()).toBeUndefined();
+    const after = (await call<PromptsView>("GET", "/api/prompts")).body;
+    expect(after.switches.map((x) => x.to)).toContain("モデル: gemini-9-pro + deepseek");
+    expect((await call("PUT", "/api/models/use/nope", { value: null })).status).toBe(404);
   });
 });

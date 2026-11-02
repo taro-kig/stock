@@ -1,3 +1,4 @@
+import { modelsFor } from "../llm/roles.ts";
 import { resolve } from "node:path";
 import { loadEventSet, loadJudgeSet } from "../eval/golden.ts";
 import { evalEvents, evalJudge, type EvalReport } from "../eval/promptEval.ts";
@@ -38,9 +39,9 @@ export function defaultVersions(s: Services, family: PromptFamily): string[] {
 export async function runPromptEval(s: Services, r: PromptEvalRequest): Promise<EvalReport> {
   if (!EVALUABLE.includes(r.family)) throw new Error(`no golden set for ${r.family} prompts (compare them on live results instead)`);
   const versions = r.versions?.length ? r.versions : defaultVersions(s, r.family);
-  const models = s.allModels(r.models?.length ? r.models : undefined);
+  // Default: the models this family uses in production (the rest of the pool may have no key).
+  const models = s.allModels(r.models?.length ? r.models : s.fake || !s.config.models ? undefined : modelsFor(s.config.models, r.family));
   if (!models.length) throw new Error(`no models to evaluate (configured: ${s.modelNames().join(", ")})`);
-  if (r.ensemble && models.length < 2 && !s.fake) throw new Error("the ensemble needs the production pair (tier1) with keys for both");
   const common = {
     models,
     pricing: s.fake ? Object.fromEntries(models.map((m) => [m.model, [0, 0] as const])) : s.config.pricing,
@@ -52,7 +53,7 @@ export async function runPromptEval(s: Services, r: PromptEvalRequest): Promise<
   if (r.family === "event") {
     return evalEvents(loadEventSet(set), versions.map((v) => s.prompts.event(v)), {
       ...common,
-      ensemble: r.ensemble ? { members: s.tier1(), quorum: s.config.harness.quorum, escalation: s.tier2() } : undefined,
+      ensemble: r.ensemble ? { members: s.voters("event"), quorum: s.config.harness.quorum, escalation: s.escalation("event") } : undefined,
     });
   }
   return evalJudge(loadJudgeSet(set), versions.map((v) => s.prompts.judge(v)), common);

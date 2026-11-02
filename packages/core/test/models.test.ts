@@ -1,11 +1,12 @@
-import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.ts";
-import { listModels, ModelsInput, modelSlug, vendorOf } from "../src/llm/catalog.ts";
+import { AppConfig, loadConfig } from "../src/config.ts";
+import { listModels, modelSlug, PoolInput, vendorOf } from "../src/llm/catalog.ts";
+import { defaultSingle, ModelsConfig, modelsFor, usedModelNames } from "../src/llm/roles.ts";
 import { Services } from "../src/services.ts";
-import { saveModels } from "../src/util/configFile.ts";
+import { saveModelPool, saveModelUse } from "../src/util/configFile.ts";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -68,65 +69,141 @@ describe("model catalog", () => {
     expect(custom.error).toMatch(/Base URL/);
   });
 
-  it("validates the edited models", () => {
+  it("validates the edited pool", () => {
     const g = { provider: "gemini" as const, name: "g", model: "gemini-2.5-flash-lite", apiKeyEnv: "GEMINI_API_KEY" };
-    const d = { provider: "openai_compat" as const, name: "d", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1", apiKeyEnv: "DEEPSEEK_API_KEY" };
-    expect(ModelsInput.safeParse({ tier1: [g, d], tier2: null, redTeam: null }).success).toBe(true);
-    expect(ModelsInput.safeParse({ tier1: [], tier2: null, redTeam: null }).success).toBe(false);
-    expect(ModelsInput.safeParse({ tier1: [g, { ...g, name: "g2" }], tier2: null, redTeam: null }).success).toBe(false); // same model twice
-    expect(ModelsInput.safeParse({ tier1: [g, { ...d, name: "g" }], tier2: null, redTeam: null }).success).toBe(false); // name clash
-    expect(ModelsInput.safeParse({ tier1: [g, d], tier2: { ...g, name: "f", model: "gemini-2.5-flash" }, redTeam: { ...g, name: "f", model: "gemini-2.5-flash" } }).success).toBe(true);
-    expect(ModelsInput.safeParse({ tier1: [{ ...g, name: "Bad Name" }, d], tier2: null, redTeam: null }).success).toBe(false);
+    expect(PoolInput.safeParse({ pool: [g] }).success).toBe(true);
+    expect(PoolInput.safeParse({ pool: [] }).success).toBe(false);
+    expect(PoolInput.safeParse({ pool: [g, { ...g, model: "x" }] }).success).toBe(false); // name twice
+    expect(PoolInput.safeParse({ pool: [{ ...g, name: "Bad Name" }] }).success).toBe(false);
+    expect(PoolInput.safeParse({ pool: [{ ...g, provider: "openai_compat", baseUrl: "file:///etc" }] }).success).toBe(false);
+  });
+});
+
+describe("model config", () => {
+  const g = { name: "g", provider: "gemini", model: "gemini-2.5-flash-lite", apiKeyEnv: "GEMINI_API_KEY" };
+  const d = { name: "d", provider: "openai_compat", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", apiKeyEnv: "DEEPSEEK_API_KEY" };
+  const f = { name: "f", provider: "gemini", model: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY" };
+
+  it("still reads the old tier1 / tier2 / redTeam shape", () => {
+    const m = ModelsConfig.parse({ tier1: [g, d], tier2: f });
+    expect(m.pool.map((x) => x.name)).toEqual(["g", "d", "f"]);
+    expect(m.use.event).toEqual({ vote: ["g", "d"], escalation: "f" });
+    expect(m.use.judge).toEqual({ vote: ["g", "d"], escalation: "f" });
+    expect(defaultSingle(m, "redteam")).toBe("f");
+    expect(defaultSingle(m, "universe")).toBe("f");
+    const noTier2 = ModelsConfig.parse({ tier1: [g, d] });
+    expect(defaultSingle(noTier2, "redteam")).toBeUndefined();
+    expect(defaultSingle(noTier2, "universe")).toBe("g");
+  });
+
+  it("checks that every used name is in the pool", () => {
+    expect(ModelsConfig.safeParse({ pool: [g, d], use: { event: { vote: ["g", "x"] }, judge: { vote: ["g", "d"] } } }).success).toBe(false);
+    expect(ModelsConfig.safeParse({ pool: [g, d], use: { event: { vote: ["g", "g"] }, judge: { vote: ["g", "d"] } } }).success).toBe(false);
+    expect(ModelsConfig.safeParse({ pool: [g, g], use: { event: { vote: ["g"] }, judge: { vote: ["g"] } } }).success).toBe(false);
+    const m = ModelsConfig.parse({ pool: [g, d, f], use: { event: { vote: ["g", "d"] }, judge: { vote: ["d", "g"], escalation: "f" }, redteam: "none" } });
+    expect(usedModelNames(m)).toEqual(["g", "d", "f"]);
+    expect(modelsFor(m, "redteam")).toEqual([]);
+    expect(modelsFor(m, "judge")).toEqual(["d", "g", "f"]);
+  });
+
+  it("resolves per family, with node overrides", () => {
+    const cfg = AppConfig.parse({ watchlist: {}, models: { pool: [g, d, f], use: { event: { vote: ["g", "d"] }, judge: { vote: ["d", "f"], escalation: "g" }, redteam: "none", universe: "d" } } });
+    const s = new Services(cfg, { dbPath: ":memory:", env: { GEMINI_API_KEY: "k", DEEPSEEK_API_KEY: "k" } });
+    expect(s.voters("event").map((m) => m.name)).toEqual(["g", "d"]);
+    expect(s.voters("judge").map((m) => m.name)).toEqual(["d", "f"]);
+    expect(s.voters("judge", ["f", "g"]).map((m) => m.name)).toEqual(["f", "g"]);
+    expect(s.escalation("event")).toBeUndefined();
+    expect(s.escalation("judge")?.name).toBe("g");
+    expect(s.escalation("judge", "none")).toBeUndefined();
+    expect(s.redTeam()).toBeUndefined();
+    expect(s.redTeam("f")?.model).toBe("gemini-2.5-flash");
+    expect(s.universeModel().name).toBe("d");
+    expect(() => s.voters("event", ["nope"])).toThrow(/unknown model "nope"/);
+    expect(s.voters("event")[0]).toBe(s.voters("judge", ["g"])[0]); // one client per model
   });
 });
 
 describe("saving models", () => {
-  function copyConfig(): string {
+  function copyConfig(from = "config/config.example.yaml"): string {
     const p = join(mkdtempSync(join(tmpdir(), "models-")), "config.yaml");
-    copyFileSync(join(ROOT, "config/config.example.yaml"), p);
+    copyFileSync(join(ROOT, from), p);
     return p;
   }
+  const spec = (name: string, model: string) => ({ name, provider: "gemini" as const, model, apiKeyEnv: "GEMINI_API_KEY" });
 
-  it("replaces models, merges prices and keeps the comments", () => {
+  it("replaces the pool, merges prices and keeps the comments", () => {
     const p = copyConfig();
-    const r = saveModels(p, {
-      tier1: [
-        { provider: "gemini", name: "gemini-2.5-flash", model: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY" },
-        { provider: "openai_compat", name: "deepseek-reasoner", model: "deepseek-reasoner", baseUrl: "https://api.deepseek.com/v1", apiKeyEnv: "DEEPSEEK_API_KEY" },
-      ],
-      tier2: null,
-      redTeam: { provider: "gemini", name: "gemini-2.5-pro", model: "gemini-2.5-pro", apiKeyEnv: "GEMINI_API_KEY" },
-      pricing: { "deepseek-reasoner": [0.28, 0.42], "gemini-2.5-pro": [1.25, 10] },
+    const before = loadConfig(p).models!.pool;
+    const r = saveModelPool(p, {
+      pool: [...before, { name: "deepseek-reasoner", provider: "openai_compat", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-reasoner", apiKeyEnv: "DEEPSEEK_API_KEY" }],
+      pricing: { "deepseek-reasoner": [0.28, 0.42], "gemini-2.5-flash-lite": [0.1, 0.4] },
     });
     const text = readFileSync(p, "utf8");
-    expect(text).toContain("# A 3rd member enables 2-of-3 voting");
+    expect(text).toContain("# - { name: qwen");
     expect(text).toContain("# USD per 1M tokens");
     expect(text).toContain("- { name: deepseek-reasoner, provider: openai_compat, baseUrl: https://api.deepseek.com/v1, model: deepseek-reasoner, apiKeyEnv: DEEPSEEK_API_KEY }");
     expect(text).toContain("deepseek-reasoner: [ 0.28, 0.42 ]");
+    expect(text).toContain("gemini-2.5-flash-lite: [ 0.10, 0.40 ]"); // unchanged price keeps "0.10"
     const cfg = loadConfig(p);
-    expect(cfg.models!.tier1.map((m) => m.model)).toEqual(["gemini-2.5-flash", "deepseek-reasoner"]);
-    expect(cfg.models!.tier2).toBeUndefined();
-    expect(cfg.models!.redTeam!.model).toBe("gemini-2.5-pro");
-    expect(cfg.pricing["deepseek-chat"]).toEqual([0.27, 1.1]); // other prices kept
-    expect(cfg.pricing["gemini-2.5-pro"]).toEqual([1.25, 10]);
+    expect(cfg.models!.pool.map((m) => m.name)).toContain("deepseek-reasoner");
+    expect(cfg.models!.use.event.vote).toEqual(["gemini-lite", "deepseek"]);
     expect(r.config.models).toEqual(cfg.models);
+  });
+
+  it("refuses to remove a model that is in use", () => {
+    const p = copyConfig();
+    const before = readFileSync(p, "utf8");
+    expect(() => saveModelPool(p, { pool: [spec("gemini-lite", "gemini-2.5-flash-lite")] })).toThrow(/deepseek, gemini-flash/);
+    expect(readFileSync(p, "utf8")).toBe(before);
+  });
+
+  it("sets what a family uses", () => {
+    const p = copyConfig();
+    saveModelUse(p, "judge", { vote: ["deepseek", "gemini-flash"], escalation: null });
+    saveModelUse(p, "redteam", "none");
+    saveModelUse(p, "universe", null);
+    const text = readFileSync(p, "utf8");
+    expect(text).toContain("judge: { vote: [ deepseek, gemini-flash ] }");
+    expect(text).toContain("# vote: cheap models from *different vendors*");
+    const m = loadConfig(p).models!;
+    expect(m.use.judge).toEqual({ vote: ["deepseek", "gemini-flash"] });
+    expect(m.use.event.escalation).toBe("gemini-flash");
+    expect(m.use.redteam).toBe("none");
+    expect(defaultSingle(m, "universe")).toBe("deepseek"); // no judge escalation now → first voter
+    expect(() => saveModelUse(p, "event", { vote: ["nope"], escalation: null })).toThrow(/not in models.pool/);
+  });
+
+  it("rewrites an old tier1 file into pool / use on the first edit", () => {
+    const p = copyConfig();
+    const old = readFileSync(p, "utf8").replace(/models:\n(?:  .*\n)+/, `models:
+  tier1:
+    - { name: gemini-lite, provider: gemini, model: gemini-2.5-flash-lite, apiKeyEnv: GEMINI_API_KEY }
+    - { name: deepseek, provider: openai_compat, baseUrl: "https://api.deepseek.com/v1", model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }
+  tier2: { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
+`);
+    writeFileSync(p, old);
+    expect(loadConfig(p).models!.use.judge.escalation).toBe("gemini-flash");
+    saveModelUse(p, "event", { vote: ["deepseek", "gemini-lite"], escalation: "gemini-flash" });
+    const text = readFileSync(p, "utf8");
+    expect(text).not.toContain("tier1");
+    expect(text).toContain("# Models (settings screen");
+    const m = loadConfig(p).models!;
+    expect(m.use.event.vote).toEqual(["deepseek", "gemini-lite"]);
+    expect(m.use.judge).toEqual({ vote: ["gemini-lite", "deepseek"], escalation: "gemini-flash" });
+    expect(m.use.universe).toBe("gemini-flash");
   });
 
   it("applies to a running Services without a restart", () => {
     const p = copyConfig();
     const s = new Services(loadConfig(p), { dbPath: ":memory:", env: { GEMINI_API_KEY: "g", DEEPSEEK_API_KEY: "d" } });
-    expect(s.tier1().map((m) => m.model)).toEqual(["gemini-2.5-flash-lite", "deepseek-chat"]);
+    expect(s.voters("judge").map((m) => m.model)).toEqual(["gemini-2.5-flash-lite", "deepseek-chat"]);
     const hash = s.configHash;
-    const r = saveModels(p, {
-      tier1: [
-        { provider: "gemini", name: "gemini-2.5-flash", model: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY" },
-        { provider: "openai_compat", name: "deepseek-chat", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1", apiKeyEnv: "DEEPSEEK_API_KEY" },
-      ],
-      tier2: null, redTeam: null, pricing: { "gemini-2.5-flash": [0.5, 3] },
-    });
+    const r = saveModelUse(p, "judge", { vote: ["gemini-flash", "deepseek"], escalation: null });
     s.updateModels(r.config.models, r.config.pricing);
-    expect(s.tier1().map((m) => m.model)).toEqual(["gemini-2.5-flash", "deepseek-chat"]);
-    expect(s.tier2()).toBeUndefined();
+    expect(s.voters("judge").map((m) => m.model)).toEqual(["gemini-2.5-flash", "deepseek-chat"]);
+    expect(s.escalation("judge")).toBeUndefined();
+    const r2 = saveModelPool(p, { pool: r.config.models!.pool, pricing: { "gemini-2.5-flash": [0.5, 3] } });
+    s.updateModels(r2.config.models, r2.config.pricing);
     expect(s.budget.costOf("gemini-2.5-flash", 1_000_000, 0)).toBe(0.5);
     expect(s.configHash).not.toBe(hash);
   });

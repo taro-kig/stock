@@ -101,6 +101,7 @@ export function Prompts({ param, toast }: { param: string | null; toast: Toast }
       </nav>
       <section className="split-detail">
         <div className="stack">
+          <ModelUsePane key={`${sel.f.family}:${JSON.stringify(sel.f.models)}`} f={sel.f} view={data} toast={toast} reload={reload} />
           <VersionPane f={sel.f} v={sel.v} view={data} mode={mode} setMode={setMode} toast={toast} reload={reload} />
           <EvalPane f={sel.f} selected={sel.v} view={data} toast={toast} />
           <HistoryPane view={data} family={sel.f.family} />
@@ -315,6 +316,107 @@ function EvalRows({ j, open, onOpen, detail }: { j: EvalJob; open: boolean; onOp
         </tr>
       )}
     </>
+  );
+}
+
+/** Which models this family uses (config.yaml models.use). */
+function ModelUsePane({ f, view, toast, reload }: { f: PromptFamilyView; view: PromptsView; toast: Toast; reload: () => void }) {
+  // Remounted (key) whenever the saved value changes, so the state starts from the server's.
+  const m = f.models;
+  const [vote, setVote] = useState<string[]>(m.kind === "vote" ? m.vote : []);
+  const [esc, setEsc] = useState<string>(m.kind === "vote" ? (m.escalation ?? "") : "");
+  const [single, setSingle] = useState<string>(m.kind === "single" ? (m.model ?? "") : "");
+  const [busy, setBusy] = useState(false);
+  const value = m.kind === "vote" ? { vote, escalation: esc || null } : single || null;
+  const dirty = JSON.stringify(value) !== JSON.stringify(m.kind === "vote" ? { vote: m.vote, escalation: m.escalation } : m.model);
+  const revert = () => {
+    setVote(m.kind === "vote" ? m.vote : []);
+    setEsc(m.kind === "vote" ? (m.escalation ?? "") : "");
+    setSingle(m.kind === "single" ? (m.model ?? "") : "");
+  };
+
+  const pool = view.pool;
+  const label = (n: string) => {
+    const p = pool.find((x) => x.name === n);
+    return p ? `${n} — ${p.vendor} ${p.model}${p.keySet ? "" : "（キー未設定）"}` : `${n}（未登録）`;
+  };
+  const options = (exclude: string[]) => pool.filter((p) => !exclude.includes(p.name));
+  const noKey = [...new Set(m.kind === "vote" ? [...vote, ...(esc ? [esc] : [])] : single ? [single] : [])].filter((n) => n !== "none" && !pool.find((p) => p.name === n)?.keySet);
+  const tooFew = m.kind === "vote" && vote.length < view.quorum;
+  const vendorsInVote = new Set(vote.map((n) => pool.find((p) => p.name === n)?.vendor));
+
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await put<{ changed: boolean }>(`/api/models/use/${f.family}`, { value });
+      toast(r.changed ? `${f.label}のモデルを変更しました。次の実行から使われます` : "変更はありません");
+      reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!pool.length) {
+    return <Pane title="使うモデル"><Empty>モデルが登録されていません（⚙ 設定 → モデル）</Empty></Pane>;
+  }
+  return (
+    <Pane title="使うモデル" aux={`${f.label}${dirty ? " · 未保存" : ""}`} className={dirty ? "focus" : ""}>
+      {view.fake && <p className="warn">疑似モデル（--fake）で起動中: ここでの選択は --fake なしで起動したときに使われます。</p>}
+      {m.kind === "vote" ? (
+        <div className="model-use">
+          {vote.map((n, i) => (
+            <div key={i} className="btn-row model-use-row">
+              <span className="dim model-use-label">{i < view.quorum ? `${i + 1} 票目` : `${i + 1} 票目（割れたとき）`}</span>
+              <select className="input" value={n} onChange={(e) => setVote((v) => v.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`vote ${i + 1}`}>
+                {!pool.some((p) => p.name === n) && <option value={n}>{n}（未登録）</option>}
+                {[...options(vote.filter((x) => x !== n))].map((p) => <option key={p.name} value={p.name}>{label(p.name)}</option>)}
+              </select>
+              <button className="btn icon" type="button" disabled={i === 0} title="上へ" aria-label="上へ" onClick={() => setVote((v) => { const c = [...v]; [c[i - 1], c[i]] = [c[i]!, c[i - 1]!]; return c; })}>↑</button>
+              <button className="btn icon" type="button" title="外す" aria-label="外す" onClick={() => setVote((v) => v.filter((_, j) => j !== i))}>✕</button>
+            </div>
+          ))}
+          <div className="btn-row model-use-row">
+            <span className="dim model-use-label" />
+            <button className="btn" type="button" disabled={options(vote).length === 0 || vote.length >= 5} onClick={() => setVote((v) => [...v, options(v)[0]!.name])}>＋ 投票に追加</button>
+          </div>
+          <div className="btn-row model-use-row">
+            <span className="dim model-use-label">エスカレーション</span>
+            <select className="input" value={esc} onChange={(e) => setEsc(e.target.value)} aria-label="escalation">
+              <option value="">使わない</option>
+              {pool.map((p) => <option key={p.name} value={p.name}>{label(p.name)}</option>)}
+            </select>
+          </div>
+        </div>
+      ) : (
+        <div className="model-use">
+          <div className="btn-row model-use-row">
+            <span className="dim model-use-label">モデル</span>
+            <select className="input" value={single} onChange={(e) => setSingle(e.target.value)} aria-label="model">
+              <option value="">既定（{f.family === "redteam" ? "売買判断のエスカレーション" : "売買判断のエスカレーション、無ければ 1 票目"}{m.effective && !m.model ? `: ${m.effective}` : ""}）</option>
+              {f.family === "redteam" && <option value="none">使わない（拒否権なし）</option>}
+              {pool.map((p) => <option key={p.name} value={p.name}>{label(p.name)}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+      <div className="btn-row" style={{ marginTop: "calc(var(--lh) * 0.5)" }}>
+        <span className="spacer" style={{ flex: 1 }} />
+        {dirty && <button className="btn" type="button" onClick={revert}>元に戻す</button>}
+        <button className="btn primary" type="button" disabled={!dirty || busy || tooFew || !view.editable} onClick={() => void save()}>保存</button>
+      </div>
+      {tooFew && <p className="warn">多数決は {view.quorum} 票の一致で採用するので、投票するモデルは {view.quorum} つ以上必要です</p>}
+      {noKey.length > 0 && <p className="warn">キーが未設定: {noKey.join(", ")}（⚙ 設定）</p>}
+      {m.kind === "vote" && vote.length >= 2 && vendorsInVote.size < 2 && <p className="dim">投票が同じベンダーだけです。別ベンダーを混ぜると誤りが重なりにくくなります</p>}
+      <p className="faint">
+        {m.kind === "vote"
+          ? `最初の ${view.quorum} つは毎回、それ以降は意見が割れたときだけ呼ばれます。エスカレーションは割れて、しかも重要なときだけ。`
+          : f.family === "redteam" ? "強気の結論に反論し、拒否できる役。" : "テーマから銘柄候補を出す役（ウォッチリストの見直し・銘柄探し）。"}
+        モデルの登録・価格・テストは ⚙ 設定 → モデル。変えたら下の評価で今の版との相性を確かめてください。
+        {m.overriddenBy.length > 0 && <> ノードで別のモデルを指定しているワークフロー: {m.overriddenBy.join(", ")}（そちらが優先）。</>}
+      </p>
+    </Pane>
   );
 }
 

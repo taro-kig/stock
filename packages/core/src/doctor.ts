@@ -4,6 +4,7 @@ import { fetchEarningsCalendar } from "./data/earnings.ts";
 import { SecClient } from "./data/sec.ts";
 import { parseTimeSeries } from "./data/twelveData.ts";
 import { buildProvider, type ModelSpec } from "./llm/factory.ts";
+import { usedModelNames } from "./llm/roles.ts";
 import type { LLMProvider } from "./llm/types.ts";
 import { isDiscordWebhookUrl } from "./notify/discord.ts";
 import { PROMPT_FAMILIES } from "./prompts/registry.ts";
@@ -120,7 +121,9 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       out.push({ id: "llm", group: "llm", label: "LLM", status: "skip", detail: "疑似モデル（--fake）で起動中", ms: 0 });
     } else {
       const m = c.models;
-      const specs = m ? [...new Map([...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])].map((x) => [x.name, x])).values()] : [];
+      const used = m ? usedModelNames(m) : [];
+      // Models in the pool that nothing uses are not called (no key needed).
+      const specs = (m?.pool ?? []).filter((x) => used.includes(x.name));
       if (!specs.length) out.push({ id: "llm", group: "llm", label: "LLM", status: "fail", detail: "config.models がない", hint: "config.yaml に models を書く", ms: 0 });
       for (const spec of specs) {
         await check(`llm:${spec.name}`, "llm", `LLM ${spec.name}（${spec.model}）`, () => testModel(s, spec, o.buildModel));

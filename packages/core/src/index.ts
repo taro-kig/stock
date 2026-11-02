@@ -27,8 +27,9 @@ export { FAMILY_LABELS, PROMPT_FAMILIES, PromptRegistry, UnknownPrompt, validVer
 export { defaultGoldenSet, defaultVersions, EVALUABLE, runPromptEval, type PromptEvalRequest } from "./prompts/evaluate.ts";
 export type { EvalReport } from "./eval/promptEval.ts";
 export { PromptStore, type EvalJob, type EvalJobStatus, type PromptSwitch } from "./prompts/store.ts";
-export { editConfig, saveConfigValue, saveModels } from "./util/configFile.ts";
-export { listModels, ModelSpecInput, ModelsInput, modelSlug, VENDOR_IDS, VENDORS, vendorOf, type AvailableModel, type KnownModel, type ModelList, type Vendor, type VendorId } from "./llm/catalog.ts";
+export { editConfig, saveConfigValue, saveModelPool, saveModelUse, type ModelUseValue } from "./util/configFile.ts";
+export { defaultSingle, MODEL_USES, modelsFor, NO_MODEL, usedModelNames, type ModelsConfig, type ModelUse } from "./llm/roles.ts";
+export { listModels, ModelSpecInput, PoolInput, modelSlug, VENDOR_IDS, VENDORS, vendorOf, type AvailableModel, type KnownModel, type ModelList, type Vendor, type VendorId } from "./llm/catalog.ts";
 export type { ModelSpec } from "./llm/factory.ts";
 export { isUsTradingDay, usHoliday, usHolidaysBetween, usMarketHolidays, usTradingDays, US_HOLIDAY_JA } from "./util/marketCalendar.ts";
 export { EarningsStore, fetchEarningsCalendar, parseEarningsCsv, type EarningsEntry, type EarningsMap, type NextEarnings } from "./data/earnings.ts";
