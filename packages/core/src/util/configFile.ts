@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { isMap, parseDocument, YAMLMap } from "yaml";
 import { z } from "zod";
 import { AppConfig } from "../config.ts";
+import { ModelsInput } from "../llm/catalog.ts";
 
 /** One watchlist row as edited in the UI. */
 export const WatchlistEntryInput = z.strictObject({
@@ -76,4 +77,46 @@ export function saveWatchlist(
 /** Sets one value, e.g. ["prompts", "judge"] = "judge-v2". */
 export function saveConfigValue(loadedFrom: string, path: string[], value: string | number | boolean) {
   return editConfig(loadedFrom, (doc) => doc.setIn(path, value));
+}
+
+/**
+ * Replaces `models` (tier1 / tier2 / redTeam) and merges prices into `pricing`, keeping comments.
+ * A null tier2 / redTeam removes it (redTeam then falls back to tier2).
+ */
+export function saveModels(loadedFrom: string, input: ModelsInput): { file: string; created: boolean; config: AppConfig } {
+  const m = ModelsInput.parse(input);
+  return editConfig(loadedFrom, (doc) => {
+    const flow = (spec: (typeof m.tier1)[number]) => {
+      // name first, like the hand-written examples
+      const { name, provider, model, ...rest } = spec;
+      const n = doc.createNode({ name, provider, ...("baseUrl" in rest ? { baseUrl: rest.baseUrl } : {}), model, apiKeyEnv: rest.apiKeyEnv });
+      n.flow = true;
+      return n;
+    };
+    if (!isMap(doc.get("models", true))) doc.set("models", new YAMLMap());
+    // setIn on the existing map keeps the keys' comments; the nodes' own comments are carried
+    // over (e.g. the commented-out 3rd member below tier1).
+    const keep = (key: string, node: ReturnType<typeof doc.createNode>) => {
+      const old = doc.getIn(["models", key], true) as { comment?: string | null; commentBefore?: string | null } | undefined;
+      if (old?.comment) node.comment = old.comment;
+      if (old?.commentBefore) node.commentBefore = old.commentBefore;
+      doc.setIn(["models", key], node);
+    };
+    keep("tier1", doc.createNode(m.tier1.map((s) => flow(s))));
+    for (const key of ["tier2", "redTeam"] as const) {
+      const spec = m[key];
+      if (spec) keep(key, flow(spec));
+      else doc.deleteIn(["models", key]);
+    }
+    if (Object.keys(m.pricing).length) {
+      if (!isMap(doc.get("pricing", true))) doc.set("pricing", new YAMLMap());
+      for (const [model, price] of Object.entries(m.pricing)) {
+        const old = doc.getIn(["pricing", model]) as unknown;
+        if (JSON.stringify((old as { toJSON?: () => unknown } | undefined)?.toJSON?.() ?? old) === JSON.stringify(price)) continue; // keep "0.10" as written
+        const n = doc.createNode(price);
+        n.flow = true;
+        doc.setIn(["pricing", model], n);
+      }
+    }
+  });
 }

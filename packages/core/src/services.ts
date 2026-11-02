@@ -165,6 +165,18 @@ export class Services {
   }
 
   /** Switch a prompt version while running (from the prompts screen). */
+  /** Swap the models (and prices) while running, e.g. from the settings screen. */
+  updateModels(models: AppConfig["models"], pricing: AppConfig["pricing"]): void {
+    const c = this.config as { models: AppConfig["models"]; pricing: AppConfig["pricing"] };
+    c.models = models;
+    c.pricing = pricing;
+    this.#tier1 = undefined;
+    // The cost tracker holds the price table; the caller holds the tracker.
+    this.#budget = undefined;
+    this.#caller = undefined;
+    this.#configHash = undefined;
+  }
+
   setPrompt(key: keyof AppConfig["prompts"], version: string): void {
     (this.config as { prompts: AppConfig["prompts"] }).prompts = { ...this.config.prompts, [key]: version };
     this.#configHash = undefined;

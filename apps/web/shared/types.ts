@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
+import type { ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -126,6 +126,19 @@ export type StreamEvent =
   | { type: "workflow_state"; workflow: string; disabled: boolean }
   | { type: "config_changed" }
   | { type: "prompt_eval"; id: number; status: string };
+
+export interface ModelsView {
+  roles: { tier1: ModelSpec[]; tier2: ModelSpec | null; redTeam: ModelSpec | null };
+  pricing: Record<string, readonly [number, number]>;
+  /** Charged for models without a price (deliberately high). */
+  fallbackPrice: number[];
+  vendors: Array<Vendor & { keySet: boolean }>;
+  quorum: number;
+  dailyBudgetUsd: number;
+  editable: boolean;
+  file: string | null;
+  fake: boolean;
+}
 
 export interface SettingsView {
   /** False when the server was started without a settings store (tests, embedded use). */

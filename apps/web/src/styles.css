@@ -533,3 +533,13 @@ select.input { padding-right: 0.5ch; }
 /* ── polish ─────────────────────────────────────────────────── */
 .t.watchlist { margin-top: calc(var(--lh) * 0.75); }
 .wrap-meta { white-space: normal; }
+
+/* ── model settings ─────────────────────────────────────────── */
+.t.models { margin-top: calc(var(--lh) * 0.75); }
+.t.models td { vertical-align: top; padding-top: 4px; padding-bottom: 4px; }
+.t.models select.input { width: 100%; }
+.t.models .input.num { text-align: right; }
+.model-sources { margin-top: calc(var(--lh) * 0.5); display: grid; gap: 2px; }
+.link { background: none; border: 0; padding: 0; color: var(--info); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.link:disabled { color: var(--faint); cursor: default; text-decoration: none; }

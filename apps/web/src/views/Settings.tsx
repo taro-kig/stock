@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { SettingStatus } from "@stockai/core";
 import type { SettingsView } from "../../shared/types.ts";
 import { del, post, put, useApi } from "../api.ts";
 import { BackupPane } from "./SettingsExtra.tsx";
 import { DoctorPane } from "./Doctor.tsx";
+import { ModelsPane } from "./Models.tsx";
 import { Empty, ErrorLine, Pane } from "../components/ui.tsx";
 import { time } from "../format.ts";
 
@@ -155,11 +156,14 @@ export function Settings({ toast }: { toast: Toast }) {
         const items = data.items.filter((i) => i.group === g);
         if (!items.length) return null;
         return (
-          <Pane key={g} title={title} aux={`${items.filter((i) => i.set).length}/${items.length} 設定済み`}>
-            <div className="setting-list">
-              {items.map((i) => <Row key={i.name} item={i} onSaved={reload} toast={toast} />)}
-            </div>
-          </Pane>
+          <Fragment key={g}>
+            <Pane title={title} aux={`${items.filter((i) => i.set).length}/${items.length} 設定済み`}>
+              <div className="setting-list">
+                {items.map((i) => <Row key={i.name} item={i} onSaved={reload} toast={toast} />)}
+              </div>
+            </Pane>
+            {g === "llm" && <ModelsPane toast={toast} />}
+          </Fragment>
         );
       })}
       <BackupPane toast={toast} />

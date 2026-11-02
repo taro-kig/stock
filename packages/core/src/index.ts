@@ -27,7 +27,10 @@ export { FAMILY_LABELS, PROMPT_FAMILIES, PromptRegistry, UnknownPrompt, validVer
 export { defaultGoldenSet, defaultVersions, EVALUABLE, runPromptEval, type PromptEvalRequest } from "./prompts/evaluate.ts";
 export type { EvalReport } from "./eval/promptEval.ts";
 export { PromptStore, type EvalJob, type EvalJobStatus, type PromptSwitch } from "./prompts/store.ts";
-export { editConfig, saveConfigValue } from "./util/configFile.ts";
+export { editConfig, saveConfigValue, saveModels } from "./util/configFile.ts";
+export { listModels, ModelSpecInput, ModelsInput, modelSlug, VENDOR_IDS, VENDORS, vendorOf, type AvailableModel, type KnownModel, type ModelList, type Vendor, type VendorId } from "./llm/catalog.ts";
+export type { ModelSpec } from "./llm/factory.ts";
 export { isUsTradingDay, usHoliday, usHolidaysBetween, usMarketHolidays, usTradingDays, US_HOLIDAY_JA } from "./util/marketCalendar.ts";
 export { EarningsStore, fetchEarningsCalendar, parseEarningsCsv, type EarningsEntry, type EarningsMap, type NextEarnings } from "./data/earnings.ts";
-export { runDoctor, STATUS_MARK, type CheckResult, type CheckStatus } from "./doctor.ts";
+export { runDoctor, testModel, STATUS_MARK, type ModelTest, type CheckResult, type CheckStatus } from "./doctor.ts";
+export { FALLBACK_PRICE_PER_M } from "./harness/budget.ts";

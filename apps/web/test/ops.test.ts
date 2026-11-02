@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { WatchlistView } from "../shared/types.ts";
+import type { ModelsView, WatchlistView } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -251,5 +251,70 @@ describe("doctor API", () => {
     expect(r.status).toBe(200);
     expect(r.body.results.find((x) => x.id === "config")?.status).toBe("ok");
     expect(r.body.results.find((x) => x.id === "llm")?.status).toBe("skip"); // fake models
+  });
+});
+
+describe("models API", () => {
+  async function startUs() {
+    const dir = mkdtempSync(join(tmpdir(), "stockai-models-"));
+    const cfgPath = join(dir, "config.yaml");
+    copyFileSync(join(ROOT, "config/config.example.yaml"), cfgPath);
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(join(dir, "wf"));
+    const fetched: string[] = [];
+    const services = new Services(loadConfig(cfgPath), {
+      dbPath: ":memory:", env: { GEMINI_API_KEY: "g" },
+      fetchImpl: async (url) => {
+        fetched.push(String(url));
+        if (!String(url).startsWith("https://generativelanguage.googleapis.com/v1beta/models")) throw new Error(`unexpected fetch ${String(url)}`);
+        return new Response(JSON.stringify({ models: [{ name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] }, { name: "models/gemini-9-pro", supportedGenerationMethods: ["generateContent"] }] }));
+      },
+    });
+    app = createApp({ services, registry: builtinRegistry(), workflowsDir: join(dir, "wf"), configPath: cfgPath });
+    await new Promise<void>((r) => app!.server.listen(0, "127.0.0.1", () => r()));
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    const call = async <T>(method: string, path: string, body?: unknown) => {
+      const res = await fetch(base + path, { method, headers: { "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+      return { status: res.status, body: (await res.json()) as T };
+    };
+    return { call, services, cfgPath, fetched };
+  }
+
+  it("shows the roles, lists each vendor's models and switches models without a restart", async () => {
+    const { call, services, cfgPath, fetched } = await startUs();
+    const view = (await call<ModelsView>("GET", "/api/models")).body;
+    expect(view.roles.tier1.map((m) => m.model)).toEqual(["gemini-2.5-flash-lite", "deepseek-chat"]);
+    expect(view.roles.tier2?.model).toBe("gemini-2.5-flash");
+    expect(view.vendors.find((v) => v.id === "gemini")?.keySet).toBe(true);
+    expect(view.vendors.find((v) => v.id === "deepseek")?.keySet).toBe(false);
+
+    const g = (await call<{ source: string; models: Array<{ id: string }> }>("GET", "/api/models/available/gemini")).body;
+    expect(g.source).toBe("api");
+    expect(g.models.map((m) => m.id)).toContain("gemini-9-pro");
+    await call("GET", "/api/models/available/gemini"); // cached
+    expect(fetched).toHaveLength(1);
+    const d = (await call<{ source: string; error: string }>("GET", "/api/models/available/deepseek")).body;
+    expect(d).toMatchObject({ source: "builtin", error: expect.stringMatching(/DEEPSEEK_API_KEY/) });
+    expect((await call("GET", "/api/models/available/nope")).status).toBe(404);
+
+    const t = await call<{ status: string; detail: string }>("POST", "/api/models/test", { spec: view.roles.tier1[1] });
+    expect(t.body).toMatchObject({ status: "fail", detail: expect.stringMatching(/DEEPSEEK_API_KEY/) });
+    expect((await call("POST", "/api/models/test", { spec: { provider: "gemini" } })).status).toBe(400);
+
+    const next = {
+      tier1: [{ ...view.roles.tier1[0]!, name: "gemini-9-pro", model: "gemini-9-pro" }, view.roles.tier1[1]!],
+      tier2: null, redTeam: view.roles.tier2, pricing: { "gemini-9-pro": [1, 5] },
+    };
+    expect((await call("PUT", "/api/models", next)).status).toBe(409); // no `previous`
+    expect((await call("PUT", "/api/models", { ...next, tier1: [next.tier1[0]], previous: view.roles })).status).toBe(400); // below quorum
+    const r = await call<{ file: string }>("PUT", "/api/models", { ...next, previous: view.roles });
+    expect(r.status).toBe(200);
+    expect(r.body.file).toBe(cfgPath);
+    expect(services.config.models?.tier1[0]?.model).toBe("gemini-9-pro");
+    expect(services.config.models?.tier2).toBeUndefined();
+    expect(services.budget.costOf("gemini-9-pro", 1_000_000, 1_000_000)).toBe(6);
+    expect(readFileSync(cfgPath, "utf8")).toContain("gemini-9-pro: [ 1, 5 ]");
+    expect((await call<ModelsView>("GET", "/api/models")).body.roles.redTeam?.model).toBe("gemini-2.5-flash");
+    expect((await call("PUT", "/api/models", { ...next, previous: view.roles })).status).toBe(409); // stale now
   });
 });

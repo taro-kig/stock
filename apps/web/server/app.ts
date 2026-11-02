@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { CalendarView, ImportResult, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
+import { addDays, FALLBACK_PRICE_PER_M, listModels, ModelSpecInput, saveModels, testModel, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { CalendarView, ImportResult, ModelsView, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
@@ -108,6 +108,7 @@ export function createApp(o: AppOptions): App {
   });
   const queue = new RunQueue();
   let doctorRunning = false;
+  const modelLists = new Map<string, { until: number; list: ModelList }>();
   s.promptStore.failStale(clock());
   const notifier = new RunNotifier(s, registry, clock);
 
@@ -305,6 +306,11 @@ export function createApp(o: AppOptions): App {
     };
   }
 
+  function modelRoles(): ModelsView["roles"] {
+    const mdl = s.config.models;
+    return mdl ? { tier1: mdl.tier1, tier2: mdl.tier2 ?? null, redTeam: mdl.redTeam ?? null } : { tier1: [], tier2: null, redTeam: null };
+  }
+
   function switchPrompt(family: PromptFamily, version: string, source: string) {
     s.prompts.info(family, version); // must exist
     if (!o.configPath) throw new HttpError(404, "this server was started without a config file");
@@ -478,6 +484,63 @@ export function createApp(o: AppOptions): App {
         .then(() => notifier.runSettled(runId));
       return send(res, 202, { ok: true });
     }
+    if (req.method === "GET" && path === "/api/models") {
+      return send(res, 200, {
+        roles: modelRoles(), pricing: s.config.pricing, fallbackPrice: [...FALLBACK_PRICE_PER_M],
+        vendors: VENDOR_IDS.map((id) => ({ ...VENDORS[id], keySet: Boolean(s.env[VENDORS[id].apiKeyEnv]) })),
+        quorum: s.config.harness.quorum, dailyBudgetUsd: s.config.harness.dailyBudgetUsd,
+        editable: Boolean(o.configPath), file: o.configPath ? editableConfigPath(o.configPath) : null, fake: s.fake,
+      } satisfies ModelsView);
+    }
+    if (req.method === "GET" && (g = m(/^\/api\/models\/available\/([a-z]+)$/))) {
+      const vendor = g[1] as VendorId;
+      if (!VENDOR_IDS.includes(vendor)) throw new HttpError(404, `unknown vendor ${vendor}`);
+      const baseUrl = url.searchParams.get("baseUrl") ?? undefined;
+      const apiKeyEnv = url.searchParams.get("apiKeyEnv") ?? undefined;
+      if (apiKeyEnv !== undefined && !/^[A-Z][A-Z0-9_]*$/.test(apiKeyEnv)) throw new HttpError(400, "apiKeyEnv: A-Z, 0-9, _");
+      if (baseUrl !== undefined && !/^https?:\/\//.test(baseUrl)) throw new HttpError(400, "baseUrl: http(s) only");
+      const cacheKey = `${vendor}|${baseUrl ?? ""}|${apiKeyEnv ?? ""}|${s.env[apiKeyEnv ?? VENDORS[vendor].apiKeyEnv] ? "k" : "-"}`;
+      const hit = modelLists.get(cacheKey);
+      if (hit && hit.until > clock().getTime() && url.searchParams.get("refresh") !== "1") return send(res, 200, hit.list);
+      const list = await listModels(vendor, { env: s.env, fetch: s.fetch, ...(baseUrl ? { baseUrl } : {}), ...(apiKeyEnv ? { apiKeyEnv } : {}) });
+      // Cache successful lists for 10 minutes; failures are retried on the next open.
+      if (list.source === "api") modelLists.set(cacheKey, { until: clock().getTime() + 600_000, list });
+      return send(res, 200, list);
+    }
+    if (req.method === "POST" && path === "/api/models/test") {
+      const parsed = ModelSpecInput.safeParse((await readJson(req))["spec"]);
+      if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      const t0 = clock().getTime();
+      let r: ModelTest;
+      try {
+        r = await testModel(s, parsed.data);
+      } catch (e) {
+        r = { status: "fail", detail: (e instanceof Error ? e.message : String(e)).slice(0, 400) };
+      }
+      return send(res, 200, { ...r, ms: clock().getTime() - t0 });
+    }
+    if (req.method === "PUT" && path === "/api/models") {
+      if (!o.configPath) throw new HttpError(404, "this server was started without a config file");
+      const body = await readJson(req);
+      // Optimistic concurrency, like the watchlist: refuse if the file changed since the screen loaded.
+      if (JSON.stringify(body["previous"] ?? null) !== JSON.stringify(modelRoles())) {
+        throw new HttpError(409, "モデル設定が読み込み時から変わっています。画面を再読み込みしてから編集してください");
+      }
+      const quorum = s.config.harness.quorum;
+      if (!Array.isArray(body["tier1"]) || body["tier1"].length < quorum) {
+        throw new HttpError(400, `多数決は ${quorum} 票の一致で採用するので、投票メンバーは ${quorum} つ以上必要です（harness.quorum）`);
+      }
+      let r: ReturnType<typeof saveModels>;
+      try {
+        r = saveModels(o.configPath, { tier1: body["tier1"], tier2: body["tier2"] ?? null, redTeam: body["redTeam"] ?? null, pricing: body["pricing"] ?? {} } as never);
+      } catch (e) {
+        const msg = e instanceof Error && "issues" in e ? (e as { issues: Array<{ path: PropertyKey[]; message: string }> }).issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
+        throw new HttpError(400, msg);
+      }
+      s.updateModels(r.config.models, r.config.pricing);
+      broadcast({ type: "config_changed" });
+      return send(res, 200, { ok: true, file: r.file, created: r.created });
+    }
     if (req.method === "GET" && path === "/api/settings") {
       const st = s.settings;
       if (!st) return send(res, 200, { available: false, path: null, items: [] } satisfies SettingsView);
@@ -498,6 +561,7 @@ export function createApp(o: AppOptions): App {
         throw new HttpError(400, e instanceof Error ? e.message : String(e));
       }
       const item = st.status(settingDefs(s.config)).find((x) => x.name === name);
+      broadcast({ type: "config_changed" }); // e.g. the model screen shows which keys are set
       return send(res, 200, { ok: true, item: item ?? null });
     }
     if (req.method === "POST" && path === "/api/doctor") {

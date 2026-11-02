@@ -3,7 +3,7 @@ import { connect } from "node:net";
 import { fetchEarningsCalendar } from "./data/earnings.ts";
 import { SecClient } from "./data/sec.ts";
 import { parseTimeSeries } from "./data/twelveData.ts";
-import { buildProvider } from "./llm/factory.ts";
+import { buildProvider, type ModelSpec } from "./llm/factory.ts";
 import type { LLMProvider } from "./llm/types.ts";
 import { isDiscordWebhookUrl } from "./notify/discord.ts";
 import { PROMPT_FAMILIES } from "./prompts/registry.ts";
@@ -64,6 +64,25 @@ function probe(host: string, port: number, timeoutMs = 2000): Promise<boolean> {
   });
 }
 
+export type ModelTest = Omit<CheckResult, "id" | "group" | "label" | "ms">;
+
+/** One tiny JSON-mode call to a model (doctor and the model settings screen). Costs a few tokens. */
+export async function testModel(s: Services, spec: ModelSpec, build: DoctorOptions["buildModel"] = buildProvider): Promise<ModelTest> {
+  if (!s.env[spec.apiKeyEnv]) return { status: "fail", detail: `${spec.apiKeyEnv} が未設定`, hint: `⚙ 設定で ${spec.apiKeyEnv} を入力` };
+  const p = build(spec, s.env);
+  const r = await p.generate({ system: "Answer with JSON only.", user: 'Return {"ok": true}', temperature: 0, jsonMode: true });
+  s.budget.record(p.name, r);
+  let ok = false;
+  try {
+    ok = (JSON.parse(r.text.replace(/^```(?:json)?\s*|\s*```$/g, "")) as { ok?: unknown }).ok === true;
+  } catch {
+    ok = false;
+  }
+  return ok
+    ? { status: "ok", detail: `応答あり · ${Math.round(r.latencyMs)} ms · ${r.inputTokens}/${r.outputTokens} tokens` }
+    : { status: "warn", detail: `応答はあるが JSON で返らない: ${r.text.slice(0, 120)}`, hint: "モデル名・JSON モード対応を確認" };
+}
+
 export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<CheckResult[]> {
   const out: CheckResult[] = [];
   const want = (g: CheckResult["group"]) => !o.groups || o.groups.includes(g);
@@ -104,21 +123,7 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       const specs = m ? [...new Map([...m.tier1, ...(m.tier2 ? [m.tier2] : []), ...(m.redTeam ? [m.redTeam] : [])].map((x) => [x.name, x])).values()] : [];
       if (!specs.length) out.push({ id: "llm", group: "llm", label: "LLM", status: "fail", detail: "config.models がない", hint: "config.yaml に models を書く", ms: 0 });
       for (const spec of specs) {
-        await check(`llm:${spec.name}`, "llm", `LLM ${spec.name}（${spec.model}）`, async () => {
-          if (!env[spec.apiKeyEnv]) return { status: "fail", detail: `${spec.apiKeyEnv} が未設定`, hint: `⚙ 設定で ${spec.apiKeyEnv} を入力` };
-          const p = (o.buildModel ?? buildProvider)(spec, env);
-          const r = await p.generate({ system: "Answer with JSON only.", user: 'Return {"ok": true}', temperature: 0, jsonMode: true });
-          s.budget.record(p.name, r);
-          let ok = false;
-          try {
-            ok = (JSON.parse(r.text.replace(/^```(?:json)?\s*|\s*```$/g, "")) as { ok?: unknown }).ok === true;
-          } catch {
-            ok = false;
-          }
-          return ok
-            ? { status: "ok", detail: `応答あり · ${r.latencyMs} ms · ${r.inputTokens}/${r.outputTokens} tokens` }
-            : { status: "warn", detail: `応答はあるが JSON で返らない: ${r.text.slice(0, 120)}`, hint: "モデル名・JSON モード対応を確認" };
-        });
+        await check(`llm:${spec.name}`, "llm", `LLM ${spec.name}（${spec.model}）`, () => testModel(s, spec, o.buildModel));
       }
     }
   }
