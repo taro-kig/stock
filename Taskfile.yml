@@ -62,9 +62,7 @@ tasks:
           $up = { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 $u | Out-Null; $true } catch { $false } };
           if (& $up) { "stockai is already running" } else {
             New-Item -ItemType Directory -Force data | Out-Null;
-            $p = Start-Process -FilePath node -WindowStyle Hidden -PassThru
-              -ArgumentList "--disable-warning=ExperimentalWarning apps/web/server/main.ts {{.SERVER_ARGS}}"
-              -RedirectStandardOutput "{{.LOG}}" -RedirectStandardError "{{.ERRLOG}}";
+            $p = Start-Process -FilePath node -WindowStyle Hidden -PassThru -ArgumentList "--disable-warning=ExperimentalWarning apps/web/server/main.ts {{.SERVER_ARGS}}" -RedirectStandardOutput "{{.LOG}}" -RedirectStandardError "{{.ERRLOG}}";
             Set-Content "{{.PIDFILE}}" $p.Id;
             for ($i = 0; $i -lt 60; $i++) { if (& $up) { break }; Start-Sleep -Seconds 1 };
             if (& $up) { "stockai started (pid $($p.Id))" } else { "did not start: see {{.ERRLOG}}"; exit 1 }
