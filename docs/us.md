@@ -118,6 +118,8 @@ Claude Desktop / Claude Code を stockai につなぐと（[mcp.md](mcp.md)）�
 
 ## まだ確認できていないこと
 
+まず ⚙ 設定の **接続チェック**（または `npm run stockai -- doctor`）で、下の項目のうち接続・キー・応答の形をまとめて確かめられる。
+
 この開発環境からは Twelve Data・SEC・ニュースサイトに接続できなかったため、**応答の形式は公開ドキュメントとモックで確認しただけ**。最初の実行で次を確認する:
 
 - [ ] `npm run stockai -- run workflows/daily-rules.yaml` で `prices` ノードが `full=12` になり、`show` で終値が妥当

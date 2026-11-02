@@ -28,7 +28,7 @@ export const rssSource = defineNode({
     let failed = 0;
     for (const f of feeds) {
       try {
-        const got = await fetchFeed(f.url, f.name, { weight: f.weight });
+        const got = await fetchFeed(f.url, f.name, { weight: f.weight, fetchImpl: ctx.services.fetch });
         docs.push(...got.map((d) => ({ ...d, fetchedAt: ctx.now.toISOString() })));
       } catch (e) {
         failed++;

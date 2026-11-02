@@ -20,6 +20,7 @@ import { loadWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec } 
 import { loadDotEnv } from "../util/env.ts";
 import { assertSettingName, SettingsStore, settingDefs } from "../util/settings.ts";
 import { backupDir, listBackups, runBackup } from "../util/backup.ts";
+import { runDoctor, STATUS_MARK } from "../doctor.ts";
 import { usTradingDays } from "../util/marketCalendar.ts";
 import { c, money, num, pct, status, table } from "./format.ts";
 
@@ -44,6 +45,8 @@ Usage:
                                                  score prompts/models on a golden set (report saved under data/evals)
   stockai webull auth [--wait SECONDS]           approve API access in the Webull app (2FA)
   stockai webull check                           read-only: accounts, cash, positions
+  stockai doctor [--run WORKFLOW]                connection check: one small real request per service (keys, data, LLM, notify);
+                                                 --run also runs that workflow for today and shows its nodes
   stockai backup [--list]                        snapshot the database now (the web server also does it daily)
   stockai settings                               API keys and where each comes from (shell / settings / .env)
   stockai settings set NAME                      store a value (read from stdin, not echoed) in <dataDir>/settings.sqlite
@@ -77,6 +80,7 @@ const { values: opt, positionals } = parseArgs({
     set: { type: "string" },
     budget: { type: "string", default: "0.5" },
     list: { type: "boolean", default: false },
+    run: { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -406,6 +410,24 @@ async function main(): Promise<void> {
         return;
       }
       throw new Error("usage: stockai webull auth|check");
+    }
+    case "doctor": {
+      const s = services();
+      console.error(c.dim("checking… (one small request per service)"));
+      const results = await runDoctor(s);
+      if (opt.json) return void console.log(JSON.stringify(results, null, 2));
+      const color = { ok: c.green, warn: c.yellow, fail: c.red, skip: c.dim };
+      console.log(table(["", "check", "result", "fix"], results.map((r) => [color[r.status](STATUS_MARK[r.status]), r.label, r.detail, r.hint && r.status !== "ok" ? c.dim(r.hint) : ""])));
+      const bad = results.filter((r) => r.status === "fail").length;
+      console.log(bad ? c.red(`\n${bad} 件の問題があります`) : c.green("\n必須の項目はすべて OK"));
+      if (opt.run) {
+        console.log(c.dim(`\nrunning ${opt.run} for today…`));
+        const r = await engineFor(s).run(loadWorkflow(opt.run));
+        console.log(`${status(r.status)}  ${r.runId}`);
+        console.log(nodeTable(Object.values(r.nodes)));
+      }
+      if (bad) process.exitCode = 1;
+      return;
     }
     case "backup": {
       const s = services();

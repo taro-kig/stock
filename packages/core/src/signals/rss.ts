@@ -56,8 +56,8 @@ export function parseFeed(xml: string, source: string, opts: { weight?: number; 
   throw new Error("unrecognized feed format");
 }
 
-export async function fetchFeed(url: string, source: string, opts: { weight?: number; timeoutMs?: number } = {}): Promise<Document[]> {
-  const res = await fetch(url, {
+export async function fetchFeed(url: string, source: string, opts: { weight?: number; timeoutMs?: number; fetchImpl?: typeof fetch } = {}): Promise<Document[]> {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     headers: { "user-agent": "stockai/0.1 (personal research)" },
     signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
   });

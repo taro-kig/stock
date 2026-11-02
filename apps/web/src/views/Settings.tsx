@@ -3,6 +3,7 @@ import type { SettingStatus } from "@stockai/core";
 import type { SettingsView } from "../../shared/types.ts";
 import { del, post, put, useApi } from "../api.ts";
 import { BackupPane } from "./SettingsExtra.tsx";
+import { DoctorPane } from "./Doctor.tsx";
 import { Empty, ErrorLine, Pane } from "../components/ui.tsx";
 import { time } from "../format.ts";
 
@@ -149,6 +150,7 @@ export function Settings({ toast }: { toast: Toast }) {
         </p>
         {missing.length > 0 && <p className="warn">config.yaml が使うのに未設定: {missing.map((m) => m.name).join(", ")}</p>}
       </Pane>
+      <DoctorPane toast={toast} />
       {GROUPS.map(([g, title]) => {
         const items = data.items.filter((i) => i.group === g);
         if (!items.length) return null;

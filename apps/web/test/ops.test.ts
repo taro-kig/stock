@@ -243,3 +243,13 @@ describe("calendar", () => {
     expect((await fetch(`${base}/api/calendar?from=2026-01-01&to=2026-12-31`)).status).toBe(400);
   });
 });
+
+describe("doctor API", () => {
+  it("runs the connection check", async () => {
+    const { call } = await start();
+    const r = await call<{ results: Array<{ id: string; status: string }> }>("POST", "/api/doctor", {});
+    expect(r.status).toBe(200);
+    expect(r.body.results.find((x) => x.id === "config")?.status).toBe("ok");
+    expect(r.body.results.find((x) => x.id === "llm")?.status).toBe("skip"); // fake models
+  });
+});

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -107,6 +107,7 @@ export function createApp(o: AppOptions): App {
     onEvent: (runId: string, event: RunEvent) => broadcast({ type: "run_event", runId, event }),
   });
   const queue = new RunQueue();
+  let doctorRunning = false;
   s.promptStore.failStale(clock());
   const notifier = new RunNotifier(s, registry, clock);
 
@@ -497,6 +498,16 @@ export function createApp(o: AppOptions): App {
       }
       const item = st.status(settingDefs(s.config)).find((x) => x.name === name);
       return send(res, 200, { ok: true, item: item ?? null });
+    }
+    if (req.method === "POST" && path === "/api/doctor") {
+      await readJson(req);
+      if (doctorRunning) throw new HttpError(409, "接続チェックを実行中です");
+      doctorRunning = true;
+      try {
+        return send(res, 200, { at: clock().toISOString(), results: await runDoctor(s, { now: clock() }) });
+      } finally {
+        doctorRunning = false;
+      }
     }
     if (req.method === "POST" && path === "/api/notify/test") {
       await readJson(req);

@@ -30,3 +30,4 @@ export { PromptStore, type EvalJob, type EvalJobStatus, type PromptSwitch } from
 export { editConfig, saveConfigValue } from "./util/configFile.ts";
 export { isUsTradingDay, usHoliday, usHolidaysBetween, usMarketHolidays, usTradingDays, US_HOLIDAY_JA } from "./util/marketCalendar.ts";
 export { EarningsStore, fetchEarningsCalendar, parseEarningsCsv, type EarningsEntry, type EarningsMap, type NextEarnings } from "./data/earnings.ts";
+export { runDoctor, STATUS_MARK, type CheckResult, type CheckStatus } from "./doctor.ts";

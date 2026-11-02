@@ -180,6 +180,15 @@ npm run stockai -- settings clear GEMINI_API_KEY
 - **本番発注のスイッチ `STOCKAI_LIVE_TRADING` は設定画面にも `.env` にも保存できない**。本番で動かすときだけ、そのシェルで明示的に設定する
 - キーをチャット・Issue・コミットに貼らない。漏れたら各社のコンソールですぐ無効化して作り直す
 
+## 最初に動かすとき（接続チェック）
+
+1. ⚙ 設定（`,`）でキーを入れる（米国株なら最低限 `GEMINI_API_KEY`・`DEEPSEEK_API_KEY`・`TWELVEDATA_API_KEY`・`SEC_USER_AGENT`）
+2. 同じ画面の **接続チェック** で「全部チェック」。各サービスに小さな問い合わせを1回ずつ送り、✓ / ⚠ / ✕ と原因・直し方を出す
+   （LLM はモデルごとに短い1回、Twelve Data は 1 クレジット、Alpha Vantage はその日の決算予定の取得を兼ねる、Discord は投稿しない確認だけ）
+3. ✕ が無くなったら **試運転**（`daily-rules` を今日の分で実行）。実行画面でノードごとに実データが流れたか、エラーが無いかを見る
+
+CLI でも同じ: `npm run stockai -- doctor`（`--run workflows/daily-rules.yaml` で試運転まで）
+
 ## 使い方 (CLI)
 
 ```bash
@@ -207,6 +216,7 @@ npm run stockai -- run workflows/ibkr-paper.yaml
 npm run stockai -- eval events --ensemble          # 米国株の設定では events-us.yaml × event-us-*
 npm run stockai -- eval judge  --versions judge-v1,judge-v2
 
+npm run stockai -- doctor                        # 接続チェック（--run WORKFLOW で試運転も）
 npm run stockai -- runs                          # 実行履歴
 npm run stockai -- show <runId>                  # ノード状態・判断・注文・採点
 npm run stockai -- nodes                         # ノード一覧 (--json でポート/パラメータの JSON Schema)
