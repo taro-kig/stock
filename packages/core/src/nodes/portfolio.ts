@@ -28,7 +28,7 @@ export const proposeNode = defineNode({
   category: "risk",
   description:
     "Turns judgments into orders under hard limits: ATR sizing, lot rounding, max weight/positions/sector, stops, drawdown kill switch. The AI decides what; these rules decide how much.",
-  version: 3, // v2: no buy-back of a name sold in the same rebalance · v3: new entries only from the watchlist
+  version: 4, // v2: no buy-back of a name sold in the same rebalance · v3: new entries only from the watchlist · v4: market risk level
   cache: "inputs",
   params: z.object({
     topN: z.number().int().positive().default(5),
@@ -39,8 +39,11 @@ export const proposeNode = defineNode({
     regimeFilter: z.boolean().default(true),
     /** No new buys this many calendar days before an earnings report (needs the earnings input; 0 = off). */
     earningsBlackoutDays: z.number().int().min(0).default(3),
+    /** Size of new positions when the market input says "caution" (1 = unchanged). "stress" always stops new buys unless marketFilter is off. */
+    cautionSize: z.number().min(0).max(1).default(0.5),
+    marketFilter: z.boolean().default(true),
   }),
-  inputs: { judgments: { type: "Judgments" }, factors: { type: "Factors" }, account: { type: "Account" }, earnings: { type: "Earnings", optional: true } },
+  inputs: { judgments: { type: "Judgments" }, factors: { type: "Factors" }, account: { type: "Account" }, earnings: { type: "Earnings", optional: true }, market: { type: "Market", optional: true } },
   outputs: { proposals: { type: "Proposals" } },
   async run(ctx, p, i) {
     const held = Object.keys(i.account.positions);
@@ -56,14 +59,18 @@ export const proposeNode = defineNode({
       candidates[r.ticker] = { ticker: r.ticker, price: r.close, atr: r.atr, sector: r.sector, trendOk: !p.requireTrend || r.trend === "up", blockedReason: blocked };
       if (blocked && js[r.ticker] && isBuy(r.ticker)) ctx.log(`${r.ticker}: no new entry, ${blocked}`);
     }
-    const regimeOk = !p.regimeFilter || i.factors.benchmark?.trend !== "down";
-    if (!regimeOk) ctx.log(`regime filter: benchmark ${i.factors.benchmark?.ticker} is in a downtrend -> no new entries`);
+    const stressed = p.marketFilter && i.market?.risk === "stress";
+    const regimeOk = (!p.regimeFilter || i.factors.benchmark?.trend !== "down") && !stressed;
+    if (!regimeOk) ctx.log(stressed ? `market stress (${i.market!.reasons.join(", ")}) -> no new entries` : `regime filter: benchmark ${i.factors.benchmark?.ticker} is in a downtrend -> no new entries`);
+    const sizeMult = p.marketFilter && i.market?.risk === "caution" ? p.cautionSize : 1;
+    if (sizeMult !== 1) ctx.log(`market caution (${i.market!.reasons.join(", ")}) -> new positions x${sizeMult}`);
     if (i.account.mode !== "normal") ctx.log(`account mode ${i.account.mode} -> no new entries`);
     ctx.metric("regimeOk", regimeOk ? 1 : 0);
     const proposals = proposeRebalance(
       {
         scores, candidates, positions: i.account.positions, equity: i.account.equity, mode: i.account.mode,
         regimeOk,
+        sizeMult,
         thesisBroken: held.filter((t) => js[t]?.stance === "bearish"),
         // held names that left the watchlist are still managed (stops, exits) but never bought again
         eligible: Object.keys(js).filter((t) => isBuy(t) && t in ctx.services.watchlist.entries),

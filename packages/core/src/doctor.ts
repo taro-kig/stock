@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync } from "node:fs";
 import { connect } from "node:net";
 import { fetchEarningsCalendar } from "./data/earnings.ts";
 import { fetchEarningsEstimates, isPremiumAnswer } from "./data/estimates.ts";
+import { fetchFredSeries } from "./data/market.ts";
 import { fundamentalsAt, parseCompanyFacts } from "./data/fundamentals.ts";
 import { SecClient } from "./data/sec.ts";
 import { parseTimeSeries } from "./data/twelveData.ts";
@@ -13,7 +14,7 @@ import { PROMPT_FAMILIES } from "./prompts/registry.ts";
 import type { Services } from "./services.ts";
 import { fetchFeed } from "./signals/rss.ts";
 import { backupStatus } from "./util/backup.ts";
-import { toIsoDate } from "./util/dates.ts";
+import { addDays, toIsoDate } from "./util/dates.ts";
 
 /**
  * Connection check ("doctor"): one small, real request per external service, so a new
@@ -199,6 +200,14 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       const mine = entries.filter((e) => e.ticker in c.watchlist).sort((a, b) => a.reportDate.localeCompare(b.reportDate));
       s.estimates.saveCalendar(today, mine); // and as today's consensus record
       return { status: "ok", detail: `${entries.length.toLocaleString()} 件 · ウォッチリスト ${mine.length} 件${mine[0] ? `（次: ${mine[0].ticker} ${mine[0].reportDate}）` : ""}` };
+    });
+
+    await check("fred", "data", "相場全体の指標（FRED・任意）", async () => {
+      const key = env["FRED_API_KEY"];
+      if (!key) return { status: "skip", detail: "FRED_API_KEY が未設定（VIX・信用スプレッド・金利が無いだけ。業種の強さは使える）", hint: "使うなら fred.stlouisfed.org で無料キーを取り、⚙ 設定で入力" };
+      const obs = await fetchFredSeries(key, "VIXCLS", addDays(toIsoDate(now), -20), s.fetch);
+      const last = obs.at(-1);
+      return last ? { status: "ok", detail: `VIX ${last.value}（${last.date}）` } : { status: "warn", detail: "VIX のデータが空" };
     });
 
     // One EARNINGS_ESTIMATES request: tells whether this key can use it, and what came back.

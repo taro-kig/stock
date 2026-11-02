@@ -40,6 +40,8 @@ export interface RebalanceInput {
   mode: TradingMode;
   /** Market regime (e.g. index above its 200DMA). */
   regimeOk: boolean;
+  /** Scales new positions (e.g. 0.5 when the market is in "caution"). Default 1. */
+  sizeMult?: number | undefined;
   /** Held tickers whose thesis is broken -> sell. */
   thesisBroken: readonly string[];
   /** If set, only these may be bought (e.g. AI consensus "bullish"). */
@@ -94,7 +96,7 @@ export function proposeRebalance(inp: RebalanceInput, cfg: RiskConfig, opt: Reba
     if (slots <= 0) break;
     const c = inp.candidates[t];
     if (held.has(t) || exitedNow.has(t) || !c || !c.trendOk || c.blockedReason || (eligible && !eligible.has(t))) continue;
-    const shares = positionSize(inp.equity, c.price, c.atr, cfg);
+    const shares = positionSize(inp.equity * (inp.sizeMult ?? 1), c.price, c.atr, cfg);
     if (shares === 0) continue;
     const value = shares * c.price;
     if (((sectorValue.get(c.sector) ?? 0) + value) / inp.equity > cfg.maxSectorWeight) continue;

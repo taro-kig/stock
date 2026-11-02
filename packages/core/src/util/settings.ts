@@ -33,6 +33,7 @@ export const KNOWN_SETTINGS: readonly SettingDef[] = [
   { name: "OPENAI_API_KEY", label: "OpenAI API key", secret: true, group: "llm", help: "別ベンダーを試す場合", url: "https://platform.openai.com/api-keys" },
   { name: "JQUANTS_API_KEY", label: "J-Quants API key", secret: true, group: "data", help: "日本株の日足（data.pricesJQuants）。Free プランは直近12週間が無いので日次運用には Light 以上", url: "https://jpx-jquants.com/" },
   { name: "TWELVEDATA_API_KEY", label: "Twelve Data API key", secret: true, group: "data", help: "米国株の日足（無料: 800 回/日, 8 回/分）", url: "https://twelvedata.com/pricing" },
+  { name: "FRED_API_KEY", label: "FRED API key", secret: true, group: "data", help: "相場全体の警戒度（VIX・ハイイールド債スプレッド・米金利）。無料。無くても業種の強さは使える", url: "https://fred.stlouisfed.org/docs/api/api_key.html" },
   { name: "ALPHAVANTAGE_API_KEY", label: "Alpha Vantage API key", secret: true, group: "data", help: "米国株の決算予定・決算実績・アナリスト予想。無料: 25 回/日。予定は1日1回、実績は決算直後の銘柄だけ（最大5件）、予想は1銘柄週1回（最大4件）", url: "https://www.alphavantage.co/support/#api-key" },
   { name: "SEC_USER_AGENT", label: "SEC User-Agent", secret: false, group: "data", help: "SEC EDGAR の利用条件で必須。名前と連絡先メール（例: stockai taro@example.com）", url: "https://www.sec.gov/os/accessing-edgar-data" },
   { name: "DISCORD_WEBHOOK_URL", label: "Discord Webhook URL", secret: true, group: "notify", help: "承認待ち・失敗・発注・バックアップ失敗を通知。Discord のチャンネル設定 → 連携サービス → ウェブフック → URL をコピー", url: "https://support.discord.com/hc/ja/articles/228383668" },

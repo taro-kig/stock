@@ -2,9 +2,10 @@
 /**
  * Factors that are not connected are skipped and the rest renormalized (insider needs the Form 4
  * input; quality = operating margin and growth = revenue growth need the SEC financials input;
- * revision = 30-day change of the consensus EPS needs the estimates input).
+ * revision = 30-day change of the consensus EPS needs the estimates input; sector = the sector ETF's
+ * 60-day return vs the market needs the market input).
  */
-export const DEFAULT_WEIGHTS: Record<string, number> = { momentum: 0.35, event: 0.35, relStrength: 0.15, quality: 0.15, growth: 0.15, revision: 0.15, insider: 0.15 };
+export const DEFAULT_WEIGHTS: Record<string, number> = { momentum: 0.35, event: 0.35, relStrength: 0.15, quality: 0.15, growth: 0.15, revision: 0.15, sector: 0.1, insider: 0.15 };
 
 /** z-scores clipped to ±clip; non-finite inputs become 0 (neutral). */
 export function zscores(values: Record<string, number | null | undefined>, clip = 3): Record<string, number> {

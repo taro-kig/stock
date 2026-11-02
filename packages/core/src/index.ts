@@ -39,3 +39,4 @@ export { contradictsResults, EarningsResultStore, parseEarningsResults, resultLi
 export { checkNumbers } from "./harness/grounding.ts";
 export { fundamentalLines, fundamentalsAt, FundamentalsStore, parseCompanyFacts, valuation, type Fundamentals, type FundamentalsMap } from "./data/fundamentals.ts";
 export { estimateLines, EstimateStore, parseEarningsEstimates, revisionScore, type EstimatesMap, type Revision } from "./data/estimates.ts";
+export { computeMarket, marketLines, MacroStore, parseFredObservations, SECTOR_ETFS, type MarketContext, type RiskLevel } from "./data/market.ts";

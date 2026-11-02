@@ -1,3 +1,4 @@
+import { marketLines, type MarketContext } from "../data/market.ts";
 import { estimateLines, type Revision } from "../data/estimates.ts";
 import { fundamentalLines, type Fundamentals } from "../data/fundamentals.ts";
 import { previousLines, reactionLines, type EarningsReaction, type PreviousJudgment } from "../strategy/history.ts";
@@ -114,6 +115,8 @@ export function buildDossier(args: {
   results?: readonly EarningsResult[] | undefined;
   /** How the stock moved after past reports (computed from stored prices). */
   reactions?: readonly EarningsReaction[] | undefined;
+  /** Market and sector context: undefined = not connected (no section). */
+  market?: MarketContext | undefined;
   /** Estimate revisions: undefined = not connected (no section). */
   estimates?: readonly Revision[] | undefined;
   /** SEC financials: undefined = not connected (no section), null = none filed / not a US filer. */
@@ -152,6 +155,7 @@ export function buildDossier(args: {
     ...(args.fundamentals === undefined ? [] : fundamentalLines(args.fundamentals ?? undefined, row.close, args.asOf)),
     ...(args.results === undefined ? [] : resultLines(args.results)),
     ...(args.estimates === undefined ? [] : estimateLines(args.estimates)),
+    ...marketLines(args.market, row.sector),
     ...(args.reactions === undefined ? [] : reactionLines(args.reactions)),
     ...(args.previous === undefined ? [] : previousLines(args.previous)),
     ...(args.earnings === undefined

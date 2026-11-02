@@ -8,6 +8,7 @@ import { addDays, toIsoDate, weekdays, type IsoDate } from "../util/dates.ts";
 import { fetchEarningsCalendar } from "../data/earnings.ts";
 import { AlphaVantageLimit, fetchEarningsResults, needsResults } from "../data/earningsResults.ts";
 import { fetchEarningsEstimates, isPremiumAnswer } from "../data/estimates.ts";
+import { computeMarket, DEFAULT_THRESHOLDS, fetchFredSeries, MACRO_IDS, macroSince, sectorEtfs } from "../data/market.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -204,6 +205,56 @@ export const jquantsPrices = defineNode({
   },
 });
 
+/** Daily bars for these tickers through the run date: the local copy, topped up from Twelve Data when not yet covered. */
+export async function loadTwelveData(
+  ctx: NodeContext,
+  tickers: readonly string[],
+  p: { apiKeyEnv: string; symbols: Record<string, string>; historyBars: number; perMinute: number; maxStaleDays: number },
+): Promise<{ prices: Prices; counts: Record<"cached" | "update" | "full" | "stale" | "failed", number> }> {
+  const s = ctx.services;
+  const store = s.priceStore;
+  const SRC = "twelvedata";
+  let client: TwelveDataClient | undefined;
+  const api = () => {
+    if (client) return client;
+    const key = s.env[p.apiKeyEnv];
+    if (!key) throw new TwelveDataAuthError(`${p.apiKeyEnv} is not set (get a free key at twelvedata.com and put it in .env)`);
+    return (client = new TwelveDataClient({ apiKey: key, perMinute: p.perMinute, fetchImpl: s.fetch, sleep: s.sleep }));
+  };
+  const prices: Prices = {};
+  const counts = { cached: 0, update: 0, full: 0, stale: 0, failed: 0 };
+  for (const t of tickers) {
+    const sym = p.symbols[t] ?? t;
+    let bars: Bar[];
+    if (isCovered(store, SRC, t, ctx.asOf)) {
+      bars = store.bars(SRC, t);
+      counts.cached++;
+    } else {
+      try {
+        const r = await syncBars(store, api(), SRC, t, sym, ctx.wallNow(), { historyBars: p.historyBars });
+        bars = r.bars;
+        counts[r.fetch === "full" ? "full" : "update"]++;
+      } catch (e) {
+        if (e instanceof TwelveDataAuthError) throw e; // every other ticker would fail the same way
+        const msg = e instanceof Error ? e.message : String(e);
+        bars = store.bars(SRC, t).filter((b) => b.date <= ctx.asOf);
+        const last = bars.at(-1)?.date;
+        if (last && last >= addDays(ctx.asOf, -p.maxStaleDays)) {
+          counts.stale++;
+          ctx.log(`${sym}: download failed, using local copy through ${last}: ${msg}`);
+        } else {
+          counts.failed++;
+          ctx.log(`${sym}: download failed and no recent local copy: ${msg}`);
+          continue;
+        }
+      }
+    }
+    const until = barsUntil(bars, ctx.asOf);
+    if (until.length) prices[t] = until;
+  }
+  return { prices, counts };
+}
+
 export const twelveDataPrices = defineNode({
   type: "data.pricesTwelveData",
   title: "Prices (Twelve Data)",
@@ -224,47 +275,7 @@ export const twelveDataPrices = defineNode({
   inputs: {},
   outputs: { prices: { type: "Prices" } },
   async run(ctx, p) {
-    const s = ctx.services;
-    const store = s.priceStore;
-    const SRC = "twelvedata";
-    let client: TwelveDataClient | undefined;
-    const api = () => {
-      if (client) return client;
-      const key = s.env[p.apiKeyEnv];
-      if (!key) throw new TwelveDataAuthError(`${p.apiKeyEnv} is not set (get a free key at twelvedata.com and put it in .env)`);
-      return (client = new TwelveDataClient({ apiKey: key, perMinute: p.perMinute, fetchImpl: s.fetch, sleep: s.sleep }));
-    };
-    const prices: Prices = {};
-    const counts = { cached: 0, update: 0, full: 0, stale: 0, failed: 0 };
-    for (const t of universe(ctx)) {
-      const sym = p.symbols[t] ?? t;
-      let bars: Bar[];
-      if (isCovered(store, SRC, t, ctx.asOf)) {
-        bars = store.bars(SRC, t);
-        counts.cached++;
-      } else {
-        try {
-          const r = await syncBars(store, api(), SRC, t, sym, ctx.wallNow(), { historyBars: p.historyBars });
-          bars = r.bars;
-          counts[r.fetch === "full" ? "full" : "update"]++;
-        } catch (e) {
-          if (e instanceof TwelveDataAuthError) throw e; // every other ticker would fail the same way
-          const msg = e instanceof Error ? e.message : String(e);
-          bars = store.bars(SRC, t).filter((b) => b.date <= ctx.asOf);
-          const last = bars.at(-1)?.date;
-          if (last && last >= addDays(ctx.asOf, -p.maxStaleDays)) {
-            counts.stale++;
-            ctx.log(`${sym}: download failed, using local copy through ${last}: ${msg}`);
-          } else {
-            counts.failed++;
-            ctx.log(`${sym}: download failed and no recent local copy: ${msg}`);
-            continue;
-          }
-        }
-      }
-      const until = barsUntil(bars, ctx.asOf);
-      if (until.length) prices[t] = until;
-    }
+    const { prices, counts } = await loadTwelveData(ctx, universe(ctx), p);
     for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
     if (!Object.keys(prices).length) throw new Error("no price data from Twelve Data");
     return { prices };
@@ -414,6 +425,69 @@ export const estimatesNode = defineNode({
     ctx.metric("tickers", Object.keys(estimates).length);
     ctx.metric("withRevision", Object.values(estimates).filter((rs) => rs.some((r) => r.change30 !== null)).length);
     return { estimates };
+  },
+});
+
+export const marketNode = defineNode({
+  type: "data.market",
+  title: "Market & sectors",
+  category: "data",
+  description:
+    "Sector ETFs vs the benchmark (Twelve Data, ~13 symbols, one credit each per day) and market-wide risk gauges from FRED (VIX, high-yield spread, 10-year yield, 10y−2y; free key FRED_API_KEY, optional). Computes a risk level: caution → smaller new positions, stress → no new positions (portfolio.propose).",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    apiKeyEnv: z.string().default("TWELVEDATA_API_KEY"),
+    fredKeyEnv: z.string().default("FRED_API_KEY"),
+    /** Sector name (watchlist `sector`) → ETF, on top of the defaults (XLK, SMH, XLF, ...). */
+    sectorEtfs: z.record(z.string(), z.string()).default({}),
+    vixCaution: z.number().default(DEFAULT_THRESHOLDS.vixCaution),
+    vixStress: z.number().default(DEFAULT_THRESHOLDS.vixStress),
+    hyStress: z.number().default(DEFAULT_THRESHOLDS.hyStress),
+    hyJumpCaution: z.number().default(DEFAULT_THRESHOLDS.hyJumpCaution),
+    hyJumpStress: z.number().default(DEFAULT_THRESHOLDS.hyJumpStress),
+    perMinute: z.number().positive().default(8),
+    historyBars: z.number().int().min(100).max(5000).default(300),
+    maxStaleDays: z.number().int().min(0).default(5),
+  }),
+  inputs: {},
+  outputs: { market: { type: "Market" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const etfs = sectorEtfs(p.sectorEtfs);
+    const benchmark = s.config.market.benchmark;
+    let prices: Prices = {};
+    try {
+      prices = (await loadTwelveData(ctx, [...new Set([...Object.values(etfs), ...(benchmark ? [benchmark] : [])])], { ...p, symbols: {} })).prices;
+    } catch (e) {
+      if (!(e instanceof TwelveDataAuthError)) throw e;
+      ctx.log(`${e.message}: no sector data`);
+    }
+    const today = toIsoDate(ctx.wallNow());
+    const fredKey = s.env[p.fredKeyEnv];
+    if (ctx.live && fredKey) {
+      for (const id of MACRO_IDS) {
+        if (s.macro.lastFetch(id) === today) continue;
+        const last = s.macro.lastDate(id);
+        try {
+          s.macro.save(id, today, await fetchFredSeries(fredKey, id, last ? addDays(last, -10) : macroSince(today), s.fetch));
+        } catch (e) {
+          ctx.log(`${id}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    } else if (ctx.live) {
+      ctx.log(`${p.fredKeyEnv} is not set: no VIX / credit spread / rates (free key at fred.stlouisfed.org, settings screen)`);
+    }
+    const market = computeMarket({
+      asOf: ctx.asOf, benchmark, prices, sectorEtfs: etfs,
+      macro: Object.fromEntries(MACRO_IDS.map((id) => [id, s.macro.series(id, ctx.asOf)])),
+      thresholds: { vixCaution: p.vixCaution, vixStress: p.vixStress, hyStress: p.hyStress, hyJumpCaution: p.hyJumpCaution, hyJumpStress: p.hyJumpStress },
+    });
+    ctx.metric("sectors", Object.keys(market.sectors).length);
+    ctx.metric("macro", market.macro.length);
+    ctx.metric(`risk_${market.risk}`, 1);
+    if (market.risk !== "normal") ctx.log(`risk ${market.risk}: ${market.reasons.join(", ")}`);
+    return { market };
   },
 });
 

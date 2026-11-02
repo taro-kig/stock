@@ -76,10 +76,10 @@ export const scoreNode = defineNode({
   title: "Composite score",
   category: "signal",
   description: "Weighted, clipped z-scores of factors (and event scores, insider buying and SEC financials — quality = operating margin, growth = revenue growth — if connected).",
-  version: 3,
+  version: 4,
   cache: "inputs",
   params: z.object({ weights: z.record(z.string(), z.number()).default(DEFAULT_WEIGHTS) }),
-  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true }, fundamentals: { type: "Fundamentals", optional: true }, estimates: { type: "Estimates", optional: true } },
+  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true }, fundamentals: { type: "Fundamentals", optional: true }, estimates: { type: "Estimates", optional: true }, market: { type: "Market", optional: true } },
   outputs: { scores: { type: "Scores" } },
   async run(_ctx, p, i) {
     const rows = Object.values(i.factors.rows);
@@ -97,6 +97,7 @@ export const scoreNode = defineNode({
     }
     // only when some ticker has a usable 30-day change (our own record needs a month to build up)
     if (i.estimates && Object.values(i.estimates).some((rs) => revisionScore(rs) !== null)) factors["revision"] = col((r) => revisionScore(i.estimates?.[r.ticker]));
+    if (i.market && Object.keys(i.market.sectors).length) factors["sector"] = col((r) => i.market?.sectors[r.sector]?.rel60 ?? null);
     return { scores: compositeScore(factors, rows.map((r) => r.ticker), p.weights) };
   },
 });
