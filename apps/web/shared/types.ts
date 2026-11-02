@@ -63,6 +63,7 @@ export interface WaitingGate {
 
 export interface RunDetail {
   run: RunSummary;
+  currency: "JPY" | "USD";
   description: string;
   nodes: NodeView[];
   edges: EdgeView[];
@@ -103,6 +104,8 @@ export interface EquitySeries {
 export interface Overview {
   now: string;
   fake: boolean;
+  /** Market currency (for amounts that carry no account, like proposed orders). */
+  currency: "JPY" | "USD";
   pending: Array<{ run: RunSummary; gates: WaitingGate[] }>;
   workflows: WorkflowInfo[];
   recent: RunSummary[];

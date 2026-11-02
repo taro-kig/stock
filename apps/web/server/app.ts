@@ -345,6 +345,7 @@ export function createApp(o: AppOptions): App {
     return {
       now: clock().toISOString(),
       fake: s.fake,
+      currency: s.config.market.currency,
       pending: runs.filter((r) => r.status === "waiting").map((r) => ({ run: summary(r), gates: runDetail(s, registry, r).waiting })),
       workflows: workflows().map((w) => workflowInfo(w, s, registry)),
       recent: runs.slice(0, 12).map(summary),

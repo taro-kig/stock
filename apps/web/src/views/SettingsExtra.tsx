@@ -102,7 +102,7 @@ export function WatchlistPane({ toast }: { toast: Toast }) {
               <td><input className="input" value={r.name} onChange={(e) => set(r.key, { name: e.target.value })} aria-label={`${r.ticker} name`} /></td>
               <td><input className="input" value={r.aliases} onChange={(e) => set(r.key, { aliases: e.target.value })} aria-label={`${r.ticker} aliases`} /></td>
               <td><input className="input" list="sectors" value={r.sector} onChange={(e) => set(r.key, { sector: e.target.value })} aria-label={`${r.ticker} sector`} /></td>
-              <td><button className="btn danger" type="button" title="削除" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>✕</button></td>
+              <td><button className="btn icon" type="button" title="この銘柄を外す" aria-label={`${r.ticker} を外す`} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>✕</button></td>
             </tr>
           ))}
         </tbody>

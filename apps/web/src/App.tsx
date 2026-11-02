@@ -86,10 +86,10 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
           ))}
         </nav>
         <div className="topbar-right">
-          {data?.fake && <span className="badge fake" title="疑似モデル (--fake)。API キー不要・成績に意味はありません">FAKE</span>}
+          {data?.fake && <span className="badge fake" title="疑似モデル（--fake）。API キー不要・成績に意味はありません">疑似モデル</span>}
           <span className={connected ? "ok" : "fail"} title={connected ? "サーバーと接続中" : "切断（再接続中）"}>{connected ? "●" : "○"}</span>
           <span className="clock">{now.toLocaleDateString("sv-SE")} {now.toLocaleTimeString("ja-JP")}</span>
-          <a className="tab gear" href="#/settings" title="設定（API キー・通知・バックアップ） ," aria-current={route.view === "settings" ? "page" : undefined}>⚙<span className="key">,</span></a>
+          <a className="tab gear" href="#/settings" title="設定（API キー・通知・バックアップ） ," aria-current={route.view === "settings" ? "page" : undefined}>⚙</a>
         </div>
       </header>
 

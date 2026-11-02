@@ -3,7 +3,7 @@ import type { Judgment, Proposal } from "@stockai/core";
 import type { NodeView, RunDetail as Detail } from "../../shared/types.ts";
 import { Dag } from "../components/Dag.tsx";
 import { Empty, Pane, PortType, Stance, Status } from "../components/ui.tsx";
-import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pct, runDuration } from "../format.ts";
+import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pct, price, runDuration } from "../format.ts";
 import { navigate } from "../router.ts";
 import { ScorecardTable } from "./Scorecard.tsx";
 
@@ -38,7 +38,7 @@ export function JudgmentsTable({ items, names, compact = false }: { items: Judgm
   );
 }
 
-export function OrdersTable({ items, names }: { items: Proposal[]; names: Record<string, string> }) {
+export function OrdersTable({ items, names, currency }: { items: Proposal[]; names: Record<string, string>; currency?: string | null }) {
   if (!items.length) return <Empty>注文なし</Empty>;
   return (
     <table className="t">
@@ -49,9 +49,9 @@ export function OrdersTable({ items, names }: { items: Proposal[]; names: Record
             <td className={p.action === "buy" ? "up strong" : "down strong"}>{p.action === "buy" ? "買" : "売"}</td>
             <td className="nowrap">{p.ticker} <span className="dim">{names[p.ticker] ?? ""}</span></td>
             <td className="num">{p.shares.toLocaleString()}</td>
-            <td className="num">{num(p.price, 1)}</td>
-            <td className="num">{money(p.shares * p.price)}</td>
-            <td className="num dim">{p.stop ? num(p.stop, 1) : "—"}</td>
+            <td className="num">{price(p.price, currency)}</td>
+            <td className="num">{money(p.shares * p.price, currency)}</td>
+            <td className="num dim">{p.stop ? price(p.stop, currency) : "—"}</td>
             <td className="dim">{p.reason}</td>
           </tr>
         ))}
@@ -121,17 +121,17 @@ export function RunDetailView({ d }: { d: Detail }) {
           ))}
         </div>
         {tab === "judgments" && h.judgments && <JudgmentsTable items={h.judgments.items} names={d.names} />}
-        {tab === "orders" && h.proposals && <OrdersTable items={h.proposals.items} names={d.names} />}
+        {tab === "orders" && h.proposals && <OrdersTable items={h.proposals.items} names={d.names} currency={d.currency} />}
         {tab === "fills" && h.fills && (h.fills.length ? (
           <table className="t">
             <thead><tr><th>売買</th><th>銘柄</th><th className="num">株数</th><th className="num">約定値</th><th className="num">手数料</th><th>理由</th></tr></thead>
-            <tbody>{h.fills.map((f, i) => <tr key={i}><td className={f.side === "buy" ? "up" : "down"}>{f.side === "buy" ? "買" : "売"}</td><td>{f.ticker} <span className="dim">{d.names[f.ticker] ?? ""}</span></td><td className="num">{f.shares}</td><td className="num">{num(f.price, 1)}</td><td className="num">{money(f.fee)}</td><td className="dim">{f.reason}</td></tr>)}</tbody>
+            <tbody>{h.fills.map((f, i) => <tr key={i}><td className={f.side === "buy" ? "up" : "down"}>{f.side === "buy" ? "買" : "売"}</td><td>{f.ticker} <span className="dim">{d.names[f.ticker] ?? ""}</span></td><td className="num">{f.shares}</td><td className="num">{price(f.price, d.currency)}</td><td className="num">{money(f.fee, d.currency)}</td><td className="dim">{f.reason}</td></tr>)}</tbody>
           </table>
         ) : <Empty>約定なし</Empty>)}
         {tab === "broker" && h.orders && (
           <table className="t">
             <thead><tr><th>状態</th><th>売買</th><th>銘柄</th><th className="num">株数</th><th className="num">指値</th><th>ref / メッセージ</th></tr></thead>
-            <tbody>{h.orders.map((o) => <tr key={o.ref}><td className={o.status === "submitted" ? "ok" : o.status === "blocked" || o.status === "error" ? "fail" : "dim"}>{o.status}</td><td className={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買" : "売"}</td><td>{o.ticker}</td><td className="num">{o.shares}</td><td className="num">{num(o.limitPrice, 1)}</td><td className="dim wrap">{o.ref} {o.message}</td></tr>)}</tbody>
+            <tbody>{h.orders.map((o) => <tr key={o.ref}><td className={o.status === "submitted" ? "ok" : o.status === "blocked" || o.status === "error" ? "fail" : "dim"}>{o.status}</td><td className={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買" : "売"}</td><td>{o.ticker}</td><td className="num">{o.shares}</td><td className="num">{price(o.limitPrice, d.currency)}</td><td className="dim wrap">{o.ref} {o.message}</td></tr>)}</tbody>
           </table>
         )}
         {tab === "account" && h.account && (
@@ -146,7 +146,7 @@ export function RunDetailView({ d }: { d: Detail }) {
             {Object.keys(h.account.positions).length === 0 ? <Empty>保有なし</Empty> : (
               <table className="t">
                 <thead><tr><th>銘柄</th><th className="num">株数</th><th className="num">取得単価</th><th className="num">高値</th><th>取得日</th><th className="num">保有日数</th></tr></thead>
-                <tbody>{Object.values(h.account.positions).map((p) => <tr key={p.ticker}><td>{p.ticker} <span className="dim">{d.names[p.ticker] ?? ""}</span></td><td className="num">{p.shares}</td><td className="num">{num(p.entryPrice, 1)}</td><td className="num">{num(p.highestClose, 1)}</td><td>{p.entryDate}</td><td className="num">{p.daysHeld}</td></tr>)}</tbody>
+                <tbody>{Object.values(h.account.positions).map((p) => <tr key={p.ticker}><td>{p.ticker} <span className="dim">{d.names[p.ticker] ?? ""}</span></td><td className="num">{p.shares}</td><td className="num">{price(p.entryPrice, d.currency)}</td><td className="num">{price(p.highestClose, d.currency)}</td><td>{p.entryDate}</td><td className="num">{p.daysHeld}</td></tr>)}</tbody>
               </table>
             )}
           </div>

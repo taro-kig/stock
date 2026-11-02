@@ -108,7 +108,7 @@ export function Calendar() {
                   <td className="nowrap">{e.date.slice(5).replace("-", "/")}</td>
                   <td className={`num nowrap ${e.daysAway <= 3 ? "warn" : "dim"}`}>{e.daysAway === 0 ? "今日" : `${e.daysAway}日後`}</td>
                   <td className="nowrap"><b className={e.held ? "accent" : ""}>{e.ticker}</b>{TIME_MARK(e.time) && <span className="cal-time">{TIME_MARK(e.time)}</span>}</td>
-                  <td className="dim ellipsis">{e.name}{e.held ? "（保有中）" : ""}</td>
+                  <td className="dim ellipsis" style={{ maxWidth: "16ch" }} title={e.held ? `${e.name}（保有中）` : e.name}>{e.name}</td>
                 </tr>
               ))}
             </tbody>

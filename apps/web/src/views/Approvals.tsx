@@ -152,6 +152,7 @@ export function Approvals({ overview, param, toast }: { overview: Overview | und
   const buyValue = buys.reduce((s, p) => s + p.shares * p.price, 0);
   const sellValue = sells.reduce((s, p) => s + p.shares * p.price, 0);
   const account = detail.data?.highlights.account;
+  const cur = account?.currency ?? overview?.currency ?? null;
   const names = detail.data?.names ?? {};
   const tickers = new Set(ps.map((p) => p.ticker));
   const relevant = detail.data?.highlights.judgments?.items.filter((j) => tickers.has(j.ticker)) ?? [];
@@ -163,12 +164,12 @@ export function Approvals({ overview, param, toast }: { overview: Overview | und
       <Pane title="承認待ち" aux={`${sel.run.workflow} · 基準日 ${sel.run.asOf} · ${ago(sel.run.createdAt)}`} className="alert">
         <div style={{ display: "flex", gap: "5ch", flexWrap: "wrap", alignItems: "end" }}>
           <div><div className="label">注文</div><div className="big-count">{ps.length}</div></div>
-          <div><div className="label">買い</div><div className={`h1 ${buyValue ? "up" : "faint"}`}>{moneyOrDash(buyValue)}</div><div className="dim">{buys.length} 件{account ? ` · 資産の ${pct(buyValue / account.equity, 1)}` : ""}</div></div>
-          <div><div className="label">売り</div><div className={`h1 ${sellValue ? "down" : "faint"}`}>{moneyOrDash(sellValue)}</div><div className="dim">{sells.length} 件</div></div>
+          <div><div className="label">買い</div><div className={`h1 ${buyValue ? "up" : "faint"}`}>{moneyOrDash(buyValue, cur)}</div><div className="dim">{buys.length} 件{account && buyValue ? ` · 資産の ${pct(buyValue / account.equity, 1)}` : ""}</div></div>
+          <div><div className="label">売り</div><div className={`h1 ${sellValue ? "down" : "faint"}`}>{moneyOrDash(sellValue, cur)}</div><div className="dim">{sells.length} 件</div></div>
           {account && <div><div className="label">口座</div><div className="h1">{money(account.equity, account.currency)}</div><div className="dim">現金 {money(account.cash, account.currency)} · {MODE_JA[account.mode] ?? account.mode}</div></div>}
         </div>
         <hr className="rule" />
-        <OrdersTable items={ps} names={names} />
+        <OrdersTable items={ps} names={names} currency={cur} />
         <hr className="rule" />
         {decisionRow}
       </Pane>

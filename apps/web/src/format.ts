@@ -18,6 +18,13 @@ export function money(x: number | null | undefined, currency?: string | null): s
   return `¥${Math.round(x).toLocaleString("ja-JP")}`;
 }
 
+/** A share price: cents for USD; yen with a decimal only when there is one. */
+export function price(x: number | null | undefined, currency?: string | null): string {
+  if (!isNum(x)) return "—";
+  if (currency === "USD") return `$${x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `¥${x.toLocaleString("ja-JP", { maximumFractionDigits: 1 })}`;
+}
+
 /** Amount, or a dash when there is nothing (keeps tables quiet). */
 export const moneyOrDash = (x: number, currency?: string | null): string => (x ? money(x, currency) : "—");
 

@@ -30,8 +30,8 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
                       <td><Status s="waiting" label={false} />{run.workflow}</td>
                       <td>{run.asOf}</td>
                       <td className="num">{gate.proposals.length}</td>
-                      <td className="num up">{moneyOrDash(buy.reduce((s, p) => s + p.shares * p.price, 0))}</td>
-                      <td className="num down">{moneyOrDash(sell.reduce((s, p) => s + p.shares * p.price, 0))}</td>
+                      <td className="num up">{moneyOrDash(buy.reduce((s, p) => s + p.shares * p.price, 0), data.currency)}</td>
+                      <td className="num down">{moneyOrDash(sell.reduce((s, p) => s + p.shares * p.price, 0), data.currency)}</td>
                       <td className="dim">{ago(run.createdAt, now)}</td>
                     </tr>
                   );
@@ -97,7 +97,7 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
                 <div key={e.account}>
                   {i > 0 && <hr className="rule" />}
                   <div className="nowrap">
-                    <span className="fg2">{e.account}</span> <span className="tag">{e.kind === "paper" ? "疑似" : "IBKR"}</span>
+                    <span className="fg2">{e.account}</span> <span className="tag">{e.kind === "paper" ? "ペーパー" : "証券口座"}</span>
                     <span className="faint"> · {e.points.length} 日</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: "2ch" }}>

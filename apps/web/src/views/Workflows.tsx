@@ -148,7 +148,7 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
               <button className="btn primary" onClick={() => void run()} disabled={sel.problems.length > 0 || sel.disabled !== null}>{asOf ? `${asOf} で実行` : "今日の分を実行"} <kbd>r</kbd></button>
               <input className="input" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} title="過去日付で再生（空欄 = 今日）" />
               {asOf && <button className="btn" onClick={() => setAsOf("")}>今日に戻す</button>}
-              <button className={`btn ${sel.disabled ? "" : "danger"}`} onClick={() => void toggle()}>{sel.disabled ? "▶ 有効にする" : "⏸ 無効にする"} <kbd>d</kbd></button>
+              <button className="btn" onClick={() => void toggle()}>{sel.disabled ? "▶ 有効にする" : "⏸ 無効にする"} <kbd>d</kbd></button>
               {sel.lastRun && <button className="btn" onClick={() => navigate("runs", sel.lastRun!.runId)}>最終実行を見る <Status s={sel.lastRun.status} label={false} /></button>}
               <span className="faint">実行はキューで1つずつ処理されます</span>
             </div>

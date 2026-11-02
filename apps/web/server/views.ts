@@ -152,7 +152,7 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
     }
   }
   const names = Object.fromEntries(Object.keys(s.config.watchlist).map((t) => [t, s.watchlist.name(t)]));
-  return { run: summary(run), description: spec.description, nodes, edges: graph.edges, highlights: h, waiting, names };
+  return { run: summary(run), currency: s.config.market.currency, description: spec.description, nodes, edges: graph.edges, highlights: h, waiting, names };
 }
 
 /** Scorecard with the latest as-of date among recent runs (replays of old dates do not win). */

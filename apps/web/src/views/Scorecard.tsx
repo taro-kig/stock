@@ -70,10 +70,10 @@ function LabelPane({ k }: { k: LabelCard }) {
             <dt>プロンプト別</dt>
             <dd>
               {(k.byPrompt ?? []).map((b) => (
-                <div key={b.prompt} className="nowrap">
+                <div key={b.prompt} className="wrap-meta">
                   <a className="accent" style={{ display: "inline-block", minWidth: "26ch" }} href={b.prompt === "—" ? undefined : `#/prompts/judge/${b.prompt.split("+")[0]}`}>{b.prompt === "—" ? "（記録なし）" : b.prompt}</a>
                   <Meter value={b.hitRateEff ?? 0} width={16} tone={(b.hitRateEff ?? 0) > 0.5 ? "ok" : ""} mark={0.5} /> {pct(b.hitRateEff)}
-                  <span className="faint"> 下限 {pct(b.wilsonLow)} · 実効 {b.nEff} · {b.first}〜{b.last}</span>
+                  <div className="faint">下限 {pct(b.wilsonLow)} · 実効 {b.nEff} · {b.first}〜{b.last}</div>
                 </div>
               ))}
             </dd>
