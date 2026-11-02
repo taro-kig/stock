@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AppConfig, loadConfig } from "../src/config.ts";
 import { listModels, modelSlug, PoolInput, vendorOf } from "../src/llm/catalog.ts";
-import { defaultSingle, ModelsConfig, modelsFor, usedModelNames } from "../src/llm/roles.ts";
+import { describeUse, explicitModelNames, ModelsConfig, modelsFor, resolveUse, usedModelNames } from "../src/llm/roles.ts";
+import { SettingsStore } from "../src/util/settings.ts";
 import { Services } from "../src/services.ts";
 import { saveModelPool, saveModelUse } from "../src/util/configFile.ts";
 
@@ -83,37 +84,72 @@ describe("model config", () => {
   const g = { name: "g", provider: "gemini", model: "gemini-2.5-flash-lite", apiKeyEnv: "GEMINI_API_KEY" };
   const d = { name: "d", provider: "openai_compat", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", apiKeyEnv: "DEEPSEEK_API_KEY" };
   const f = { name: "f", provider: "gemini", model: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY" };
+  const p = { name: "p", provider: "gemini", model: "gemini-2.5-pro", apiKeyEnv: "GEMINI_API_KEY" };
+  const r1 = { name: "r1", provider: "openai_compat", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-reasoner", apiKeyEnv: "DEEPSEEK_API_KEY" };
+  const ctx = (keys: string[], quorum = 2) => ({ hasKey: (s: { apiKeyEnv: string }) => keys.includes(s.apiKeyEnv), pricing: {}, quorum });
+  const both = ["GEMINI_API_KEY", "DEEPSEEK_API_KEY"];
 
-  it("still reads the old tier1 / tier2 / redTeam shape", () => {
+  it("auto: the cheapest model of each vendor votes, a pricier one settles disagreements", () => {
+    const m = ModelsConfig.parse({ pool: [p, f, r1, d, g] });
+    expect(m.use).toEqual({ event: "auto", judge: "auto", redteam: "auto", universe: "auto" });
+    const r = resolveUse(m, ctx(both));
+    expect(r.judge).toEqual({ vote: ["g", "d"], escalation: "f" }); // not the pro or the reasoner
+    expect(r.event).toEqual(r.judge);
+    expect(r.redteam).toBe("f");
+    expect(r.universe).toBe("f");
+    expect(r.notes).toEqual([]);
+    expect(describeUse(r, "judge", 2)).toBe("g と d に同じことを聞き、答えが一致したものだけを使う。それでも決まらない大事なものは f が決める");
+  });
+
+  it("auto: follows the keys that are set, and says what is missing", () => {
+    const m = ModelsConfig.parse({ pool: [g, d, f] });
+    const onlyGemini = resolveUse(m, ctx(["GEMINI_API_KEY"]));
+    expect(onlyGemini.judge).toEqual({ vote: ["g", "f"] }); // two Gemini models, nothing stronger left
+    expect(onlyGemini.notes.join()).toMatch(/1 社だけ/);
+    const third = resolveUse(ModelsConfig.parse({ pool: [g, d, f, { name: "q", provider: "openai_compat", baseUrl: "https://openrouter.ai/api/v1", model: "qwen/qwen-2.5-72b-instruct", apiKeyEnv: "OPENROUTER_API_KEY" }] }), ctx([...both, "OPENROUTER_API_KEY"]));
+    expect(third.judge.vote).toEqual(["g", "d", "q"]); // a 3rd vendor only asked on disagreement
+    expect(third.judge.escalation).toBe("f");
+    const none = resolveUse(m, ctx([]));
+    expect(none.notes.join()).toMatch(/キーが設定されたモデルがありません/);
+    const one = resolveUse(ModelsConfig.parse({ pool: [g] }), ctx(both));
+    expect(one.notes.join()).toMatch(/少なくとも 2 つ/);
+  });
+
+  it("old tier1 / tier2 / redTeam files load as a pool with auto", () => {
     const m = ModelsConfig.parse({ tier1: [g, d], tier2: f });
     expect(m.pool.map((x) => x.name)).toEqual(["g", "d", "f"]);
-    expect(m.use.event).toEqual({ vote: ["g", "d"], escalation: "f" });
-    expect(m.use.judge).toEqual({ vote: ["g", "d"], escalation: "f" });
-    expect(defaultSingle(m, "redteam")).toBe("f");
-    expect(defaultSingle(m, "universe")).toBe("f");
-    const noTier2 = ModelsConfig.parse({ tier1: [g, d] });
-    expect(defaultSingle(noTier2, "redteam")).toBeUndefined();
-    expect(defaultSingle(noTier2, "universe")).toBe("g");
+    expect(m.use.judge).toBe("auto");
+    expect(resolveUse(m, ctx(both)).judge).toEqual({ vote: ["g", "d"], escalation: "f" }); // the same roles as before
   });
 
-  it("checks that every used name is in the pool", () => {
-    expect(ModelsConfig.safeParse({ pool: [g, d], use: { event: { vote: ["g", "x"] }, judge: { vote: ["g", "d"] } } }).success).toBe(false);
-    expect(ModelsConfig.safeParse({ pool: [g, d], use: { event: { vote: ["g", "g"] }, judge: { vote: ["g", "d"] } } }).success).toBe(false);
-    expect(ModelsConfig.safeParse({ pool: [g, g], use: { event: { vote: ["g"] }, judge: { vote: ["g"] } } }).success).toBe(false);
-    const m = ModelsConfig.parse({ pool: [g, d, f], use: { event: { vote: ["g", "d"] }, judge: { vote: ["d", "g"], escalation: "f" }, redteam: "none" } });
-    expect(usedModelNames(m)).toEqual(["g", "d", "f"]);
-    expect(modelsFor(m, "redteam")).toEqual([]);
-    expect(modelsFor(m, "judge")).toEqual(["d", "g", "f"]);
+  it("hand-picked choices are kept as they are and checked against the pool", () => {
+    expect(ModelsConfig.safeParse({ pool: [g, d], use: { event: { vote: ["g", "x"] } } }).success).toBe(false);
+    expect(ModelsConfig.safeParse({ pool: [g, d], use: { event: { vote: ["g", "g"] } } }).success).toBe(false);
+    expect(ModelsConfig.safeParse({ pool: [g, g] }).success).toBe(false);
+    expect(ModelsConfig.safeParse({ pool: [g], use: { universe: "none" } }).success).toBe(false);
+    const m = ModelsConfig.parse({ pool: [g, d, f], use: { judge: { vote: ["d", "g"], escalation: "f" }, redteam: "none" } });
+    expect(explicitModelNames(m)).toEqual(["d", "g", "f"]);
+    const r = resolveUse(m, ctx(both));
+    expect(r.judge).toEqual({ vote: ["d", "g"], escalation: "f" });
+    expect(r.event).toEqual({ vote: ["g", "d"], escalation: "f" }); // still auto
+    expect(r.redteam).toBeUndefined();
+    expect(r.auto).toEqual({ event: true, judge: false, redteam: false, universe: true });
+    expect(modelsFor(r, "redteam")).toEqual([]);
+    expect(usedModelNames(r)).toEqual(["g", "d", "f"]);
   });
 
-  it("resolves per family, with node overrides", () => {
-    const cfg = AppConfig.parse({ watchlist: {}, models: { pool: [g, d, f], use: { event: { vote: ["g", "d"] }, judge: { vote: ["d", "f"], escalation: "g" }, redteam: "none", universe: "d" } } });
-    const s = new Services(cfg, { dbPath: ":memory:", env: { GEMINI_API_KEY: "k", DEEPSEEK_API_KEY: "k" } });
-    expect(s.voters("event").map((m) => m.name)).toEqual(["g", "d"]);
-    expect(s.voters("judge").map((m) => m.name)).toEqual(["d", "f"]);
-    expect(s.voters("judge", ["f", "g"]).map((m) => m.name)).toEqual(["f", "g"]);
-    expect(s.escalation("event")).toBeUndefined();
-    expect(s.escalation("judge")?.name).toBe("g");
+  it("Services resolve per family, with node overrides, and re-pick when a key is added", () => {
+    const env: NodeJS.ProcessEnv = { GEMINI_API_KEY: "k" };
+    const settings = new SettingsStore({ path: ":memory:", env, shellKeys: new Set() });
+    const cfg = AppConfig.parse({ watchlist: {}, models: { pool: [g, d, f], use: { redteam: "none", universe: "d" } } });
+    const s = new Services(cfg, { dbPath: ":memory:", env, settings });
+    expect(s.voters("judge").map((x) => x.name)).toEqual(["g", "f"]);
+    const hash = s.configHash;
+    settings.set("DEEPSEEK_API_KEY", "dk-0123456789abcdef");
+    expect(s.voters("judge").map((x) => x.name)).toEqual(["g", "d"]);
+    expect(s.escalation("judge")?.name).toBe("f");
+    expect(s.configHash).not.toBe(hash); // node results computed with other models are not reused
+    expect(s.voters("judge", ["f", "g"]).map((x) => x.name)).toEqual(["f", "g"]);
     expect(s.escalation("judge", "none")).toBeUndefined();
     expect(s.redTeam()).toBeUndefined();
     expect(s.redTeam("f")?.model).toBe("gemini-2.5-flash");
@@ -146,30 +182,31 @@ describe("saving models", () => {
     expect(text).toContain("gemini-2.5-flash-lite: [ 0.10, 0.40 ]"); // unchanged price keeps "0.10"
     const cfg = loadConfig(p);
     expect(cfg.models!.pool.map((m) => m.name)).toContain("deepseek-reasoner");
-    expect(cfg.models!.use.event.vote).toEqual(["gemini-lite", "deepseek"]);
+    expect(cfg.models!.use.event).toBe("auto");
     expect(r.config.models).toEqual(cfg.models);
   });
 
-  it("refuses to remove a model that is in use", () => {
+  it("a model picked by auto can be removed; one chosen by hand cannot", () => {
     const p = copyConfig();
+    saveModelPool(p, { pool: [spec("gemini-lite", "gemini-2.5-flash-lite"), spec("gemini-flash", "gemini-2.5-flash")] });
+    saveModelUse(p, "judge", { vote: ["gemini-lite", "gemini-flash"], escalation: null });
     const before = readFileSync(p, "utf8");
-    expect(() => saveModelPool(p, { pool: [spec("gemini-lite", "gemini-2.5-flash-lite")] })).toThrow(/deepseek, gemini-flash/);
+    expect(() => saveModelPool(p, { pool: [spec("gemini-lite", "gemini-2.5-flash-lite")] })).toThrow(/gemini-flash/);
     expect(readFileSync(p, "utf8")).toBe(before);
   });
 
-  it("sets what a family uses", () => {
+  it("sets what a family uses, and back to auto", () => {
     const p = copyConfig();
     saveModelUse(p, "judge", { vote: ["deepseek", "gemini-flash"], escalation: null });
     saveModelUse(p, "redteam", "none");
-    saveModelUse(p, "universe", null);
-    const text = readFileSync(p, "utf8");
-    expect(text).toContain("judge: { vote: [ deepseek, gemini-flash ] }");
-    expect(text).toContain("# vote: cheap models from *different vendors*");
-    const m = loadConfig(p).models!;
+    let m = loadConfig(p).models!;
     expect(m.use.judge).toEqual({ vote: ["deepseek", "gemini-flash"] });
-    expect(m.use.event.escalation).toBe("gemini-flash");
+    expect(m.use.event).toBe("auto");
     expect(m.use.redteam).toBe("none");
-    expect(defaultSingle(m, "universe")).toBe("deepseek"); // no judge escalation now → first voter
+    expect(readFileSync(p, "utf8")).toContain("# Which model does what");
+    saveModelUse(p, "judge", "auto");
+    m = loadConfig(p).models!;
+    expect(m.use.judge).toBe("auto");
     expect(() => saveModelUse(p, "event", { vote: ["nope"], escalation: null })).toThrow(/not in models.pool/);
   });
 
@@ -182,15 +219,14 @@ describe("saving models", () => {
   tier2: { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
 `);
     writeFileSync(p, old);
-    expect(loadConfig(p).models!.use.judge.escalation).toBe("gemini-flash");
     saveModelUse(p, "event", { vote: ["deepseek", "gemini-lite"], escalation: "gemini-flash" });
     const text = readFileSync(p, "utf8");
     expect(text).not.toContain("tier1");
     expect(text).toContain("# Models (settings screen");
     const m = loadConfig(p).models!;
-    expect(m.use.event.vote).toEqual(["deepseek", "gemini-lite"]);
-    expect(m.use.judge).toEqual({ vote: ["gemini-lite", "deepseek"], escalation: "gemini-flash" });
-    expect(m.use.universe).toBe("gemini-flash");
+    expect(m.pool.map((x) => x.name)).toEqual(["gemini-lite", "deepseek", "gemini-flash"]);
+    expect(m.use.event).toEqual({ vote: ["deepseek", "gemini-lite"], escalation: "gemini-flash" });
+    expect(m.use.judge).toBe("auto");
   });
 
   it("applies to a running Services without a restart", () => {

@@ -40,7 +40,7 @@ export async function runPromptEval(s: Services, r: PromptEvalRequest): Promise<
   if (!EVALUABLE.includes(r.family)) throw new Error(`no golden set for ${r.family} prompts (compare them on live results instead)`);
   const versions = r.versions?.length ? r.versions : defaultVersions(s, r.family);
   // Default: the models this family uses in production (the rest of the pool may have no key).
-  const models = s.allModels(r.models?.length ? r.models : s.fake || !s.config.models ? undefined : modelsFor(s.config.models, r.family));
+  const models = s.allModels(r.models?.length ? r.models : s.fake || !s.config.models ? undefined : modelsFor(s.resolvedModels(), r.family));
   if (!models.length) throw new Error(`no models to evaluate (configured: ${s.modelNames().join(", ")})`);
   const common = {
     models,

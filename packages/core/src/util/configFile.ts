@@ -4,7 +4,7 @@ import { isMap, parseDocument, YAMLMap } from "yaml";
 import { z } from "zod";
 import { AppConfig } from "../config.ts";
 import { PoolInput } from "../llm/catalog.ts";
-import { MODEL_USES, NO_MODEL, usedModelNames, type ModelsConfig, type ModelUse } from "../llm/roles.ts";
+import { AUTO, explicitModelNames, MODEL_USES, NO_MODEL, type ModelsConfig, type ModelUse } from "../llm/roles.ts";
 
 /** One watchlist row as edited in the UI. */
 export const WatchlistEntryInput = z.strictObject({
@@ -88,6 +88,7 @@ const flowSpec = (doc: YamlDoc, spec: Spec) => {
   return n;
 };
 const useNode = (doc: YamlDoc, v: ModelsConfig["use"]["event"]) => {
+  if (v === AUTO) return doc.createNode(AUTO);
   const n = doc.createNode({ vote: v.vote, ...(v.escalation ? { escalation: v.escalation } : {}) });
   n.flow = true;
   return n;
@@ -106,8 +107,8 @@ function modernizeModels(doc: YamlDoc, current: ModelsConfig | undefined): void 
   const use = new YAMLMap();
   use.set(doc.createNode("event"), useNode(doc, current.use.event));
   use.set(doc.createNode("judge"), useNode(doc, current.use.judge));
-  if (current.use.redteam) use.set(doc.createNode("redteam"), doc.createNode(current.use.redteam));
-  if (current.use.universe) use.set(doc.createNode("universe"), doc.createNode(current.use.universe));
+  use.set(doc.createNode("redteam"), doc.createNode(current.use.redteam));
+  use.set(doc.createNode("universe"), doc.createNode(current.use.universe));
   map.set(doc.createNode("use"), use);
   if (isMap(old) && old.commentBefore) map.commentBefore = old.commentBefore;
   doc.set("models", map);
@@ -140,13 +141,11 @@ export function saveModelPool(loadedFrom: string, input: PoolInput): { file: str
     const cur = currentModels(doc);
     if (cur) {
       const names = new Set(m.pool.map((x) => x.name));
-      const gone = usedModelNames(cur).filter((n) => !names.has(n));
+      const gone = explicitModelNames(cur).filter((n) => !names.has(n));
       if (gone.length) throw new Error(`${gone.join(", ")} はプロンプト画面のモデル設定で使われているので外せません。先に別のモデルに切り替えてください`);
       modernizeModels(doc, cur);
     } else {
-      // first models section: everything votes, no escalation
-      const vote = { vote: m.pool.slice(0, 2).map((x) => x.name) };
-      modernizeModels(doc, { pool: m.pool, use: { event: vote, judge: vote } });
+      modernizeModels(doc, { pool: m.pool, use: { event: AUTO, judge: AUTO, redteam: AUTO, universe: AUTO } });
     }
     const seq = doc.createNode(m.pool.map((x) => flowSpec(doc, x)));
     const old = doc.getIn(["models", "pool"], true) as { comment?: string | null; commentBefore?: string | null } | undefined;
@@ -157,22 +156,22 @@ export function saveModelPool(loadedFrom: string, input: PoolInput): { file: str
   });
 }
 
-/** What one family uses: voters + escalation (event / judge) or one model (redteam / universe; null = the default). */
-export type ModelUseValue = { vote: string[]; escalation: string | null } | string | null;
+/** What one family uses: "auto", voters + escalation (event / judge), or one model / "none" (redteam / universe). */
+export type ModelUseValue = { vote: string[]; escalation: string | null } | string;
 
 /** Sets `models.use.<family>`, keeping comments. */
 export function saveModelUse(loadedFrom: string, use: ModelUse, value: ModelUseValue): { file: string; created: boolean; config: AppConfig } {
   if (!MODEL_USES.includes(use)) throw new Error(`unknown use ${use}`);
   return editConfig(loadedFrom, (doc) => {
     modernizeModels(doc, currentModels(doc));
-    if (use === "event" || use === "judge") {
-      if (!value || typeof value !== "object" || !Array.isArray(value.vote)) throw new Error(`${use}: { vote: [...], escalation } が必要です`);
+    if (value === AUTO) {
+      doc.setIn(["models", "use", use], AUTO);
+    } else if (use === "event" || use === "judge") {
+      if (!value || typeof value !== "object" || !Array.isArray(value.vote)) throw new Error(`${use}: "auto" か { vote: [...], escalation } が必要です`);
       const v = { vote: value.vote.map(String), ...(value.escalation && value.escalation !== NO_MODEL ? { escalation: String(value.escalation) } : {}) };
       doc.setIn(["models", "use", use], useNode(doc, v));
-    } else if (value === null) {
-      doc.deleteIn(["models", "use", use]);
     } else {
-      if (typeof value !== "string") throw new Error(`${use}: モデル名（文字列）が必要です`);
+      if (typeof value !== "string" || !value) throw new Error(`${use}: モデル名（文字列）が必要です`);
       doc.setIn(["models", "use", use], value);
     }
   });

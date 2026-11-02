@@ -1,4 +1,4 @@
-import { usedModelNames } from "../llm/roles.ts";
+import { explicitModelNames } from "../llm/roles.ts";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -58,8 +58,11 @@ export function settingDefs(config?: AppConfig): SettingDef[] {
   const defs = new Map(KNOWN_SETTINGS.map((d) => [d.name, d]));
   const referenced: string[] = [];
   if (config) {
-    const used = config.models ? usedModelNames(config.models) : [];
-    const models = (config.models?.pool ?? []).filter((m) => used.includes(m.name));
+    // With "auto", any registered model may be chosen once its key is set.
+    const m = config.models;
+    const anyAuto = m ? Object.values(m.use).some((v) => v === "auto") : false;
+    const used = m ? explicitModelNames(m) : [];
+    const models = (m?.pool ?? []).filter((x) => anyAuto || used.includes(x.name));
     for (const m of models) if ("apiKeyEnv" in m && typeof m.apiKeyEnv === "string") referenced.push(m.apiKeyEnv);
     if (config.webull) referenced.push(config.webull.appKeyEnv, config.webull.appSecretEnv);
   }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, vendorOf, defaultSingle, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -309,34 +309,56 @@ export function createApp(o: AppOptions): App {
     };
   }
 
-  /** Where each pool model is used: config (models.use) and workflow nodes that pick models themselves. */
-  function modelUsage(): Record<string, string[]> {
+  /** The resolved choice, or null when there is no models section / in --fake. */
+  function resolved(): ResolvedUse | null {
+    if (s.fake || !s.config.models) return null;
+    return s.resolvedModels();
+  }
+
+  /** Workflow nodes that pick their own models: name → workflows. */
+  function nodeModelRefs(): Record<string, string[]> {
     const out: Record<string, string[]> = {};
-    const add = (n: unknown, what: string) => {
-      if (typeof n !== "string" || n === NO_MODEL) return;
-      (out[n] ??= []).includes(what) || out[n]!.push(what);
-    };
-    const m = s.config.models;
-    if (m) {
-      for (const f of ["event", "judge"] as const) {
-        m.use[f].vote.forEach((n, i) => add(n, `${FAMILY_LABELS[f]}・${i < s.config.harness.quorum ? "投票" : "割れたときの票"}`));
-        add(m.use[f].escalation, `${FAMILY_LABELS[f]}・エスカレーション`);
-      }
-      add(defaultSingle(m, "redteam"), FAMILY_LABELS.redteam);
-      add(defaultSingle(m, "universe"), FAMILY_LABELS.universe);
-    }
     for (const w of workflows()) {
       for (const n of Object.values(w.spec?.nodes ?? {})) {
         for (const k of ["models", "escalation", "redTeamModel", "model"]) {
           const v = n.params[k];
-          for (const x of Array.isArray(v) ? v : [v]) add(x, `${w.name}（ノード）`);
+          for (const x of Array.isArray(v) ? v : [v]) {
+            if (typeof x !== "string" || x === NO_MODEL || x === AUTO) continue;
+            (out[x] ??= []).includes(w.name) || out[x]!.push(w.name);
+          }
         }
       }
     }
     return out;
   }
 
-  /** What a family uses, and which workflows choose their own models for it. */
+  /**
+   * Where each pool model is used now (labels), and which ones cannot be removed: those named
+   * explicitly in config or in a workflow node. Models picked by "auto" can go; auto picks again.
+   */
+  function modelUsage(): { usedBy: Record<string, string[]>; locked: string[] } {
+    const usedBy: Record<string, string[]> = {};
+    const add = (n: string | undefined, what: string) => {
+      if (!n) return;
+      (usedBy[n] ??= []).includes(what) || usedBy[n]!.push(what);
+    };
+    const r = resolved();
+    if (r) {
+      const tag = (f: ModelUse) => (r.auto[f] ? "（おまかせ）" : "");
+      for (const f of ["event", "judge"] as const) {
+        r[f].vote.forEach((n) => add(n, `${FAMILY_LABELS[f]}${tag(f)}`));
+        add(r[f].escalation, `${FAMILY_LABELS[f]}${tag(f)}`);
+      }
+      add(r.redteam, `${FAMILY_LABELS.redteam}${tag("redteam")}`);
+      add(r.universe, `${FAMILY_LABELS.universe}${tag("universe")}`);
+    }
+    const refs = nodeModelRefs();
+    for (const [n, wfs] of Object.entries(refs)) for (const w of wfs) add(n, `${w}（ノード）`);
+    const locked = [...new Set([...(s.config.models ? explicitModelNames(s.config.models) : []), ...Object.keys(refs)])];
+    return { usedBy, locked };
+  }
+
+  /** What a family uses (auto or chosen), in plain words, and which workflows choose their own models for it. */
   function familyModels(f: PromptFamily): PromptFamilyView["models"] {
     const keys: Record<PromptFamily, { types: string[]; params: string[] }> = {
       event: { types: ["llm.extractEvents"], params: ["models", "escalation"] },
@@ -348,16 +370,28 @@ export function createApp(o: AppOptions): App {
       .filter((w) => Object.values(w.spec?.nodes ?? {}).some((n) => keys[f].types.includes(n.use) && keys[f].params.some((k) => n.params[k] !== undefined)))
       .map((w) => w.name);
     const m = s.config.models;
-    if (f === "event" || f === "judge") return { kind: "vote", vote: m?.use[f].vote ?? [], escalation: m?.use[f].escalation ?? null, overriddenBy };
-    return { kind: "single", model: m?.use[f] ?? null, effective: m ? (defaultSingle(m, f) ?? null) : null, overriddenBy };
+    const r = resolved();
+    const saved = m ? m.use[f] : AUTO;
+    const kind = f === "event" || f === "judge" ? "vote" : "single";
+    return {
+      kind, auto: saved === AUTO,
+      manual: saved === AUTO ? null : typeof saved === "string" ? saved : { vote: saved.vote, escalation: saved.escalation ?? null },
+      vote: r && (f === "event" || f === "judge") ? r[f].vote : [],
+      escalation: r && (f === "event" || f === "judge") ? (r[f].escalation ?? null) : null,
+      model: r && (f === "redteam" || f === "universe") ? (r[f] ?? null) : null,
+      summary: r ? describeUse(r, f, s.config.harness.quorum) : s.fake ? "疑似モデル（--fake）" : "モデル未設定",
+      notes: r && r.auto[f] ? r.notes : [],
+      overriddenBy,
+    };
   }
 
-  /** One line describing what a family uses, for the switch history. */
-  function describeUse(f: ModelUse): string {
-    const m = s.config.models;
-    if (!m) return "—";
-    if (f === "event" || f === "judge") return `${m.use[f].vote.join(" + ")}${m.use[f].escalation ? ` / 割れたら ${m.use[f].escalation}` : ""}`;
-    return defaultSingle(m, f) ?? "なし";
+  /** One short line of what a family uses, for the switch history. */
+  function useLine(f: ModelUse): string {
+    const r = resolved();
+    if (!r) return "—";
+    const auto = r.auto[f] ? "おまかせ: " : "";
+    if (f === "event" || f === "judge") return `${auto}${r[f].vote.join(" + ")}${r[f].escalation ? ` / 割れたら ${r[f].escalation}` : ""}`;
+    return `${auto}${r[f] ?? "なし"}`;
   }
 
   /** Runs a config.yaml edit; validation errors become 400s with readable messages. */
@@ -547,7 +581,7 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "GET" && path === "/api/models") {
       return send(res, 200, {
-        pool: s.config.models?.pool ?? [], usedBy: modelUsage(), pricing: s.config.pricing, fallbackPrice: [...FALLBACK_PRICE_PER_M],
+        pool: s.config.models?.pool ?? [], ...modelUsage(), pricing: s.config.pricing, fallbackPrice: [...FALLBACK_PRICE_PER_M],
         vendors: VENDOR_IDS.map((id) => ({ ...VENDORS[id], keySet: Boolean(s.env[VENDORS[id].apiKeyEnv]) })),
         dailyBudgetUsd: s.config.harness.dailyBudgetUsd,
         editable: Boolean(o.configPath), file: o.configPath ? editableConfigPath(o.configPath) : null, fake: s.fake,
@@ -589,8 +623,8 @@ export function createApp(o: AppOptions): App {
       }
       const keep = new Set((Array.isArray(body["pool"]) ? body["pool"] : []).map((x: { name?: unknown }) => String(x?.name)));
       const usage = modelUsage();
-      const gone = Object.keys(usage).filter((n) => !keep.has(n));
-      if (gone.length) throw new HttpError(400, gone.map((n) => `${n} は使用中です（${usage[n]!.join("、")}）`).join("; ") + "。先に別のモデルに切り替えてから外してください");
+      const gone = usage.locked.filter((n) => !keep.has(n));
+      if (gone.length) throw new HttpError(400, gone.map((n) => `${n} は使用中です（${(usage.usedBy[n] ?? []).join("、")}）`).join("; ") + "。先に別のモデル（またはおまかせ）に切り替えてから外してください");
       const r = configEdit(() => saveModelPool(o.configPath!, { pool: body["pool"], pricing: body["pricing"] ?? {} } as never));
       s.updateModels(r.config.models, r.config.pricing);
       broadcast({ type: "config_changed" });
@@ -602,14 +636,14 @@ export function createApp(o: AppOptions): App {
       if (!MODEL_USES.includes(use)) throw new HttpError(404, `unknown use ${use}`);
       const value = (await readJson(req))["value"] as ModelUseValue;
       const quorum = s.config.harness.quorum;
-      if ((use === "event" || use === "judge") && (!value || typeof value !== "object" || !Array.isArray(value.vote) || value.vote.length < quorum)) {
+      if (value !== AUTO && (use === "event" || use === "judge") && (!value || typeof value !== "object" || !Array.isArray(value.vote) || value.vote.length < quorum)) {
         throw new HttpError(400, `多数決は ${quorum} 票の一致で採用するので、投票するモデルは ${quorum} つ以上必要です（harness.quorum）`);
       }
-      const from = describeUse(use);
+      const from = useLine(use);
       const r = configEdit(() => saveModelUse(o.configPath!, use, value));
       s.updateModels(r.config.models, r.config.pricing);
-      const to = describeUse(use);
-      if (from !== to) s.promptStore.logSwitch({ at: clock().toISOString(), family: use, from: `モデル: ${from}`, to: `モデル: ${to}`, source: "ui" });
+      const to = useLine(use);
+      if (from !== to) s.promptStore.logSwitch({ at: clock().toISOString(), family: use, from: `モデル ${from}`, to: `モデル ${to}`, source: "ui" });
       broadcast({ type: "config_changed" });
       return send(res, 200, { ok: true, file: r.file, changed: from !== to });
     }

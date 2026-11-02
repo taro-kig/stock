@@ -130,8 +130,10 @@ export type StreamEvent =
 export interface ModelsView {
   /** Registered models (config.yaml models.pool). */
   pool: ModelSpec[];
-  /** Pool name → where it is used ("売買判断・投票", "daily-ai（ノード）", ...). Used models cannot be removed. */
+  /** Pool name → where it is used now ("売買判断（おまかせ）", "daily-ai（ノード）", ...). */
   usedBy: Record<string, string[]>;
+  /** Named explicitly (by hand or in a node): cannot be removed. Models picked by "auto" can. */
+  locked: string[];
   pricing: Record<string, readonly [number, number]>;
   /** Charged for models without a price (deliberately high). */
   fallbackPrice: number[];
@@ -188,9 +190,22 @@ export interface PromptFamilyView {
   versions: PromptVersionView[];
   evals: EvalJob[];
   /** Models this family uses (config.yaml models.use); overriddenBy = workflows whose node picks its own. */
-  models:
-    | { kind: "vote"; vote: string[]; escalation: string | null; overriddenBy: string[] }
-    | { kind: "single"; model: string | null; effective: string | null; overriddenBy: string[] };
+  models: {
+    kind: "vote" | "single";
+    /** Chosen by the app ("auto") rather than by hand. */
+    auto: boolean;
+    /** The saved manual choice (null when auto). */
+    manual: { vote: string[]; escalation: string | null } | string | null;
+    /** What is used now (auto decided). */
+    vote: string[];
+    escalation: string | null;
+    model: string | null;
+    /** One plain-language sentence. */
+    summary: string;
+    /** Warnings about the automatic choice (missing keys, one vendor only). */
+    notes: string[];
+    overriddenBy: string[];
+  };
 }
 
 export interface PromptsView {

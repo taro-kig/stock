@@ -16,14 +16,10 @@ models:
     - { name: deepseek, provider: openai_compat, baseUrl: "https://api.deepseek.com/v1", model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }
     - { name: gemini-flash, provider: gemini, model: gemini-2.5-flash, apiKeyEnv: GEMINI_API_KEY }
     # - { name: qwen, provider: openai_compat, baseUrl: "https://openrouter.ai/api/v1", model: qwen/qwen-2.5-72b-instruct, apiKeyEnv: OPENROUTER_API_KEY }
-  # Which models each prompt family uses (prompts screen; a workflow node can override with models / escalation / redTeamModel / model).
-  # vote: cheap models from *different vendors* (uncorrelated errors). The first `harness.quorum` are always called,
-  # a 3rd only when they disagree. escalation: tie-breaker for important disagreements.
-  use:
-    event: { vote: [gemini-lite, deepseek], escalation: gemini-flash }
-    judge: { vote: [gemini-lite, deepseek], escalation: gemini-flash }
-    redteam: gemini-flash
-    universe: gemini-flash
+  # Which model does what. auto (default): the app picks from the models above that have a key —
+  # the cheapest model of each vendor answers and only matching answers are used; a pricier one settles
+  # important disagreements. To choose by hand: prompts screen → 使うモデル (or a workflow node's params).
+  use: { event: auto, judge: auto, redteam: auto, universe: auto }
 
 # Prompt versions (docs/prompts.md). Compare with `stockai eval events|judge` before switching.
 prompts:

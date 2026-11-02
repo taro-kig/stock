@@ -68,6 +68,15 @@ export const VENDORS: Record<VendorId, Vendor> = {
   },
 };
 
+/** Our reference price for a model id (USD / 1M tokens), if it is one we know. */
+export function knownPrice(model: string): readonly [number, number] | undefined {
+  for (const v of Object.values(VENDORS)) {
+    const m = v.models.find((x) => x.id === model);
+    if (m?.price) return m.price;
+  }
+  return undefined;
+}
+
 /** Which vendor a configured model belongs to (custom when the base URL is not one of ours). */
 export function vendorOf(spec: ModelSpec): VendorId {
   if (spec.provider === "gemini") return "gemini";

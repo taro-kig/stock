@@ -28,7 +28,7 @@ export { defaultGoldenSet, defaultVersions, EVALUABLE, runPromptEval, type Promp
 export type { EvalReport } from "./eval/promptEval.ts";
 export { PromptStore, type EvalJob, type EvalJobStatus, type PromptSwitch } from "./prompts/store.ts";
 export { editConfig, saveConfigValue, saveModelPool, saveModelUse, type ModelUseValue } from "./util/configFile.ts";
-export { defaultSingle, MODEL_USES, modelsFor, NO_MODEL, usedModelNames, type ModelsConfig, type ModelUse } from "./llm/roles.ts";
+export { AUTO, autoAssign, describeUse, explicitModelNames, MODEL_USES, modelsFor, NO_MODEL, resolveUse, usedModelNames, type ModelsConfig, type ModelUse, type ResolvedUse } from "./llm/roles.ts";
 export { listModels, ModelSpecInput, PoolInput, modelSlug, VENDOR_IDS, VENDORS, vendorOf, type AvailableModel, type KnownModel, type ModelList, type Vendor, type VendorId } from "./llm/catalog.ts";
 export type { ModelSpec } from "./llm/factory.ts";
 export { isUsTradingDay, usHoliday, usHolidaysBetween, usMarketHolidays, usTradingDays, US_HOLIDAY_JA } from "./util/marketCalendar.ts";

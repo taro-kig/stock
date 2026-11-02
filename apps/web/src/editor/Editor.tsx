@@ -32,18 +32,10 @@ function promptChoices(use: string, prompts: PromptsView | undefined): Choices |
   const names = prompts.pool.map((p) => p.name);
   const labels = Object.fromEntries(prompts.pool.map((p) => [p.name, `${p.name} — ${p.model}`]));
   const fm = (f: string) => prompts.families.find((x) => x.family === f)?.models;
-  const voteDefault = (f: string) => {
-    const m = fm(f);
-    return m?.kind === "vote" ? `既定（config: ${m.vote.join(" + ")}）` : "既定";
-  };
-  const escDefault = (f: string) => {
-    const m = fm(f);
-    return m?.kind === "vote" ? `既定（config: ${m.escalation ?? "使わない"}）` : "既定";
-  };
-  const singleDefault = (f: string) => {
-    const m = fm(f);
-    return m?.kind === "single" ? `既定（config: ${m.effective ?? "なし"}）` : "既定";
-  };
+  const src = (f: string) => (fm(f)?.auto ? "おまかせ" : "プロンプト画面");
+  const voteDefault = (f: string) => `既定（${src(f)}: ${fm(f)?.vote.join(" + ") ?? "—"}）`;
+  const escDefault = (f: string) => `既定（${src(f)}: ${fm(f)?.escalation ?? "聞かない"}）`;
+  const singleDefault = (f: string) => `既定（${src(f)}: ${fm(f)?.model ?? "なし"}）`;
   const model = { unknownLabel: "未登録のモデル" };
   if (use === "llm.extractEvents" || use === "decide.ai") {
     const f = use === "llm.extractEvents" ? "event" : "judge";

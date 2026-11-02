@@ -284,8 +284,10 @@ describe("models API", () => {
     const { call, services, cfgPath, fetched } = await startUs();
     const view = (await call<ModelsView>("GET", "/api/models")).body;
     expect(view.pool.map((m) => m.name)).toEqual(["gemini-lite", "deepseek", "gemini-flash"]);
-    expect(view.usedBy["deepseek"]).toContain("売買判断・投票");
-    expect(view.usedBy["gemini-flash"]).toContain("反対役（拒否権）");
+    // only GEMINI_API_KEY is set: auto votes with the two Gemini models
+    expect(view.usedBy["gemini-flash"]).toContain("売買判断（おまかせ）");
+    expect(view.usedBy["deepseek"]).toBeUndefined();
+    expect(view.locked).toEqual([]);
     expect(view.vendors.find((v) => v.id === "gemini")?.keySet).toBe(true);
     expect(view.vendors.find((v) => v.id === "deepseek")?.keySet).toBe(false);
 
@@ -305,9 +307,6 @@ describe("models API", () => {
     // register a model
     const pool = [...view.pool, { name: "gemini-9-pro", provider: "gemini", model: "gemini-9-pro", apiKeyEnv: "GEMINI_API_KEY" }];
     expect((await call("PUT", "/api/models", { pool, pricing: {} })).status).toBe(409); // no `previous`
-    const used = await call<{ error: string }>("PUT", "/api/models", { pool: view.pool.slice(1), previous: view.pool });
-    expect(used.status).toBe(400);
-    expect(used.body.error).toMatch(/gemini-lite は使用中/);
     expect((await call("PUT", "/api/models", { pool, pricing: { "gemini-9-pro": [1, 5] }, previous: view.pool })).status).toBe(200);
     expect(services.budget.costOf("gemini-9-pro", 1_000_000, 1_000_000)).toBe(6);
     expect(readFileSync(cfgPath, "utf8")).toContain("gemini-9-pro: [ 1, 5 ]");
@@ -315,19 +314,29 @@ describe("models API", () => {
     // pick it for judgments (prompts screen)
     const prompts = (await call<PromptsView>("GET", "/api/prompts")).body;
     expect(prompts.pool.map((p) => p.name)).toContain("gemini-9-pro");
-    expect(prompts.families.find((f) => f.family === "judge")!.models).toMatchObject({ kind: "vote", vote: ["gemini-lite", "deepseek"], escalation: "gemini-flash" });
+    const judge = prompts.families.find((f) => f.family === "judge")!.models;
+    expect(judge).toMatchObject({ kind: "vote", auto: true, manual: null, vote: ["gemini-lite", "gemini-flash"] });
+    expect(judge.notes.join()).toMatch(/1 社だけ/);
+    expect(judge.summary).toMatch(/答えが一致したものだけを使う/);
     expect((await call("PUT", "/api/models/use/judge", { value: { vote: ["gemini-9-pro"], escalation: null } })).status).toBe(400); // below quorum
     expect((await call("PUT", "/api/models/use/judge", { value: { vote: ["gemini-9-pro", "nope"], escalation: null } })).status).toBe(400);
     const r = await call<{ changed: boolean }>("PUT", "/api/models/use/judge", { value: { vote: ["gemini-9-pro", "deepseek"], escalation: null } });
     expect(r.body.changed).toBe(true);
     expect(services.voters("judge", ["gemini-9-pro"]).map((m) => m.model)).toEqual(["gemini-9-pro"]);
     expect(services.config.models!.use.judge).toEqual({ vote: ["gemini-9-pro", "deepseek"] });
-    expect(services.config.models!.use.event.vote).toEqual(["gemini-lite", "deepseek"]); // other families unchanged
+    expect(services.config.models!.use.event).toBe("auto"); // other families unchanged
+    // chosen by hand → cannot be removed any more
+    const locked = await call<{ error: string }>("PUT", "/api/models", { pool: pool.filter((x) => x.name !== "deepseek"), previous: services.config.models!.pool });
+    expect(locked.status).toBe(400);
+    expect(locked.body.error).toMatch(/deepseek は使用中/);
     expect(services.escalation("judge")).toBeUndefined();
     expect((await call("PUT", "/api/models/use/redteam", { value: "none" })).status).toBe(200);
     expect(services.redTeam()).toBeUndefined();
     const after = (await call<PromptsView>("GET", "/api/prompts")).body;
-    expect(after.switches.map((x) => x.to)).toContain("モデル: gemini-9-pro + deepseek");
+    expect(after.switches.map((x) => x.to)).toContain("モデル gemini-9-pro + deepseek");
+    expect(after.switches.map((x) => x.from)).toContain("モデル おまかせ: gemini-lite + gemini-flash / 割れたら gemini-9-pro"); // the new model became the tie-breaker
+    expect((await call("PUT", "/api/models/use/judge", { value: "auto" })).status).toBe(200);
+    expect(services.config.models!.use.judge).toBe("auto");
     expect((await call("PUT", "/api/models/use/nope", { value: null })).status).toBe(404);
   });
 });

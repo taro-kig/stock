@@ -10,7 +10,7 @@ import { CostTracker } from "./harness/budget.ts";
 import { LLMCache } from "./harness/cache.ts";
 import { StructuredCaller } from "./harness/structured.ts";
 import { buildProvider } from "./llm/factory.ts";
-import { defaultSingle, NO_MODEL, type ModelsConfig } from "./llm/roles.ts";
+import { AUTO, NO_MODEL, resolveUse, type ModelsConfig, type ResolvedUse } from "./llm/roles.ts";
 import { FakeProvider } from "./llm/fake.ts";
 import { heuristicResponder } from "./llm/heuristic.ts";
 import type { LLMProvider } from "./llm/types.ts";
@@ -77,6 +77,7 @@ export class Services {
   #configHash?: string | undefined;
   /** Built providers by pool name. */
   readonly #models = new Map<string, LLMProvider>();
+  #resolved?: ResolvedUse | undefined;
 
   constructor(config: AppConfig, opts: ServicesOptions = {}) {
     this.config = config;
@@ -91,6 +92,9 @@ export class Services {
     // API clients read their key when built: rebuild them after a key changes.
     this.settings?.onChange(() => {
       this.#models.clear();
+      // "auto" depends on which keys are set
+      this.#resolved = undefined;
+      this.#configHash = undefined;
     });
   }
 
@@ -129,7 +133,9 @@ export class Services {
 
   /** Fingerprint of the loaded config: part of every node cache key, so edits never serve stale results. */
   get configHash(): string {
-    return (this.#configHash ??= sha256(stableStringify(this.config)));
+    // "auto" model choices depend on which keys are set, so they are part of it too.
+    const models = !this.fake && this.config.models ? this.resolvedModels() : null;
+    return (this.#configHash ??= sha256(stableStringify({ config: this.config, models: models && { ...models, notes: [] } })));
   }
 
   /** Replace the watchlist (and optionally the benchmark) while running, e.g. from the settings screen. */
@@ -173,6 +179,7 @@ export class Services {
     c.models = models;
     c.pricing = pricing;
     this.#models.clear();
+    this.#resolved = undefined;
     // The cost tracker holds the price table; the caller holds the tracker.
     this.#budget = undefined;
     this.#caller = undefined;
@@ -243,31 +250,45 @@ export class Services {
     return p;
   }
 
+  /**
+   * What each prompt family uses, with "auto" decided from the registered models that have a
+   * key. Recomputed after a key or model change.
+   */
+  resolvedModels(): ResolvedUse {
+    return (this.#resolved ??= resolveUse(this.#modelsConfig(), {
+      hasKey: (spec) => Boolean(this.env[spec.apiKeyEnv]),
+      pricing: this.config.pricing,
+      quorum: this.config.harness.quorum,
+    }));
+  }
+
   /** Voting members for event extraction or judgments (`names` = a node's override). */
   voters(use: "event" | "judge", names?: readonly string[]): LLMProvider[] {
     if (this.fake) return [this.#fakeModel("fake-a"), this.#fakeModel("fake-b")];
-    return (names?.length ? names : this.#modelsConfig().use[use].vote).map((n) => this.model(n));
+    return (names?.length ? names : this.resolvedModels()[use].vote).map((n) => this.model(n));
   }
 
   /** Tie-breaker for important disagreements, if any ("none" disables it). */
   escalation(use: "event" | "judge", name?: string): LLMProvider | undefined {
     if (this.fake || !this.config.models) return undefined;
-    const n = name ?? this.config.models.use[use].escalation;
-    return n && n !== NO_MODEL ? this.model(n) : undefined;
+    const n = name ?? this.resolvedModels()[use].escalation;
+    return n && n !== NO_MODEL && n !== AUTO ? this.model(n) : undefined;
   }
 
-  /** The red-team model, if any (default: models.use.redteam, else judge's escalation). */
+  /** The red-team model, if any ("none" disables it). */
   redTeam(name?: string): LLMProvider | undefined {
     if (this.fake) return this.#fakeModel("fake-red");
     if (!this.config.models) return undefined;
-    const n = name ?? defaultSingle(this.config.models, "redteam");
+    const n = name && name !== AUTO ? name : this.resolvedModels().redteam;
     return n && n !== NO_MODEL ? this.model(n) : undefined;
   }
 
   /** The model that proposes tickers for a theme / reviews the universe. */
   universeModel(name?: string): LLMProvider {
     if (this.fake) return this.#fakeModel("fake-a");
-    return this.model(name ?? defaultSingle(this.#modelsConfig(), "universe")!);
+    const n = name && name !== AUTO ? name : this.resolvedModels().universe;
+    if (!n) throw new Error("no model for ticker search (⚙ 設定 → モデル)");
+    return this.model(n);
   }
 
   /** Names of every model in the pool. */

@@ -121,9 +121,18 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       out.push({ id: "llm", group: "llm", label: "LLM", status: "skip", detail: "疑似モデル（--fake）で起動中", ms: 0 });
     } else {
       const m = c.models;
-      const used = m ? usedModelNames(m) : [];
-      // Models in the pool that nothing uses are not called (no key needed).
+      const r = m ? s.resolvedModels() : undefined;
+      const used = r ? usedModelNames(r) : [];
+      // Only the models in use are called (the rest of the pool needs no key).
       const specs = (m?.pool ?? []).filter((x) => used.includes(x.name));
+      if (r) {
+        out.push({
+          id: "llm:assign", group: "llm", label: "モデルの割り当て",
+          status: r.notes.length ? "warn" : "ok",
+          detail: `判断: ${r.judge.vote.join(" + ")}${r.judge.escalation ? ` → ${r.judge.escalation}` : ""} · 反対役: ${r.redteam ?? "なし"}${Object.values(r.auto).some(Boolean) ? "（おまかせ）" : ""}`,
+          ...(r.notes.length ? { hint: r.notes.join(" / ") } : {}), ms: 0,
+        });
+      }
       if (!specs.length) out.push({ id: "llm", group: "llm", label: "LLM", status: "fail", detail: "config.models がない", hint: "config.yaml に models を書く", ms: 0 });
       for (const spec of specs) {
         await check(`llm:${spec.name}`, "llm", `LLM ${spec.name}（${spec.model}）`, () => testModel(s, spec, o.buildModel));

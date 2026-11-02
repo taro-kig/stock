@@ -211,7 +211,7 @@ export function ModelsPane({ toast }: { toast: Toast }) {
   return (
     <Pane title="モデル" aux={`${rows.length} 個登録${dirty ? " · 未保存" : ""}`} className={dirty ? "focus" : ""}>
       <p className="dim">
-        使えるモデルを登録します。<b>どのプロンプトでどのモデルを使うかは「8 プロンプト」で選びます</b>（ワークフローのノードで個別に指定も可）。
+        使えるモデルを登録します。<b>どれを何に使うかは、既定ではアプリが選びます（おまかせ）</b>。キーが入っているモデルのうち、会社ごとに安いものを照らし合わせ役に、少し高いものを迷ったとき用に使います。自分で決めたいときは「8 プロンプト」の「使うモデル」で。
         候補はキーを使って各社の API から取得します（キーが無いときは代表的なものだけ）。保存先 <code>{data.file ?? "—"}</code>、直前の版は <Kbd>.bak</Kbd>。
       </p>
       {data.fake && <p className="warn">疑似モデル（--fake）で起動中のため、ここで登録したモデルは --fake なしで起動したときに使われます。</p>}
@@ -234,6 +234,7 @@ export function ModelsPane({ toast }: { toast: Toast }) {
             const t = tests[r.key];
             const keySet = r.vendor === "custom" ? null : v.keySet;
             const used = r.isNew ? [] : (data.usedBy[r.name] ?? []);
+            const locked = !r.isNew && data.locked.includes(r.name);
             return (
               <tr key={r.key}>
                 <td>
@@ -242,7 +243,7 @@ export function ModelsPane({ toast }: { toast: Toast }) {
                   ) : (
                     <b>{r.name}</b>
                   )}
-                  <div className="faint" title={used.join("\n")}>{used.length ? `使用中 ${used.length} か所` : r.isNew ? "新規" : "未使用"}</div>
+                  <div className="faint" title={used.join("\n")}>{used.length ? `使用中 ${used.length} か所` : r.isNew ? "新規" : "今は使われていない"}</div>
                 </td>
                 <td>
                   <select className="input" value={r.vendor} onChange={(e) => set(r.key, { vendor: e.target.value as VendorId, model: vendors.find((x) => x.id === e.target.value)!.models[0]?.id ?? "" })} aria-label="vendor">
@@ -287,8 +288,8 @@ export function ModelsPane({ toast }: { toast: Toast }) {
                 </td>
                 <td>
                   <button
-                    className="btn icon" type="button" disabled={used.length > 0}
-                    title={used.length ? `使用中のため外せません（${used.join("、")}）。プロンプト画面で別のモデルに切り替えてから外してください` : "外す"}
+                    className="btn icon" type="button" disabled={locked}
+                    title={locked ? `指定して使っているため外せません（${used.join("、")}）。プロンプト画面かノードで切り替えてから外してください` : used.length ? "外す（おまかせが別のモデルを選び直します）" : "外す"}
                     aria-label={`${r.name} を外す`} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
                   >
                     ✕
