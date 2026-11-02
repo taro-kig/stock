@@ -1,0 +1,158 @@
+# Task runner (https://taskfile.dev). `task` shows the list.
+# Install: macOS / Linux → `aqua i -l` (pinned in aqua.yaml)   Windows → `winget install Task.Task`
+version: "3"
+
+vars:
+  PORT: '{{.PORT | default "4317"}}'
+  URL: "http://127.0.0.1:{{.PORT}}/"
+  LOG: data/stockai-server.log
+  ERRLOG: data/stockai-server.err.log
+  PIDFILE: data/stockai-server.pid
+  # SCHEDULE=true also runs config.yaml's `schedule` (the daily automatic runs)
+  SCHEDULE: '{{.SCHEDULE | default "false"}}'
+  # CONFIG=config/config.jp.example.yaml etc. (default: config/config.yaml, else the example)
+  CONFIG: '{{.CONFIG | default ""}}'
+  OPEN: '{{.OPEN | default "true"}}'
+  SERVER_ARGS: '--port {{.PORT}}{{if ne .SCHEDULE "true"}} --no-schedule{{end}}{{if .CONFIG}} --config {{.CONFIG}}{{end}}'
+  NODE: node --disable-warning=ExperimentalWarning
+
+env:
+  # Windows has no aqua here: use the Node unpacked to %USERPROFILE%\node-v22.23.4-win-x64 (ahead of any other)
+  PATH: '{{if eq OS "windows"}}{{.USERPROFILE}}\node-v22.23.4-win-x64;{{.Path}}{{else}}{{.PATH}}{{end}}'
+
+tasks:
+  default:
+    desc: このリスト
+    silent: true
+    cmds:
+      - task --list
+
+  setup:
+    desc: Node（aqua）と依存を入れる
+    cmds:
+      - cmd: aqua i -l
+        platforms: [darwin, linux]
+      - npm ci
+
+  build:
+    desc: Web UI をビルド（ソースが変わったときだけ）
+    sources:
+      - apps/web/src/**/*
+      - apps/web/index.html
+      - apps/web/vite.config.ts
+    generates:
+      - apps/web/dist/index.html
+    cmds:
+      - npm run build -w @stockai/web
+
+  web:
+    desc: サーバーを前面で起動（Ctrl+C で止める）
+    deps: [build]
+    cmds:
+      - "{{.NODE}} apps/web/server/main.ts {{.SERVER_ARGS}}"
+
+  start:
+    desc: サーバーを裏で起動してブラウザを開く（起動済みなら開くだけ。OPEN=false で開かない）
+    silent: true
+    deps: [build]
+    cmds:
+      - cmd: >-
+          powershell -NoProfile -Command '
+          $u = "{{.URL}}";
+          $up = { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 $u | Out-Null; $true } catch { $false } };
+          if (& $up) { "stockai is already running" } else {
+            New-Item -ItemType Directory -Force data | Out-Null;
+            $p = Start-Process -FilePath node -WindowStyle Hidden -PassThru
+              -ArgumentList "--disable-warning=ExperimentalWarning apps/web/server/main.ts {{.SERVER_ARGS}}"
+              -RedirectStandardOutput "{{.LOG}}" -RedirectStandardError "{{.ERRLOG}}";
+            Set-Content "{{.PIDFILE}}" $p.Id;
+            for ($i = 0; $i -lt 60; $i++) { if (& $up) { break }; Start-Sleep -Seconds 1 };
+            if (& $up) { "stockai started (pid $($p.Id))" } else { "did not start: see {{.ERRLOG}}"; exit 1 }
+          };
+          if ("{{.OPEN}}" -ne "false") { Start-Process $u }'
+        platforms: [windows]
+      - cmd: |
+          sh -c '
+          if curl -fs -o /dev/null --max-time 2 "{{.URL}}"; then echo "stockai is already running"; else
+            mkdir -p data
+            nohup {{.NODE}} apps/web/server/main.ts {{.SERVER_ARGS}} >> "{{.LOG}}" 2>&1 &
+            echo $! > "{{.PIDFILE}}"
+            i=0; until curl -fs -o /dev/null --max-time 2 "{{.URL}}" || [ $i -ge 60 ]; do i=$((i+1)); sleep 1; done
+            curl -fs -o /dev/null --max-time 2 "{{.URL}}" && echo "stockai started (pid $(cat "{{.PIDFILE}}"))" || { echo "did not start: see {{.LOG}}"; exit 1; }
+          fi'
+        platforms: [darwin, linux]
+      - cmd: '{{if ne .OPEN "false"}}open "{{.URL}}"{{end}}'
+        platforms: [darwin]
+      - cmd: '{{if ne .OPEN "false"}}xdg-open "{{.URL}}" >/dev/null 2>&1 || echo "open {{.URL}}"{{end}}'
+        platforms: [linux]
+
+  stop:
+    desc: 裏で動いているサーバーを止める
+    silent: true
+    cmds:
+      - cmd: >-
+          powershell -NoProfile -Command '
+          $c = Get-NetTCPConnection -LocalPort {{.PORT}} -State Listen -ErrorAction SilentlyContinue;
+          if ($c) { Stop-Process -Id $c.OwningProcess -Force; "stockai stopped" } else { "stockai is not running" };
+          Remove-Item -ErrorAction SilentlyContinue "{{.PIDFILE}}"'
+        platforms: [windows]
+      - cmd: |
+          sh -c '
+          pid=$(cat "{{.PIDFILE}}" 2>/dev/null)
+          if [ -n "$pid" ] && kill "$pid" 2>/dev/null; then echo "stockai stopped (pid $pid)";
+          else
+            pid=$(lsof -ti tcp:{{.PORT}} -sTCP:LISTEN 2>/dev/null)
+            if [ -n "$pid" ]; then kill $pid && echo "stockai stopped (pid $pid)"; else echo "stockai is not running"; fi
+          fi
+          rm -f "{{.PIDFILE}}"'
+        platforms: [darwin, linux]
+
+  restart:
+    desc: 止めてから起動し直す（設定ファイルを書き換えたあとなど）
+    cmds:
+      - task: stop
+      - task: start
+        vars: { OPEN: "false" }
+
+  status:
+    desc: サーバーが動いているか
+    silent: true
+    cmds:
+      - cmd: powershell -NoProfile -Command 'try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "{{.URL}}" | Out-Null; "running at {{.URL}}" } catch { "not running" }'
+        platforms: [windows]
+      - cmd: sh -c 'curl -fs -o /dev/null --max-time 2 "{{.URL}}" && echo "running at {{.URL}}" || echo "not running"'
+        platforms: [darwin, linux]
+
+  logs:
+    desc: サーバーのログを追いかける（Ctrl+C で終わる）
+    silent: true
+    cmds:
+      - cmd: powershell -NoProfile -Command 'Get-Content "{{.LOG}}","{{.ERRLOG}}" -Tail 50 -Wait -ErrorAction SilentlyContinue'
+        platforms: [windows]
+      - cmd: tail -n 50 -f "{{.LOG}}"
+        platforms: [darwin, linux]
+
+  doctor:
+    desc: 接続チェック（各サービスに小さなリクエストを1回ずつ）
+    cmds:
+      - "{{.NODE}} packages/core/src/cli/main.ts doctor {{.CLI_ARGS}}"
+
+  backup:
+    desc: データベースを今すぐバックアップ
+    cmds:
+      - "{{.NODE}} packages/core/src/cli/main.ts backup {{.CLI_ARGS}}"
+
+  stockai:
+    desc: "CLI をそのまま呼ぶ（例: task stockai -- runs）"
+    cmds:
+      - "{{.NODE}} packages/core/src/cli/main.ts {{.CLI_ARGS}}"
+
+  check:
+    desc: 型チェック + テスト + UI ビルド
+    cmds:
+      - npm run check
+
+  test:
+    desc: テストだけ
+    cmds:
+      - npm test

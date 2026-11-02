@@ -7,14 +7,14 @@ stockai は MCP サーバーとして動く。Claude Desktop や Claude Code か
 | 方式 | 使いどころ | 起動 |
 |---|---|---|
 | **stdio** | Claude Desktop。Web サーバーを起動していなくても使える | クライアントが `apps/web/server/mcp-stdio.ts` を起動する |
-| **HTTP** (`/mcp`) | Web サーバー（`npm run web` / `start-stockai.cmd`）を動かしているとき。画面と同じ実行キュー・DB を使う | Web サーバーに最初から入っている |
+| **HTTP** (`/mcp`) | Web サーバー（`task start` / `npm run web`）を動かしているとき。画面と同じ実行キュー・DB を使う | Web サーバーに最初から入っている |
 
 両方を同時に使うと、2つのプロセスがそれぞれ実行する（DB は共有）。Web サーバーを常時動かしているなら HTTP の方がよい。
 
 ### Claude Desktop（Windows）
 
 `%APPDATA%\Claude\claude_desktop_config.json`（Claude Desktop の設定の「開発者」から開ける）に追加して、Claude Desktop を再起動する。
-`<you>` は自分のユーザー名に置き換える（`start-stockai.cmd` と同じ Node とフォルダ）。
+`<you>` は自分のユーザー名に置き換える（Taskfile が Windows で使うのと同じ Node とフォルダ）。
 
 ```json
 {

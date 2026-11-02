@@ -46,7 +46,8 @@ app.server.listen(Number(opt.port), opt.host, () => {
   const sched = app.scheduler.status();
   console.log(`stockai web  http://${opt.host}:${opt.port}${opt.fake ? "  [FAKE models]" : ""}`);
   if (!opt["no-mcp"]) console.log(`  MCP          http://${opt.host}:${opt.port}/mcp${opt["mcp-read-only"] ? "  (read-only)" : ""}`);
-  console.log(sched.length ? sched.map((x) => `  schedule ${x.at} ${x.workflow} next ${x.nextAt ?? "—"}`).join("\n") : "  no schedule (config.schedule)");
+  if (opt["no-schedule"]) console.log("  schedule     off (--no-schedule): automatic daily runs are disabled");
+  else console.log(sched.length ? sched.map((x) => `  schedule ${x.at} ${x.workflow} next ${x.nextAt ?? "—"}`).join("\n") : "  no schedule (config.schedule)");
 });
 const stop = () => void app.close().then(() => process.exit(0));
 process.on("SIGINT", stop);

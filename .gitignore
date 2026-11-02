@@ -33,6 +33,9 @@ secrets/
 *.token
 credentials*.json
 
+# ── Task runner state (which sources were built) ───────────
+.task/
+
 # ── backups written by the node editor / YAML upload ────────
 *.bak
 

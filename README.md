@@ -126,7 +126,7 @@ schedule:   # 米国株: 取引終了後の日本時間の朝（火〜土）
 
 ## セットアップ
 
-Node.js（npm 同梱）は [aqua](https://aquaproj.github.io/) でバージョンを固定して入れる（`aqua.yaml`: Node.js v22.23.4、チェックサム検証あり）。
+Node.js（npm 同梱）とタスクランナーの [Task](https://taskfile.dev) は [aqua](https://aquaproj.github.io/) でバージョンを固定して入れる（`aqua.yaml`: Node.js v22.23.4・Task v3.54.0、チェックサム検証あり）。
 
 ```bash
 # 1) aqua をインストール（初回のみ）
@@ -140,14 +140,33 @@ chmod +x aqua-installer && ./aqua-installer && rm aqua-installer
 export PATH="${AQUA_ROOT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/aquaproj-aqua}/bin:$PATH"
 
 # 2) リポジトリで Node.js / npm を入れて依存を入れる
-aqua i -l          # aqua.yaml のバージョンの node / npm / npx
+aqua i -l          # aqua.yaml のバージョンの node / npm / npx / task
 node --version     # v22.23.4
 npm ci             # .npmrc の engine-strict で、合わない Node では止まる
 npm run check      # 型チェック + テスト + UI ビルド
 ```
 
+- Windows は aqua を使わず、Node を `%USERPROFILE%\node-v22.23.4-win-x64` に展開し、Task は `winget install Task.Task` で入れる（Taskfile がこの Node を自動で使う）
 - バージョンを上げるときは `aqua.yaml` を書き換えて `aqua update-checksum` を実行し、`aqua-checksums.json` も一緒にコミットする
 - Alpine など musl 環境の Node はチェックサム未登録（開発環境から取得できなかったため）。必要なら musl の環境で `aqua update-checksum` を実行する
+
+## 起動と停止（Taskfile）
+
+日常の操作は `task` でまとめてある（`task` だけで一覧）。Windows・macOS・Linux 共通。
+
+| コマンド | 内容 |
+|---|---|
+| `task start` | サーバーを裏で起動してブラウザを開く（起動済みなら開くだけ）。ログは `data/stockai-server.log` |
+| `task stop` / `task restart` / `task status` | 止める / 起動し直す / 動いているか |
+| `task logs` | ログを追いかける |
+| `task web` | 前面で起動（Ctrl+C で止める） |
+| `task doctor` | 接続チェック |
+| `task check` | 型チェック + テスト + UI ビルド |
+| `task stockai -- runs` | CLI をそのまま呼ぶ |
+
+- 既定では**日次の自動実行は止めた状態**で起動する（`--no-schedule`）。自動実行も動かすときは `task start SCHEDULE=true`
+- ほかに `PORT=4318`、`CONFIG=config/config.jp.example.yaml`、`OPEN=false`（ブラウザを開かない）を付けられる
+- Windows でダブルクリックで起動したいときは、`task start` を実行するショートカットを作る（リンク先: `task -d %USERPROFILE%\stock start`）
 
 ## API キーの設定
 
