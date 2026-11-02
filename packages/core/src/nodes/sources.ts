@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { DocumentSchema, type Document } from "../signals/models.ts";
 import { parseForm4, rawForm4Document, summarizeInsider, type InsiderMap } from "../data/insider.ts";
+import { needsFundamentals, parseCompanyFacts } from "../data/fundamentals.ts";
 import { accessionPath, SEC_ITEMS, SecClient, type Filing } from "../data/sec.ts";
+import { addDays, toIsoDate } from "../util/dates.ts";
 import { fetchFeed } from "../signals/rss.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -208,5 +210,64 @@ export const insiderTrades = defineNode({
     ctx.metric("withBuys", Object.values(insider).filter((x) => x.buys > 0).length);
     ctx.metric("clusters", Object.values(insider).filter((x) => x.cluster).length);
     return { insider };
+  },
+});
+
+export const fundamentalsNode = defineNode({
+  type: "data.fundamentals",
+  title: "Financials (SEC XBRL)",
+  category: "data",
+  description:
+    "Revenue / EPS growth, margins and shares outstanding per US ticker from SEC company facts (free; needs SEC_USER_AGENT). Downloads a company weekly, or daily after a report date until its 10-Q / 10-K is in. Numbers are computed by the program and count from their filing date (point in time).",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    userAgentEnv: z.string().default("SEC_USER_AGENT"),
+    /** Companies downloaded per run (each is one request of a few MB). */
+    maxFetches: z.number().int().min(0).max(100).default(15),
+    refreshDays: z.number().int().min(1).max(90).default(7),
+  }),
+  inputs: {},
+  outputs: { fundamentals: { type: "Fundamentals" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const benchmark = s.config.market.benchmark;
+    const tickers = [...new Set([...s.watchlist.tickers, ...Object.keys(s.heldTickers())])].filter((t) => t !== benchmark);
+    if (ctx.live) {
+      const ua = s.env[p.userAgentEnv];
+      if (!ua) {
+        ctx.log(`${p.userAgentEnv} is not set: no financials (settings screen)`);
+        ctx.metric("disabled", 1);
+        return { fundamentals: {} };
+      }
+      const today = toIsoDate(ctx.wallNow());
+      const due = tickers.filter((t) => needsFundamentals({
+        lastFetch: s.fundamentals.lastFetch(t), latestFiled: s.fundamentals.latestFiled(t),
+        recentReportDates: s.earnings.reportDates(t, addDays(today, -45), today), today, refreshDays: p.refreshDays,
+      }));
+      if (due.length) {
+        const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
+        const map = await sec.tickerMap();
+        let fetched = 0;
+        for (const t of due.slice(0, p.maxFetches)) {
+          const cik = map[t.toUpperCase()];
+          if (cik === undefined) {
+            ctx.log(`${t}: not in the SEC ticker list (not a US filer?)`);
+            continue;
+          }
+          try {
+            s.fundamentals.save(t, today, parseCompanyFacts(await sec.json(`https://data.sec.gov/api/xbrl/companyfacts/CIK${String(cik).padStart(10, "0")}.json`)));
+            fetched++;
+          } catch (e) {
+            ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        ctx.metric("downloaded", fetched);
+        if (due.length > p.maxFetches) ctx.metric("deferred", due.length - p.maxFetches);
+      }
+    }
+    const fundamentals = s.fundamentals.at(tickers, ctx.asOf);
+    ctx.metric("tickers", Object.keys(fundamentals).length);
+    return { fundamentals };
   },
 });

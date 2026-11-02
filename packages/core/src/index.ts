@@ -37,3 +37,4 @@ export { runDoctor, testModel, STATUS_MARK, type ModelTest, type CheckResult, ty
 export { FALLBACK_PRICE_PER_M } from "./harness/budget.ts";
 export { contradictsResults, EarningsResultStore, parseEarningsResults, resultLines, verdictOf, type EarningsResult, type EarningsResults } from "./data/earningsResults.ts";
 export { checkNumbers } from "./harness/grounding.ts";
+export { fundamentalLines, fundamentalsAt, FundamentalsStore, parseCompanyFacts, valuation, type Fundamentals, type FundamentalsMap } from "./data/fundamentals.ts";

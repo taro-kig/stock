@@ -1,3 +1,4 @@
+import { fundamentalLines, type Fundamentals } from "../data/fundamentals.ts";
 import { previousLines, reactionLines, type EarningsReaction, type PreviousJudgment } from "../strategy/history.ts";
 import { resultLines, type EarningsResult } from "../data/earningsResults.ts";
 import { z } from "zod";
@@ -112,6 +113,8 @@ export function buildDossier(args: {
   results?: readonly EarningsResult[] | undefined;
   /** How the stock moved after past reports (computed from stored prices). */
   reactions?: readonly EarningsReaction[] | undefined;
+  /** SEC financials: undefined = not connected (no section), null = none filed / not a US filer. */
+  fundamentals?: Fundamentals | null | undefined;
   /** The last judgment on this ticker and what happened since: undefined = not read (no section). */
   previous?: PreviousJudgment | null | undefined;
 }, variant: DossierVariant = "v1"): Dossier {
@@ -143,6 +146,7 @@ export function buildDossier(args: {
     "## 保有状況",
     posLine,
     ...(args.insider === undefined ? [] : insiderLines(args.insider)),
+    ...(args.fundamentals === undefined ? [] : fundamentalLines(args.fundamentals ?? undefined, row.close, args.asOf)),
     ...(args.results === undefined ? [] : resultLines(args.results)),
     ...(args.reactions === undefined ? [] : reactionLines(args.reactions)),
     ...(args.previous === undefined ? [] : previousLines(args.previous)),

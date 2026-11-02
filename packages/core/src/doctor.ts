@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { connect } from "node:net";
 import { fetchEarningsCalendar } from "./data/earnings.ts";
+import { fundamentalsAt, parseCompanyFacts } from "./data/fundamentals.ts";
 import { SecClient } from "./data/sec.ts";
 import { parseTimeSeries } from "./data/twelveData.ts";
 import { buildProvider, type ModelSpec } from "./llm/factory.ts";
@@ -155,7 +156,7 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       return last ? { status: "ok", detail: `${sym} 終値 ${last.close} (${last.date}) · 1 クレジット使用` } : { status: "warn", detail: `${sym} のデータが空`, hint: "銘柄コードを確認" };
     });
 
-    await check("sec", "data", "SEC EDGAR（8-K・13D・Form 4）", async () => {
+    await check("sec", "data", "SEC EDGAR（8-K・13D・Form 4・財務データ）", async () => {
       const ua = env["SEC_USER_AGENT"];
       if (!ua) return { status: "fail", detail: "SEC_USER_AGENT が未設定", hint: "⚙ 設定で「stockai 自分のメール」の形で入力" };
       const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
@@ -164,12 +165,22 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       const missing = Object.keys(c.watchlist).filter((x) => map[x] === undefined);
       if (!t) return { status: "warn", detail: "ウォッチリストの銘柄が SEC のティッカー一覧に無い", hint: "ティッカーを確認（米国の上場企業か）" };
       const { filings } = await sec.submissions(map[t]!);
+      // the financials (XBRL company facts) of the same company, stored like the daily run would
+      let finText: string;
+      try {
+        const facts = parseCompanyFacts(await sec.json(`https://data.sec.gov/api/xbrl/companyfacts/CIK${String(map[t]!).padStart(10, "0")}.json`));
+        s.fundamentals.save(t, toIsoDate(now), facts);
+        const fin = fundamentalsAt(t, facts, toIsoDate(now));
+        finText = fin ? ` · 財務データ: ${fin.periodEnd.slice(0, 7)} 期まで（売上の前年比 ${fin.revenueTtmYoY === null ? "不明" : `${(fin.revenueTtmYoY * 100).toFixed(1)}%`}）` : " · 財務データ: 四半期の数字が見つからない";
+      } catch (e) {
+        finText = ` · 財務データ: 取得できない（${errText(e).slice(0, 120)}）`;
+      }
       const since = now.getTime() - 90 * 86_400_000;
       const recent = filings.filter((f) => Date.parse(f.acceptedAt) > since);
       const n = (re: RegExp) => recent.filter((f) => re.test(f.form)).length;
       return {
         status: missing.length ? "warn" : "ok",
-        detail: `ティッカー一覧 ${Object.keys(map).length.toLocaleString()} 社 · ${t} の直近90日: 8-K ${n(/^8-K/)}件・Form 4 ${n(/^4(\/A)?$/)}件・13D ${n(/13D/)}件${missing.length ? ` · 一覧に無い: ${missing.join(", ")}` : ""}`,
+        detail: `ティッカー一覧 ${Object.keys(map).length.toLocaleString()} 社 · ${t} の直近90日: 8-K ${n(/^8-K/)}件・Form 4 ${n(/^4(\/A)?$/)}件・13D ${n(/13D/)}件${finText}${missing.length ? ` · 一覧に無い: ${missing.join(", ")}` : ""}`,
         ...(missing.length ? { hint: "一覧に無い銘柄は開示・インサイダー売買が取れない（ティッカーを確認）" } : {}),
       };
     });

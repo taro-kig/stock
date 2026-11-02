@@ -74,11 +74,11 @@ export const scoreNode = defineNode({
   type: "signal.score",
   title: "Composite score",
   category: "signal",
-  description: "Weighted, clipped z-scores of factors (and event scores and insider buying, if connected).",
-  version: 1,
+  description: "Weighted, clipped z-scores of factors (and event scores, insider buying and SEC financials — quality = operating margin, growth = revenue growth — if connected).",
+  version: 2,
   cache: "inputs",
   params: z.object({ weights: z.record(z.string(), z.number()).default(DEFAULT_WEIGHTS) }),
-  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true } },
+  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true }, fundamentals: { type: "Fundamentals", optional: true } },
   outputs: { scores: { type: "Scores" } },
   async run(_ctx, p, i) {
     const rows = Object.values(i.factors.rows);
@@ -90,6 +90,10 @@ export const scoreNode = defineNode({
     if (i.events) factors["event"] = col((r) => i.events?.[r.ticker] ?? 0);
     // an empty map means "not available" (no SEC_USER_AGENT): leave the factor out rather than score everyone 0
     if (i.insider && Object.keys(i.insider).length) factors["insider"] = col((r) => insiderScore(i.insider?.[r.ticker]));
+    if (i.fundamentals && Object.keys(i.fundamentals).length) {
+      factors["quality"] = col((r) => i.fundamentals?.[r.ticker]?.operatingMargin ?? null);
+      factors["growth"] = col((r) => i.fundamentals?.[r.ticker]?.revenueTtmYoY ?? null);
+    }
     return { scores: compositeScore(factors, rows.map((r) => r.ticker), p.weights) };
   },
 });

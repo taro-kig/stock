@@ -33,6 +33,13 @@ function setup(env: Record<string, string>, opts: { tdStatus?: number } = {}) {
         return new Response(JSON.stringify({ status: "ok", values: [{ datetime: "2026-10-30", open: "1", high: "1", low: "1", close: "512.3", volume: "1" }] }));
       }
       if (url.endsWith("company_tickers.json")) return new Response(JSON.stringify({ 0: { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." } }));
+      if (url.includes("/companyfacts/CIK0000320193")) {
+        const q = (start: string, end: string, val: number, filed: string) => ({ start, end, val, filed, form: "10-Q" });
+        return new Response(JSON.stringify({ facts: { "us-gaap": { Revenues: { units: { USD: [
+          q("2025-07-01", "2025-09-30", 100, "2025-10-31"), q("2025-10-01", "2025-12-31", 100, "2026-01-30"), q("2026-01-01", "2026-03-31", 100, "2026-05-01"),
+          q("2026-04-01", "2026-06-30", 100, "2026-08-01"), q("2026-07-01", "2026-09-30", 110, "2026-10-31"),
+        ] } } } } }));
+      }
       if (url.includes("CIK0000320193")) {
         return new Response(JSON.stringify({ cik: 320193, name: "Apple Inc.", filings: { recent: {
           accessionNumber: ["a", "b", "c"], filingDate: ["2026-10-30", "2026-10-29", "2026-10-01"], acceptanceDateTime: ["2026-10-30T17:00:00.000Z", "2026-10-29T17:00:00.000Z", "2026-10-01T17:00:00.000Z"],
@@ -62,7 +69,8 @@ describe("doctor", () => {
     expect(by["twelvedata"]).toMatchObject({ status: "ok" });
     expect(by["twelvedata"]!.detail).toContain("SPY 終値 512.3");
     expect(by["sec"]!.status).toBe("warn"); // ZZZQ is not on the SEC list
-    expect(by["sec"]!.detail).toMatch(/8-K 1件・Form 4 1件・13D 1件/);
+    expect(by["sec"]!.detail).toMatch(/8-K 1件・Form 4 1件・13D 1件 · 財務データ: 2026-09 期まで/);
+    expect(s.fundamentals.lastFetch("AAPL")).toBe("2026-11-02"); // the daily run will not download it again today
     expect(by["alphavantage"]!.detail).toContain("次: AAPL 2026-11-20");
     expect(s.earnings.fetchedOn("2026-11-02")).toBe(true); // counts as today's download
     expect(by["rss:feed"]!.detail).toBe("2 件 · ウォッチリストに関係 1 件");
