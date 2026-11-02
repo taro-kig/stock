@@ -1,6 +1,7 @@
+import { resultLines, type EarningsResult } from "../data/earningsResults.ts";
 import { z } from "zod";
 import { Ensemble, type EnsembleStatus } from "../harness/ensemble.ts";
-import { checkEvidence } from "../harness/grounding.ts";
+import { checkEvidence, checkNumbers } from "../harness/grounding.ts";
 import type { StructuredCaller } from "../harness/structured.ts";
 import type { LLMProvider } from "../llm/types.ts";
 import type { EventRecord } from "../signals/models.ts";
@@ -67,6 +68,22 @@ export interface Judgment {
   votes: Array<{ provider: string; stance: Stance | null; rejected: string | null }>;
   /** Prompt versions that produced it ("judge-v2+redteam-v1"), so accuracy can be split by prompt. */
   prompt?: string;
+  /** The verified events the fact sheet listed, with their source documents (so a person can check them). */
+  sources?: JudgmentSource[];
+  /** The fact sheet the models read (evidence quotes come from it). */
+  dossier?: string;
+}
+
+export interface JudgmentSource {
+  title: string;
+  url: string;
+  source: string;
+  learnedAt: string;
+  eventType: string;
+  direction: number;
+  materiality: number;
+  /** Quotes from the source document (checked to appear in it). */
+  evidence: string[];
 }
 
 export interface Dossier {
@@ -90,6 +107,8 @@ export function buildDossier(args: {
   earnings?: NextEarnings | null | undefined;
   /** Insider trades (Form 4): undefined = not connected (no section). */
   insider?: InsiderSummary | undefined;
+  /** Reported earnings (newest first): undefined = not connected (no section). */
+  results?: readonly EarningsResult[] | undefined;
 }, variant: DossierVariant = "v1"): Dossier {
   const { row, events, position } = args;
   const trend: TrendRead = row.trend ?? "unknown";
@@ -119,6 +138,7 @@ export function buildDossier(args: {
     "## 保有状況",
     posLine,
     ...(args.insider === undefined ? [] : insiderLines(args.insider)),
+    ...(args.results === undefined ? [] : resultLines(args.results)),
     ...(args.earnings === undefined
       ? []
       : [
@@ -145,6 +165,8 @@ export function validateJudgment(j: TradeJudgment, ctx: JudgeCtx): string | null
   const { ok, failed } = checkEvidence(j.evidence, d.text);
   if (!ok) return `ungrounded evidence: ${failed.length ? failed.join(" | ") : "none given"}`;
   if ((j.stance === "bullish" || j.stance === "bearish") && j.invalidation.length === 0) return "no invalidation condition";
+  const nums = checkNumbers(j.thesis, d.text);
+  if (!nums.ok) return `number not in the fact sheet: ${nums.failed.join(", ")}`;
   return null;
 }
 
@@ -235,7 +257,7 @@ export class Judge {
     const f = r.value;
     if (!f.found || f.severity < this.#vetoSeverity) return null;
     // a veto must be grounded too — fabricated objections are ignored
-    return checkEvidence(f.evidence, d.text).ok ? `red team (severity ${f.severity}): ${f.reason}` : null;
+    return checkEvidence(f.evidence, d.text).ok && checkNumbers(f.reason, d.text).ok ? `red team (severity ${f.severity}): ${f.reason}` : null;
   }
 }
 

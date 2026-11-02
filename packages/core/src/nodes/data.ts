@@ -6,6 +6,7 @@ import { TwelveDataAuthError, TwelveDataClient } from "../data/twelveData.ts";
 import { barsUntil, type Bar, type Prices } from "../signals/technical.ts";
 import { addDays, toIsoDate, weekdays, type IsoDate } from "../util/dates.ts";
 import { fetchEarningsCalendar } from "../data/earnings.ts";
+import { AlphaVantageLimit, fetchEarningsResults, needsResults } from "../data/earningsResults.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -306,6 +307,58 @@ export const earningsCalendar = defineNode({
     ctx.metric("tickers", Object.keys(earnings).length);
     ctx.metric("within7d", Object.values(earnings).filter((e) => e.daysAway <= 7).length);
     return { earnings };
+  },
+});
+
+export const earningsResultsNode = defineNode({
+  type: "data.earningsResults",
+  title: "Earnings results",
+  category: "data",
+  description:
+    "Reported EPS vs consensus per ticker (US, Alpha Vantage EARNINGS, same free key as the calendar). Downloads a ticker only when a report has just passed or it was never fetched (at most maxFetches per run, once a day per ticker) to stay within 25 requests/day. Beat / miss is computed here, not read by a model.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    apiKeyEnv: z.string().default("ALPHAVANTAGE_API_KEY"),
+    /** Requests per run (the free key allows 25 a day; the calendar uses one). */
+    maxFetches: z.number().int().min(0).max(20).default(5),
+    /** How far back a passed report date triggers a download. */
+    lookbackDays: z.number().int().min(1).max(30).default(10),
+  }),
+  inputs: {},
+  outputs: { results: { type: "EarningsResults" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const benchmark = s.config.market.benchmark;
+    const tickers = universe(ctx).filter((t) => t !== benchmark); // an index ETF has no earnings
+    const today = toIsoDate(ctx.wallNow());
+    if (ctx.live) {
+      const key = s.env[p.apiKeyEnv];
+      if (!key) {
+        ctx.log(`${p.apiKeyEnv} is not set: no reported earnings (free key at alphavantage.co, settings screen)`);
+        ctx.metric("disabled", 1);
+        return { results: {} };
+      }
+      const due = tickers.filter((t) => needsResults({
+        lastFetch: s.earningsResults.lastFetch(t), latestReported: s.earningsResults.latestReported(t),
+        recentReportDates: s.earnings.reportDates(t, addDays(today, -p.lookbackDays), today), today,
+      }));
+      let fetched = 0;
+      for (const t of due.slice(0, p.maxFetches)) {
+        try {
+          s.earningsResults.save(t, today, await fetchEarningsResults(key, t, s.fetch));
+          fetched++;
+        } catch (e) {
+          ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
+          if (e instanceof AlphaVantageLimit) break; // rate limit / bad key: try again tomorrow
+        }
+      }
+      ctx.metric("fetched", fetched);
+      if (due.length > p.maxFetches) ctx.metric("deferred", due.length - p.maxFetches);
+    }
+    const results = s.earningsResults.recent(tickers, ctx.asOf);
+    ctx.metric("tickers", Object.keys(results).length);
+    return { results };
   },
 });
 

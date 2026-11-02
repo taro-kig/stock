@@ -7,7 +7,7 @@ export { NodeRegistry, defineNode, type NodeDescription } from "./workflow/regis
 export { RunStore, type NodeRunRow, type RunEvent, type RunRow } from "./workflow/runStore.ts";
 export { loadWorkflow, parseWorkflow, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type WorkflowGraph } from "./workflow/spec.ts";
 export { PORT_TYPES, type PortTypes, type PortType } from "./workflow/ports.ts";
-export type { Judgment } from "./ai/judge.ts";
+export type { Judgment, JudgmentSource } from "./ai/judge.ts";
 export type { Scorecard, LabelCard } from "./eval/scorecard.ts";
 export type { AccountState, Fill } from "./execution/paper.ts";
 export type { OrderTicket } from "./execution/broker.ts";
@@ -35,3 +35,5 @@ export { isUsTradingDay, usHoliday, usHolidaysBetween, usMarketHolidays, usTradi
 export { EarningsStore, fetchEarningsCalendar, parseEarningsCsv, type EarningsEntry, type EarningsMap, type NextEarnings } from "./data/earnings.ts";
 export { runDoctor, testModel, STATUS_MARK, type ModelTest, type CheckResult, type CheckStatus } from "./doctor.ts";
 export { FALLBACK_PRICE_PER_M } from "./harness/budget.ts";
+export { contradictsResults, EarningsResultStore, parseEarningsResults, resultLines, verdictOf, type EarningsResult, type EarningsResults } from "./data/earningsResults.ts";
+export { checkNumbers } from "./harness/grounding.ts";

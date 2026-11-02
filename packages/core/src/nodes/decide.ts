@@ -37,7 +37,8 @@ export const aiDecide = defineNode({
   category: "decision",
   description:
     "Cheap models vote on a 20-day stance per candidate from a fact dossier. Votes that misread the facts or quote things not in the dossier are rejected; no consensus => abstain; a red-team model may veto buys.",
-  version: 1,
+  // v2: judgments carry their sources and fact sheet; numbers in the thesis are checked
+  version: 2,
   cache: "inputs",
   params: z.object({
     maxCandidates: z.number().int().positive().default(10),
@@ -60,6 +61,7 @@ export const aiDecide = defineNode({
     account: { type: "Account", optional: true },
     earnings: { type: "Earnings", optional: true },
     insider: { type: "Insider", optional: true },
+    results: { type: "EarningsResults", optional: true },
   },
   outputs: { judgments: { type: "Judgments" } },
   fallback: () => ({ judgments: {} }),
@@ -79,16 +81,26 @@ export const aiDecide = defineNode({
     const candidates = [...new Set([...ranked.slice(0, p.maxCandidates), ...held.filter((t) => i.factors.rows[t])])];
     const judgments: Record<string, Judgment> = {};
     for (const t of candidates) {
+      const events = (i.events ?? []).filter((e) => e.event.tickers.includes(t)).slice(-5);
       const dossier = buildDossier({
         row: i.factors.rows[t]!, asOf: ctx.asOf, rank: ranked.indexOf(t) + 1, universe: ranked.length,
-        events: (i.events ?? []).filter((e) => e.event.tickers.includes(t)).slice(-5),
+        events,
         position: i.account?.positions[t],
         // an empty calendar means "not available" (no key): leave the section out rather than claim "no report"
         earnings: i.earnings && Object.keys(i.earnings).length ? (i.earnings[t] ?? null) : undefined,
         insider: i.insider && Object.keys(i.insider).length ? i.insider[t] : undefined,
+        // empty = not connected (no key): leave the section out
+        results: i.results && Object.keys(i.results).length ? (i.results[t] ?? []) : undefined,
       }, variant);
       try {
-        judgments[t] = await judge.judge(dossier, held.includes(t));
+        judgments[t] = {
+          ...(await judge.judge(dossier, held.includes(t))),
+          dossier: dossier.text,
+          sources: events.map((e) => ({
+            title: e.title, url: e.url, source: e.source, learnedAt: e.learnedAt, eventType: e.event.eventType,
+            direction: e.event.direction, materiality: e.event.materiality, evidence: e.event.evidence,
+          })),
+        };
         ctx.metric(`stance_${judgments[t].stance}`, 1);
         if (judgments[t].status === "vetoed") ctx.metric("vetoed", 1);
       } catch (e) {

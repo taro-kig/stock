@@ -552,3 +552,13 @@ select.input { padding-right: 0.5ch; }
 .seg button + button { border-left: 1px solid var(--line-2); }
 .seg button:hover { color: var(--fg); background: var(--bg-2); }
 .seg button.on { color: var(--fg); background: var(--bg-sel); box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* ── judgment evidence ──────────────────────────────────────── */
+.t tr.clickable { cursor: pointer; }
+.t tr.evidence-row td { background: var(--bg-2); }
+.evidence { display: grid; gap: calc(var(--lh) * 0.5); padding: 4px 1ch; white-space: normal; }
+.evidence blockquote { margin: 2px 0 2px 1ch; padding-left: 1ch; border-left: 2px solid var(--line-2); color: var(--fg-2); }
+.evidence .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.evidence a { color: var(--info); text-decoration: none; }
+.evidence a:hover { text-decoration: underline; }
+.evidence .dossier { white-space: pre-wrap; margin: 4px 0 0; padding: 1ch; background: var(--bg); border: 1px solid var(--line); max-height: 24em; overflow: auto; font: inherit; }

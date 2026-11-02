@@ -16,6 +16,7 @@ import { heuristicResponder } from "./llm/heuristic.ts";
 import type { LLMProvider } from "./llm/types.ts";
 import { EarningsStore } from "./data/earnings.ts";
 import { InsiderStore } from "./data/insider.ts";
+import { EarningsResultStore } from "./data/earningsResults.ts";
 import { PriceStore } from "./data/priceStore.ts";
 import { PromptRegistry } from "./prompts/registry.ts";
 import { PromptStore } from "./prompts/store.ts";
@@ -74,6 +75,7 @@ export class Services {
   #promptStore?: PromptStore;
   #earnings?: EarningsStore;
   #insider?: InsiderStore;
+  #earningsResults?: EarningsResultStore;
   #configHash?: string | undefined;
   /** Built providers by pool name. */
   readonly #models = new Map<string, LLMProvider>();
@@ -163,6 +165,10 @@ export class Services {
   }
 
   /** SEC Form 4 insider trades (point-in-time by filing time). */
+  get earningsResults(): EarningsResultStore {
+    return (this.#earningsResults ??= new EarningsResultStore(this.db));
+  }
+
   get insider(): InsiderStore {
     return (this.#insider ??= new InsiderStore(this.db));
   }

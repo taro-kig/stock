@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BudgetExceeded } from "../harness/budget.ts";
+import { contradictsResults } from "../data/earningsResults.ts";
 import { EventExtractor } from "../signals/extractor.ts";
 import { docHash, type EventRecord } from "../signals/models.ts";
 import { defineNode } from "../workflow/registry.ts";
@@ -10,7 +11,8 @@ export const extractEvents = defineNode({
   category: "llm",
   description:
     "Turns each document into a structured event with the harness: schema validation, grounded quotes, cross-vendor voting, escalation, cache and budget cap.",
-  version: 1,
+  // v2: numbers in the rationale are checked; optional cross-check against reported earnings
+  version: 2,
   cache: "inputs",
   params: z.object({
     quorum: z.number().int().min(1).optional(),
@@ -21,7 +23,7 @@ export const extractEvents = defineNode({
     /** Tie-breaker model, or "none" (default: models.use.event.escalation). */
     escalation: z.string().optional(),
   }),
-  inputs: { matches: { type: "Matches" } },
+  inputs: { matches: { type: "Matches" }, results: { type: "EarningsResults", optional: true } },
   outputs: { events: { type: "Events" } },
   fallback: () => ({ events: [] }),
   async run(ctx, p, i) {
@@ -36,7 +38,8 @@ export const extractEvents = defineNode({
       if (res) ctx.metric("alreadyExtracted", 1);
       else {
         try {
-          const r = await extractor.extract({ doc, candidates, priority: new Set() });
+          const day = (doc.publishedAt ?? doc.fetchedAt).slice(0, 10);
+          const r = await extractor.extract({ doc, candidates, priority: new Set(), crossCheck: (e) => contradictsResults(e, day, i.results) });
           s.docStore.saveExtraction(doc, version, r);
           ctx.metric(`status_${r.status}`, 1);
           ctx.metric("rejectedVotes", r.votes.filter((v) => v.rejected).length);

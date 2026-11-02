@@ -1,5 +1,5 @@
 import { Ensemble, type EnsembleResult } from "../harness/ensemble.ts";
-import { checkEvidence } from "../harness/grounding.ts";
+import { checkEvidence, checkNumbers } from "../harness/grounding.ts";
 import type { StructuredCaller } from "../harness/structured.ts";
 import type { LLMProvider } from "../llm/types.ts";
 import { docText, EventExtraction, type Document } from "./models.ts";
@@ -11,6 +11,8 @@ export interface ExtractionContext {
   candidates: Record<string, string>;
   /** Holdings / top candidates: disagreements about these get escalated. */
   priority: ReadonlySet<string>;
+  /** Checks against structured data (e.g. reported vs estimated EPS). A string rejects the vote. */
+  crossCheck?: ((e: EventExtraction) => string | null) | undefined;
 }
 
 const sign = (x: number) => Math.sign(x);
@@ -46,9 +48,12 @@ export function validateEvent(e: EventExtraction, ctx: ExtractionContext): strin
   if (e.tickers.length === 0) return "relevant but no tickers";
   const unknown = e.tickers.filter((t) => !(t in ctx.candidates));
   if (unknown.length) return `tickers not in candidates: ${unknown.join(",")}`;
-  const { ok, failed } = checkEvidence(e.evidence, docText(ctx.doc));
+  const text = docText(ctx.doc);
+  const { ok, failed } = checkEvidence(e.evidence, text);
   if (!ok) return `ungrounded evidence: ${failed.length ? failed.join(" | ") : "none given"}`;
-  return null;
+  const nums = checkNumbers(e.rationale, text);
+  if (!nums.ok) return `number not in the document: ${nums.failed.join(", ")}`;
+  return ctx.crossCheck?.(e) ?? null;
 }
 
 export function shouldEscalateEvent(values: EventExtraction[], ctx: ExtractionContext): boolean {

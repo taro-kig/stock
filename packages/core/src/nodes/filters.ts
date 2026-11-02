@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { dedup, type Match } from "../signals/prefilter.ts";
+import { contradictsResults } from "../data/earningsResults.ts";
 import { defineNode } from "../workflow/registry.ts";
 
 export const mergeDocs = defineNode({
@@ -60,5 +61,27 @@ export const watchlistFilter = defineNode({
     }
     ctx.metric("skippedNoTicker", i.docs.length - matches.length);
     return { matches };
+  },
+});
+
+export const checkEventsNode = defineNode({
+  type: "filter.checkEvents",
+  title: "Check events against data",
+  category: "filter",
+  description:
+    "Drops events whose label the structured data contradicts (e.g. \"earnings beat\" when reported EPS missed the estimate), before they reach scores and the judgment sheet. Events extracted before the numbers were available are caught here too.",
+  version: 1,
+  cache: "inputs",
+  params: z.object({}),
+  inputs: { events: { type: "Events" }, results: { type: "EarningsResults", optional: true } },
+  outputs: { events: { type: "Events" } },
+  async run(ctx, _p, i) {
+    const kept = i.events.filter((e) => {
+      const why = contradictsResults(e.event, e.learnedAt.slice(0, 10), i.results);
+      if (why) ctx.log(`dropped "${e.title.slice(0, 80)}": ${why}`);
+      return !why;
+    });
+    ctx.metric("dropped", i.events.length - kept.length);
+    return { events: kept };
   },
 });

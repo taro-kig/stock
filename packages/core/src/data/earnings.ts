@@ -125,6 +125,12 @@ export class EarningsStore {
     return out;
   }
 
+  /** Report dates ever listed for these tickers between two dates (to notice a report that has just passed). */
+  reportDates(ticker: string, from: IsoDate, to: IsoDate): IsoDate[] {
+    const rows = this.#db.prepare("SELECT report_date FROM earnings_calendar WHERE ticker = ? AND report_date BETWEEN ? AND ? ORDER BY report_date").all(ticker, from, to) as Array<{ report_date: string }>;
+    return rows.map((r) => r.report_date);
+  }
+
   /** Everything known (latest download) between two dates, for the calendar screen. */
   between(tickers: readonly string[], from: IsoDate, to: IsoDate): EarningsEntry[] {
     if (!tickers.length) return [];

@@ -13,7 +13,8 @@ AI に渡す権限は、判断を全件記録して答え合わせした **実�
 ## 特徴
 
 - **ワークフロー**: 処理は型付きノードのグラフ (`workflows/*.yaml`)。キャッシュ・失敗時の方針・承認待ち/再開・過去日付の再生・全入出力の記録
-- **ハーネス**: スキーマ検証 + 再試行 / 原文照合 / 異系統モデルの多数決 / 事実の読み取りチェック / 反対役の拒否権 / キャッシュ / 日次予算
+- **ハーネス**: スキーマ検証 + 再試行 / 原文照合（引用と、理由に書いた数字も）/ 異系統モデルの多数決 / 事実の読み取りチェック / 決算の上振れ・下振れをデータで照合 / 反対役の拒否権 / キャッシュ / 日次予算
+- **根拠を確かめられる**: 実行・承認画面で判断の行を押すと、引用・元記事へのリンク・各モデルの答え・モデルが読んだ資料が見られる
 - **確度の計測**: AI とルールのベースラインを並走させ、20営業日後に採点。重なりを除いた実効標本数と Wilson 下限で昇格を判定
 - **fail-safe**: 合意なし → 棄権、予算超過・反対役の失敗 → 買わない
 
@@ -187,7 +188,7 @@ npm run stockai -- settings clear GEMINI_API_KEY
 | `GEMINI_API_KEY` | Gemini（イベント抽出・判断） | Google AI Studio |
 | `DEEPSEEK_API_KEY` | DeepSeek（多数決の2つ目） | DeepSeek Platform |
 | `TWELVEDATA_API_KEY` | 米国株の日足（無料: 800 回/日） | twelvedata.com |
-| `ALPHAVANTAGE_API_KEY` | 米国株の決算予定（無料: 25 回/日、1日1回だけ使う）。無くても動く（決算のルールが働かないだけ） | alphavantage.co |
+| `ALPHAVANTAGE_API_KEY` | 米国株の決算予定と決算実績（無料: 25 回/日。予定は1日1回、実績は決算直後の銘柄だけ・1回の実行で最大5件）。無くても動く（決算のルールと照合が働かないだけ） | alphavantage.co |
 | `SEC_USER_AGENT` | SEC EDGAR（キー不要。名前と連絡先メール、例 `stockai you@example.com`） | — |
 | `JQUANTS_API_KEY` | 日本株の株価（`data.pricesJQuants`）。Free プランは直近12週間が取れないので日次運用には Light 以上 | J-Quants ダッシュボードの API Keys |
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | 別ベンダーを試す場合 | 各社のコンソール |

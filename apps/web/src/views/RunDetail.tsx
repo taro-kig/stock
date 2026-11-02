@@ -7,20 +7,83 @@ import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pc
 import { navigate } from "../router.ts";
 import { ScorecardTable } from "./Scorecard.tsx";
 
+const EVENT_JA: Record<string, string> = {
+  earnings_beat: "決算 上振れ", earnings_miss: "決算 下振れ", guidance_up: "見通し 引き上げ", guidance_down: "見通し 引き下げ",
+};
+const STANCE_JA: Record<string, string> = { bullish: "強気", bearish: "弱気", neutral: "中立", abstain: "見送り" };
+const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : undefined);
+
+/** Why the AI decided this: quotes, the documents they come from, every model's vote and the fact sheet. */
+function JudgmentEvidence({ j }: { j: Judgment }) {
+  return (
+    <div className="evidence">
+      {j.evidence.length > 0 && (
+        <div>
+          <div className="dim">根拠（資料からの引用。資料にあることを機械的に確認済み）</div>
+          {j.evidence.map((q) => <blockquote key={q}>{q}</blockquote>)}
+        </div>
+      )}
+      {j.sources && j.sources.length > 0 && (
+        <div>
+          <div className="dim">出典（資料に載せたイベント。引用は元の文書にあることを確認済み）</div>
+          <ul className="sources">
+            {j.sources.map((src, k) => (
+              <li key={k}>
+                <span className="faint">{src.learnedAt.slice(0, 10)}</span>{" "}
+                <span className={src.direction > 0 ? "up" : src.direction < 0 ? "down" : "dim"}>{EVENT_JA[src.eventType] ?? src.eventType} {src.direction > 0 ? "+" : ""}{src.direction}</span>{" "}
+                {safeUrl(src.url) ? <a href={safeUrl(src.url)} target="_blank" rel="noreferrer noopener">{src.title} ↗</a> : <span>{src.title}</span>}
+                <span className="faint"> · {src.source}</span>
+                {src.evidence.map((q) => <blockquote key={q}>{q}</blockquote>)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {j.votes.length > 0 && (
+        <div>
+          <div className="dim">各モデルの答え</div>
+          {j.votes.map((v, k) => (
+            <div key={k}>
+              <span className="fg2">{v.provider}</span>{" "}
+              {v.rejected ? <span className="warn">棄却 — {v.rejected}</span> : <span>{v.stance ? STANCE_JA[v.stance] ?? v.stance : "—"}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {j.dossier && (
+        <details>
+          <summary className="dim">モデルが読んだ資料</summary>
+          <pre className="dossier">{j.dossier}</pre>
+        </details>
+      )}
+      {!j.evidence.length && !j.sources?.length && !j.dossier && <span className="faint">根拠の記録はありません（ルールによる判断、または古い実行）</span>}
+    </div>
+  );
+}
+
 export function JudgmentsTable({ items, names, compact = false }: { items: Judgment[]; names: Record<string, string>; compact?: boolean }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
   if (!items.length) return <Empty>判断なし</Empty>;
   const order = { bullish: 0, bearish: 1, neutral: 2, abstain: 3 } as const;
+  const toggle = (t: string) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(t)) n.delete(t);
+    else n.add(t);
+    return n;
+  });
+  const cols = compact ? 5 : 6;
   return (
     <table className="t">
       <thead>
-        <tr><th>銘柄</th><th>判断</th><th className="num">確信</th><th>合議</th>{!compact && <th className="num">一致</th>}<th>理由 / 撤回条件 / 拒否理由</th></tr>
+        <tr><th>銘柄</th><th>判断</th><th className="num">確信</th><th>合議</th>{!compact && <th className="num">一致</th>}<th>理由 / 撤回条件 / 拒否理由 <span className="faint">（行を押すと根拠）</span></th></tr>
       </thead>
       <tbody>
-        {[...items].sort((a, b) => order[a.stance] - order[b.stance] || b.conviction - a.conviction).map((j) => {
+        {[...items].sort((a, b) => order[a.stance] - order[b.stance] || b.conviction - a.conviction).flatMap((j) => {
           const rejected = j.votes.filter((v) => v.rejected);
-          return (
-            <tr key={j.ticker}>
-              <td className="nowrap">{j.ticker} <span className="dim">{names[j.ticker] ?? ""}</span></td>
+          const isOpen = open.has(j.ticker);
+          return [
+            <tr key={j.ticker} className="clickable" aria-expanded={isOpen} onClick={() => toggle(j.ticker)}>
+              <td className="nowrap"><span className="faint">{isOpen ? "▾" : "▸"}</span> {j.ticker} <span className="dim">{names[j.ticker] ?? ""}</span></td>
               <td><Stance s={j.stance} /></td>
               <td className="num">{num(j.conviction)}</td>
               <td className="nowrap"><Status s={j.status === "consensus" || j.status === "rules" ? "ok" : j.status === "escalated" ? "cached" : j.status === "vetoed" ? "fallback" : "skipped"} label={false} />{j.status}</td>
@@ -28,10 +91,12 @@ export function JudgmentsTable({ items, names, compact = false }: { items: Judgm
               <td className="wrap">
                 {j.vetoReason ? <span className="warn">拒否: {j.vetoReason}</span> : <span className="fg2">{j.thesis}</span>}
                 {j.invalidation.length > 0 && <div className="dim">撤回: {j.invalidation.join(" / ")}</div>}
-                {!compact && rejected.length > 0 && <div className="faint">棄却票: {rejected.map((v) => `${v.provider} — ${v.rejected}`).join("; ")}</div>}
+                {!compact && !isOpen && rejected.length > 0 && <div className="faint">棄却票: {rejected.map((v) => `${v.provider} — ${v.rejected}`).join("; ")}</div>}
+                {(j.sources?.length ?? 0) > 0 && !isOpen && <div className="faint">出典 {j.sources!.length} 件</div>}
               </td>
-            </tr>
-          );
+            </tr>,
+            ...(isOpen ? [<tr key={`${j.ticker}-ev`} className="evidence-row"><td colSpan={cols}><JudgmentEvidence j={j} /></td></tr>] : []),
+          ];
         })}
       </tbody>
     </table>

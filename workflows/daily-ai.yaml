@@ -7,18 +7,21 @@ nodes:
   merge:      { use: filter.merge, in: { a: news, b: filings }, ui: { x: 260, y: 50 } }
   dedup:      { use: filter.dedup, in: { docs: merge }, onError: skip, ui: { x: 520, y: 50 } }
   match:      { use: filter.watchlist, in: { docs: dedup }, onError: skip, ui: { x: 780, y: 50 } }
-  extract:    { use: llm.extractEvents, in: { matches: match }, onError: fallback, ui: { x: 1040, y: 50 } }
+  extract:    { use: llm.extractEvents, in: { matches: match, results: results }, onError: fallback, ui: { x: 1040, y: 50 } }
   history:    { use: signal.eventHistory, in: { today: extract }, ui: { x: 1300, y: 50 } }
-  eventScore: { use: signal.eventScores, in: { events: history }, ui: { x: 1560, y: 50 } }
+  # drops events the reported numbers contradict ("beat" when EPS missed)
+  checked:    { use: filter.checkEvents, in: { events: history, results: results }, ui: { x: 1430, y: -80 } }
+  eventScore: { use: signal.eventScores, in: { events: checked }, ui: { x: 1560, y: 50 } }
   # ── prices & factors (no LLM) ────────────────────────────────
   prices:     { use: data.pricesTwelveData, ui: { x: 0, y: 280 } }
   factors:    { use: signal.factors, in: { prices: prices }, ui: { x: 260, y: 280 } }
   earnings:   { use: data.earnings, onError: skip, ui: { x: 0, y: 500 } }
+  results:    { use: data.earningsResults, onError: skip, ui: { x: 780, y: -80 } }
   insider:    { use: data.insider, onError: skip, ui: { x: 0, y: 390 } }
   score:      { use: signal.score, in: { factors: factors, events: eventScore, insider: insider }, ui: { x: 1820, y: 160 } }
   account:    { use: portfolio.account, params: { initialCash: 100000 }, in: { prices: prices }, ui: { x: 260, y: 500 } }
   # ── decision → hard limits → approval → execution ────────────
-  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: history, account: account, earnings: earnings, insider: insider }, onError: fallback, ui: { x: 2080, y: 280 } }
+  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: checked, account: account, earnings: earnings, insider: insider, results: results }, onError: fallback, ui: { x: 2080, y: 280 } }
   propose:    { use: portfolio.propose, in: { judgments: decide, factors: factors, account: account, earnings: earnings }, ui: { x: 2340, y: 280 } }
   approve:    { use: gate.approval, in: { proposals: propose }, params: { mode: manual }, ui: { x: 2600, y: 280 } }
   execute:    { use: broker.paper, in: { proposals: approve, prices: prices, account: account }, ui: { x: 2860, y: 280 } }
