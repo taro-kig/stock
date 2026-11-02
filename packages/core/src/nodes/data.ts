@@ -7,6 +7,7 @@ import { barsUntil, type Bar, type Prices } from "../signals/technical.ts";
 import { addDays, toIsoDate, weekdays, type IsoDate } from "../util/dates.ts";
 import { fetchEarningsCalendar } from "../data/earnings.ts";
 import { AlphaVantageLimit, fetchEarningsResults, needsResults } from "../data/earningsResults.ts";
+import { fetchEarningsEstimates, isPremiumAnswer } from "../data/estimates.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -295,6 +296,9 @@ export const earningsCalendar = defineNode({
       try {
         const entries = await fetchEarningsCalendar(key, s.fetch);
         s.earnings.save(today, entries, ctx.wallNow());
+        // keep today's consensus for our companies: the record that estimate revisions are computed from
+        const ours = new Set(universe(ctx));
+        s.estimates.saveCalendar(today, entries.filter((e) => ours.has(e.ticker)));
         ctx.metric("downloaded", entries.length);
       } catch (e) {
         const last = s.earnings.lastFetch();
@@ -359,6 +363,57 @@ export const earningsResultsNode = defineNode({
     const results = s.earningsResults.recent(tickers, ctx.asOf);
     ctx.metric("tickers", Object.keys(results).length);
     return { results };
+  },
+});
+
+export const estimatesNode = defineNode({
+  type: "data.estimates",
+  title: "Analyst estimate revisions",
+  category: "data",
+  description:
+    "How the consensus EPS estimate moved over ~30 / ~90 days, with up / down revision counts when available. Always uses our own daily record of the calendar's consensus (from data.earnings, free); also asks Alpha Vantage EARNINGS_ESTIMATES (same key, weekly per ticker, max maxFetches per run) and falls back silently when the key cannot use it.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    apiKeyEnv: z.string().default("ALPHAVANTAGE_API_KEY"),
+    /** API requests per run (the free key allows 25 a day, shared with the calendar and results). 0 = calendar record only. */
+    maxFetches: z.number().int().min(0).max(20).default(4),
+    refreshDays: z.number().int().min(1).max(60).default(7),
+  }),
+  inputs: {},
+  outputs: { estimates: { type: "Estimates" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    const benchmark = s.config.market.benchmark;
+    const tickers = universe(ctx).filter((t) => t !== benchmark);
+    const today = toIsoDate(ctx.wallNow());
+    const key = s.env[p.apiKeyEnv];
+    if (ctx.live && key && p.maxFetches > 0) {
+      const due = tickers.filter((t) => {
+        const last = s.estimates.lastFetch(t);
+        return !last || last <= addDays(today, -p.refreshDays);
+      });
+      let fetched = 0;
+      for (const t of due.slice(0, p.maxFetches)) {
+        try {
+          s.estimates.save(t, today, await fetchEarningsEstimates(key, t, s.fetch));
+          fetched++;
+        } catch (e) {
+          if (isPremiumAnswer(e)) {
+            ctx.log("EARNINGS_ESTIMATES is not available to this key: using our own calendar record only");
+            ctx.metric("apiUnavailable", 1);
+            break;
+          }
+          ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
+          if (e instanceof AlphaVantageLimit) break;
+        }
+      }
+      ctx.metric("fetched", fetched);
+    }
+    const estimates = s.estimates.at(tickers, ctx.asOf);
+    ctx.metric("tickers", Object.keys(estimates).length);
+    ctx.metric("withRevision", Object.values(estimates).filter((rs) => rs.some((r) => r.change30 !== null)).length);
+    return { estimates };
   },
 });
 

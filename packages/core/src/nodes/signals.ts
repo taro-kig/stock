@@ -1,3 +1,4 @@
+import { revisionScore } from "../data/estimates.ts";
 import { z } from "zod";
 import { insiderScore } from "../data/insider.ts";
 import { eventScores } from "../signals/aggregate.ts";
@@ -75,10 +76,10 @@ export const scoreNode = defineNode({
   title: "Composite score",
   category: "signal",
   description: "Weighted, clipped z-scores of factors (and event scores, insider buying and SEC financials — quality = operating margin, growth = revenue growth — if connected).",
-  version: 2,
+  version: 3,
   cache: "inputs",
   params: z.object({ weights: z.record(z.string(), z.number()).default(DEFAULT_WEIGHTS) }),
-  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true }, fundamentals: { type: "Fundamentals", optional: true } },
+  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true }, fundamentals: { type: "Fundamentals", optional: true }, estimates: { type: "Estimates", optional: true } },
   outputs: { scores: { type: "Scores" } },
   async run(_ctx, p, i) {
     const rows = Object.values(i.factors.rows);
@@ -94,6 +95,8 @@ export const scoreNode = defineNode({
       factors["quality"] = col((r) => i.fundamentals?.[r.ticker]?.operatingMargin ?? null);
       factors["growth"] = col((r) => i.fundamentals?.[r.ticker]?.revenueTtmYoY ?? null);
     }
+    // only when some ticker has a usable 30-day change (our own record needs a month to build up)
+    if (i.estimates && Object.values(i.estimates).some((rs) => revisionScore(rs) !== null)) factors["revision"] = col((r) => revisionScore(i.estimates?.[r.ticker]));
     return { scores: compositeScore(factors, rows.map((r) => r.ticker), p.weights) };
   },
 });

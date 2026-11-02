@@ -39,8 +39,8 @@ export const aiDecide = defineNode({
   category: "decision",
   description:
     "Cheap models vote on a 20-day stance per candidate from a fact dossier. Votes that misread the facts or quote things not in the dossier are rejected; no consensus => abstain; a red-team model may veto buys.",
-  // v4: the fact sheet also has the previous judgment, past earnings reactions and SEC financials
-  version: 4,
+  // v5: the fact sheet also has the previous judgment, past earnings reactions, SEC financials and estimate revisions
+  version: 5,
   cache: "inputs",
   params: z.object({
     maxCandidates: z.number().int().positive().default(10),
@@ -70,6 +70,7 @@ export const aiDecide = defineNode({
     /** For the previous judgment's outcome and past earnings reactions. */
     prices: { type: "Prices", optional: true },
     fundamentals: { type: "Fundamentals", optional: true },
+    estimates: { type: "Estimates", optional: true },
   },
   outputs: { judgments: { type: "Judgments" } },
   fallback: () => ({ judgments: {} }),
@@ -107,6 +108,7 @@ export const aiDecide = defineNode({
         results: i.results && Object.keys(i.results).length ? (i.results[t] ?? []) : undefined,
         reactions: i.prices && i.results && Object.keys(i.results).length ? earningsReactions(i.results[t], i.prices[t], bench ? i.prices[bench] : undefined, ctx.asOf) : undefined,
         fundamentals: i.fundamentals && Object.keys(i.fundamentals).length ? (i.fundamentals[t] ?? null) : undefined,
+        estimates: i.estimates && Object.keys(i.estimates).length ? (i.estimates[t] ?? []) : undefined,
         previous: p.previousMaxDays > 0 ? previousJudgment(lastJudgment(t), ctx.asOf, i.prices?.[t], bench ? i.prices?.[bench] : undefined) : undefined,
       }, variant);
       try {

@@ -2,6 +2,7 @@ import type { Judgment } from "../ai/judge.ts";
 import type { Scorecard } from "../eval/scorecard.ts";
 import type { EarningsMap } from "../data/earnings.ts";
 import type { EarningsResults } from "../data/earningsResults.ts";
+import type { EstimatesMap } from "../data/estimates.ts";
 import type { FundamentalsMap } from "../data/fundamentals.ts";
 import type { InsiderMap } from "../data/insider.ts";
 import type { OrderTicket } from "../execution/broker.ts";
@@ -44,10 +45,12 @@ export interface PortTypes {
   EarningsResults: EarningsResults;
   /** Financials per ticker from SEC filings (growth, margins, EPS, shares), as of the run date. */
   Fundamentals: FundamentalsMap;
+  /** Analyst EPS estimate revisions per ticker, as of the run date. */
+  Estimates: EstimatesMap;
 }
 export type PortType = keyof PortTypes;
 
 export const PORT_TYPES = [
   "Documents", "Matches", "Events", "Prices", "Factors", "Scores", "Judgments",
-  "Account", "Proposals", "Fills", "Orders", "Scorecard", "Count", "UniverseChanges", "Earnings", "Insider", "EarningsResults", "Fundamentals",
+  "Account", "Proposals", "Fills", "Orders", "Scorecard", "Count", "UniverseChanges", "Earnings", "Insider", "EarningsResults", "Fundamentals", "Estimates",
 ] as const satisfies readonly PortType[];

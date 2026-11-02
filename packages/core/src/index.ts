@@ -38,3 +38,4 @@ export { FALLBACK_PRICE_PER_M } from "./harness/budget.ts";
 export { contradictsResults, EarningsResultStore, parseEarningsResults, resultLines, verdictOf, type EarningsResult, type EarningsResults } from "./data/earningsResults.ts";
 export { checkNumbers } from "./harness/grounding.ts";
 export { fundamentalLines, fundamentalsAt, FundamentalsStore, parseCompanyFacts, valuation, type Fundamentals, type FundamentalsMap } from "./data/fundamentals.ts";
+export { estimateLines, EstimateStore, parseEarningsEstimates, revisionScore, type EstimatesMap, type Revision } from "./data/estimates.ts";

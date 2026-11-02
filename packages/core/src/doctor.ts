@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { connect } from "node:net";
 import { fetchEarningsCalendar } from "./data/earnings.ts";
+import { fetchEarningsEstimates, isPremiumAnswer } from "./data/estimates.ts";
 import { fundamentalsAt, parseCompanyFacts } from "./data/fundamentals.ts";
 import { SecClient } from "./data/sec.ts";
 import { parseTimeSeries } from "./data/twelveData.ts";
@@ -196,7 +197,26 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       const entries = await fetchEarningsCalendar(key, s.fetch);
       s.earnings.save(today, entries, now); // counts as today's download
       const mine = entries.filter((e) => e.ticker in c.watchlist).sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+      s.estimates.saveCalendar(today, mine); // and as today's consensus record
       return { status: "ok", detail: `${entries.length.toLocaleString()} 件 · ウォッチリスト ${mine.length} 件${mine[0] ? `（次: ${mine[0].ticker} ${mine[0].reportDate}）` : ""}` };
+    });
+
+    // One EARNINGS_ESTIMATES request: tells whether this key can use it, and what came back.
+    await check("estimates", "data", "アナリスト予想（Alpha Vantage・任意）", async () => {
+      const key = env["ALPHAVANTAGE_API_KEY"];
+      if (!key) return { status: "skip", detail: "ALPHAVANTAGE_API_KEY が未設定" };
+      const t = Object.keys(c.watchlist).find((x) => x !== c.market.benchmark);
+      if (!t) return { status: "skip", detail: "ウォッチリストが空" };
+      try {
+        const snaps = await fetchEarningsEstimates(key, t, s.fetch);
+        s.estimates.save(t, toIsoDate(now), snaps);
+        if (!snaps.length) return { status: "warn", detail: `${t}: 応答は来たが予想の行を読み取れない`, hint: "データの形式が想定と違う可能性。自前の記録（決算予定の予想値）だけで動きます" };
+        const parts = snaps.map((x) => `${x.horizon === "quarter" ? "四半期" : "通期"} ${x.period}: ${x.average} · 過去値 ${Object.keys(x.ago).join("/") || "なし"} 日前 · 修正件数 ${x.up === null && x.down === null ? "なし" : `${x.up ?? 0}↑ ${x.down ?? 0}↓`}`);
+        return { status: "ok", detail: `${t} · ${parts.join(" · ")}` };
+      } catch (e) {
+        if (isPremiumAnswer(e)) return { status: "skip", detail: "このキーでは使えない（有料プラン向け）。決算予定の予想値を毎日記録して、修正を自前で計算します（1か月ほどで使えるようになる）" };
+        throw e;
+      }
     });
   }
 

@@ -46,6 +46,9 @@ function setup(env: Record<string, string>, opts: { tdStatus?: number } = {}) {
           form: ["4", "8-K", "SCHEDULE 13D"], items: ["", "2.02", ""], primaryDocument: ["x.xml", "y.htm", "z.xml"], primaryDocDescription: ["", "", ""],
         } } }));
       }
+      if (url.includes("function=EARNINGS_ESTIMATES")) {
+        return new Response(JSON.stringify({ symbol: "AAPL", estimates: [{ date: "2026-12-31", horizon: "next fiscal quarter", eps_estimate_average: "2.40", eps_estimate_average_30_days_ago: "2.30", eps_estimate_revision_up_trailing_30_days: "3", eps_estimate_revision_down_trailing_30_days: "1" }] }));
+      }
       if (url.startsWith("https://www.alphavantage.co")) return new Response("symbol,name,reportDate,fiscalDateEnding,estimate,currency\nAAPL,Apple,2026-11-20,2026-09-30,1.8,USD\nMSFT,Microsoft,2026-11-05,2026-09-30,,USD\n");
       if (url.startsWith("https://feeds.example")) return new Response(RSS);
       if (url === HOOK) return new Response(JSON.stringify({ name: "stockai", channel_id: "123" }));
@@ -73,6 +76,8 @@ describe("doctor", () => {
     expect(s.fundamentals.lastFetch("AAPL")).toBe("2026-11-02"); // the daily run will not download it again today
     expect(by["alphavantage"]!.detail).toContain("次: AAPL 2026-11-20");
     expect(s.earnings.fetchedOn("2026-11-02")).toBe(true); // counts as today's download
+    expect(by["estimates"]).toMatchObject({ status: "ok", detail: "AAPL · 四半期 2026-12-31: 2.4 · 過去値 30 日前 · 修正件数 3↑ 1↓" });
+    expect(s.estimates.lastFetch("AAPL")).toBe("2026-11-02");
     expect(by["rss:feed"]!.detail).toBe("2 件 · ウォッチリストに関係 1 件");
     expect(calls.find((c) => c.url.startsWith("https://feeds.example"))!.url).toContain("s=AAPL,ZZZQ");
     expect(by["discord"]).toMatchObject({ status: "ok" });
