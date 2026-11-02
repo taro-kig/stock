@@ -15,6 +15,8 @@ export type EnsembleStatus = "consensus" | "escalated" | "no_consensus" | "faile
 
 export interface Vote<T> {
   provider: string;
+  /** Model id behind the provider name. */
+  model?: string;
   value: T | null;
   /** Why this vote was discarded (invalid output, ungrounded evidence, ...). */
   rejected: string | null;
@@ -57,8 +59,8 @@ export class Ensemble<S extends z.ZodType, C = undefined> {
 
   async #vote(p: LLMProvider, args: CallArgs, ctx: C): Promise<Vote<z.output<S>>> {
     const r = await this.#o.caller.call(p, this.#o.schema, args);
-    if (r.value === null) return { provider: p.name, value: null, rejected: r.error ?? "no value", cached: r.cached };
-    return { provider: p.name, value: r.value, rejected: this.#o.validate?.(r.value, ctx) ?? null, cached: r.cached };
+    if (r.value === null) return { provider: p.name, model: p.model, value: null, rejected: r.error ?? "no value", cached: r.cached };
+    return { provider: p.name, model: p.model, value: r.value, rejected: this.#o.validate?.(r.value, ctx) ?? null, cached: r.cached };
   }
 
   #groups(votes: Vote<z.output<S>>[]): Map<string, z.output<S>[]> {

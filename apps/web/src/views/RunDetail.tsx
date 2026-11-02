@@ -3,13 +3,10 @@ import type { Judgment, Proposal } from "@stockai/core";
 import type { NodeView, RunDetail as Detail } from "../../shared/types.ts";
 import { Dag } from "../components/Dag.tsx";
 import { Empty, Pane, PortType, Stance, Status } from "../components/ui.tsx";
-import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pct, price, runDuration } from "../format.ts";
+import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pct, price, runDuration, EVENT_JA } from "../format.ts";
 import { navigate } from "../router.ts";
 import { ScorecardTable } from "./Scorecard.tsx";
 
-const EVENT_JA: Record<string, string> = {
-  earnings_beat: "決算 上振れ", earnings_miss: "決算 下振れ", guidance_up: "見通し 引き上げ", guidance_down: "見通し 引き下げ",
-};
 const STANCE_JA: Record<string, string> = { bullish: "強気", bearish: "弱気", neutral: "中立", abstain: "見送り" };
 const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : undefined);
 

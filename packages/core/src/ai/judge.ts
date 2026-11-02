@@ -1,3 +1,4 @@
+import { previousLines, reactionLines, type EarningsReaction, type PreviousJudgment } from "../strategy/history.ts";
 import { resultLines, type EarningsResult } from "../data/earningsResults.ts";
 import { z } from "zod";
 import { Ensemble, type EnsembleStatus } from "../harness/ensemble.ts";
@@ -65,7 +66,7 @@ export interface Judgment {
   invalidation: string[];
   evidence: string[];
   vetoReason: string | null;
-  votes: Array<{ provider: string; stance: Stance | null; rejected: string | null }>;
+  votes: Array<{ provider: string; model?: string | undefined; stance: Stance | null; rejected: string | null }>;
   /** Prompt versions that produced it ("judge-v2+redteam-v1"), so accuracy can be split by prompt. */
   prompt?: string;
   /** The verified events the fact sheet listed, with their source documents (so a person can check them). */
@@ -109,6 +110,10 @@ export function buildDossier(args: {
   insider?: InsiderSummary | undefined;
   /** Reported earnings (newest first): undefined = not connected (no section). */
   results?: readonly EarningsResult[] | undefined;
+  /** How the stock moved after past reports (computed from stored prices). */
+  reactions?: readonly EarningsReaction[] | undefined;
+  /** The last judgment on this ticker and what happened since: undefined = not read (no section). */
+  previous?: PreviousJudgment | null | undefined;
 }, variant: DossierVariant = "v1"): Dossier {
   const { row, events, position } = args;
   const trend: TrendRead = row.trend ?? "unknown";
@@ -139,6 +144,8 @@ export function buildDossier(args: {
     posLine,
     ...(args.insider === undefined ? [] : insiderLines(args.insider)),
     ...(args.results === undefined ? [] : resultLines(args.results)),
+    ...(args.reactions === undefined ? [] : reactionLines(args.reactions)),
+    ...(args.previous === undefined ? [] : previousLines(args.previous)),
     ...(args.earnings === undefined
       ? []
       : [
@@ -225,7 +232,7 @@ export class Judge {
       { schemaName: "TradeJudgment", system: this.#system, user: dossier.text, promptVersion: this.version },
       { dossier, priority },
     );
-    const votes = res.votes.map((v) => ({ provider: v.provider, stance: v.value?.stance ?? null, rejected: v.rejected }));
+    const votes = res.votes.map((v) => ({ provider: v.provider, ...(v.model ? { model: v.model } : {}), stance: v.value?.stance ?? null, rejected: v.rejected }));
     const v = res.value;
     const out: Judgment = {
       ticker: dossier.ticker,

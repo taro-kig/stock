@@ -90,3 +90,11 @@ export function metricsText(m: Record<string, number>): string {
     .map(([k, v]) => `${k}=${Number.isInteger(v) ? v.toLocaleString("en-US") : v < 1 ? v.toFixed(4) : v.toFixed(1)}`)
     .join("  ");
 }
+
+/** Event types in Japanese (packages/core signals/models.ts EVENT_TYPES). */
+export const EVENT_JA: Record<string, string> = {
+  earnings_beat: "決算 上振れ", earnings_miss: "決算 下振れ", guidance_up: "見通し 引き上げ", guidance_down: "見通し 引き下げ",
+  shareholder_return: "株主還元", dividend_cut: "減配", dilution: "希薄化（増資など）", m_and_a: "M&A・提携",
+  analyst_upgrade: "格上げ", analyst_downgrade: "格下げ", product_business: "製品・事業", legal_regulatory: "訴訟・規制",
+  scandal: "不祥事", management: "経営陣", macro_sector: "業界・マクロ", other: "その他", none: "関連なし",
+};

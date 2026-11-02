@@ -14,7 +14,7 @@ nodes:
   score:      { use: signal.score, in: { factors: factors, events: eventScore }, ui: { x: 1560, y: 110 } }
   account:    { use: portfolio.account, in: { prices: prices }, ui: { x: 260, y: 440 } }
   # ── decision → hard limits → approval → execution ────────────
-  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: history, account: account }, onError: fallback, ui: { x: 1820, y: 220 } }
+  decide:     { use: decide.ai, in: { factors: factors, scores: score, events: history, account: account, prices: prices }, onError: fallback, ui: { x: 1820, y: 220 } }
   propose:    { use: portfolio.propose, in: { judgments: decide, factors: factors, account: account }, ui: { x: 2080, y: 220 } }
   approve:    { use: gate.approval, in: { proposals: propose }, params: { mode: manual }, ui: { x: 2340, y: 220 } }
   execute:    { use: broker.paper, in: { proposals: approve, prices: prices, account: account }, ui: { x: 2600, y: 220 } }

@@ -1,6 +1,6 @@
 import type { LabelCard, Scorecard as Card } from "@stockai/core";
 import { Empty, Meter, Pane } from "../components/ui.tsx";
-import { pct, signedPct } from "../format.ts";
+import { pct, signedPct, EVENT_JA } from "../format.ts";
 
 const needOf = (k: LabelCard) => Number(/nEff \d+ < (\d+)/.exec(k.promotion.reason)?.[1] ?? 100);
 
@@ -76,6 +76,36 @@ function LabelPane({ k }: { k: LabelCard }) {
                   <div className="faint">下限 {pct(b.wilsonLow)} · 実効 {b.nEff} · {b.first}〜{b.last}</div>
                 </div>
               ))}
+            </dd>
+          </>
+        )}
+        {(k.byModel ?? []).length > 0 && (
+          <>
+            <dt>モデル別</dt>
+            <dd>
+              {k.byModel.map((b) => (
+                <div key={b.model} className="wrap-meta">
+                  <span className="fg2" style={{ display: "inline-block", minWidth: "26ch" }}>{b.model}</span>
+                  <Meter value={b.hitRate ?? 0} width={16} tone={(b.hitRate ?? 0) > 0.5 ? "ok" : ""} mark={0.5} /> {pct(b.hitRate)}
+                  <span className="faint"> 採点 {b.graded} · 重なりなし {pct(b.hitRateEff)}（{b.nEff}）</span>
+                </div>
+              ))}
+              <div className="faint">各モデルが単独で答えた強気・弱気を、そのまま判断にしたと仮定して採点（棄却された票は除く）</div>
+            </dd>
+          </>
+        )}
+        {(k.byEvent ?? []).length > 0 && (
+          <>
+            <dt>イベント別</dt>
+            <dd>
+              {k.byEvent.map((b) => (
+                <div key={`${b.eventType}${b.direction}`} className="wrap-meta">
+                  <span style={{ display: "inline-block", minWidth: "26ch" }}><span className={b.direction > 0 ? "up" : "down"}>{b.direction > 0 ? "＋" : "−"}</span> {EVENT_JA[b.eventType] ?? b.eventType}</span>
+                  <Meter value={b.hitRate ?? 0} width={16} tone={(b.hitRate ?? 0) > 0.5 ? "ok" : ""} mark={0.5} /> {pct(b.hitRate)}
+                  <span className="faint"> n={b.graded} · 平均超過 {signedPct(b.meanExcess, 2)}</span>
+                </div>
+              ))}
+              <div className="faint">資料にそのイベントがあった判断の、その後の値動きがイベントの向き（＋なら上回る）と一致した割合。判断が当たったかとは別。件数が少ないうちは参考程度</div>
             </dd>
           </>
         )}

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { buildDossier, Judge, type Judgment } from "../ai/judge.ts";
 import { BudgetExceeded } from "../harness/budget.ts";
+import { earningsReactions, previousJudgment } from "../strategy/history.ts";
 import { rankTickers } from "../strategy/scoring.ts";
+import { addDays } from "../util/dates.ts";
 import { defineNode } from "../workflow/registry.ts";
 
 export const rulesDecide = defineNode({
@@ -37,8 +39,8 @@ export const aiDecide = defineNode({
   category: "decision",
   description:
     "Cheap models vote on a 20-day stance per candidate from a fact dossier. Votes that misread the facts or quote things not in the dossier are rejected; no consensus => abstain; a red-team model may veto buys.",
-  // v2: judgments carry their sources and fact sheet; numbers in the thesis are checked
-  version: 2,
+  // v3: the fact sheet also has the previous judgment and past earnings reactions
+  version: 3,
   cache: "inputs",
   params: z.object({
     maxCandidates: z.number().int().positive().default(10),
@@ -53,6 +55,9 @@ export const aiDecide = defineNode({
     escalation: z.string().optional(),
     /** Red-team model, or "none" (default: models.use.redteam). */
     redTeamModel: z.string().optional(),
+    /** Read back the last judgment (eval.record label; default: this workflow's name). 0 days = off. */
+    historyLabel: z.string().optional(),
+    previousMaxDays: z.number().int().min(0).max(365).default(30),
   }),
   inputs: {
     factors: { type: "Factors" },
@@ -62,6 +67,8 @@ export const aiDecide = defineNode({
     earnings: { type: "Earnings", optional: true },
     insider: { type: "Insider", optional: true },
     results: { type: "EarningsResults", optional: true },
+    /** For the previous judgment's outcome and past earnings reactions. */
+    prices: { type: "Prices", optional: true },
   },
   outputs: { judgments: { type: "Judgments" } },
   fallback: () => ({ judgments: {} }),
@@ -80,6 +87,12 @@ export const aiDecide = defineNode({
     const held = Object.keys(i.account?.positions ?? {});
     const candidates = [...new Set([...ranked.slice(0, p.maxCandidates), ...held.filter((t) => i.factors.rows[t])])];
     const judgments: Record<string, Judgment> = {};
+    const bench = s.config.market.benchmark;
+    const label = p.historyLabel ?? ctx.workflow;
+    const lastJudgment = (t: string) => {
+      const prev = s.predictions.previous(label, t, ctx.asOf);
+      return prev && prev.asOf >= addDays(ctx.asOf, -p.previousMaxDays) ? prev : null;
+    };
     for (const t of candidates) {
       const events = (i.events ?? []).filter((e) => e.event.tickers.includes(t)).slice(-5);
       const dossier = buildDossier({
@@ -91,6 +104,8 @@ export const aiDecide = defineNode({
         insider: i.insider && Object.keys(i.insider).length ? i.insider[t] : undefined,
         // empty = not connected (no key): leave the section out
         results: i.results && Object.keys(i.results).length ? (i.results[t] ?? []) : undefined,
+        reactions: i.prices && i.results && Object.keys(i.results).length ? earningsReactions(i.results[t], i.prices[t], bench ? i.prices[bench] : undefined, ctx.asOf) : undefined,
+        previous: p.previousMaxDays > 0 ? previousJudgment(lastJudgment(t), ctx.asOf, i.prices?.[t], bench ? i.prices?.[bench] : undefined) : undefined,
       }, variant);
       try {
         judgments[t] = {

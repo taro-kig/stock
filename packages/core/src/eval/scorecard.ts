@@ -32,6 +32,13 @@ export interface LabelCard {
   byConviction: Array<{ bucket: string; graded: number; hitRate: number | null }>;
   /** The same numbers per prompt version (switching prompts must not blur the record). */
   byPrompt: Array<{ prompt: string; total: number; first: IsoDate; last: IsoDate; graded: number; nEff: number; hitRateEff: number | null; wilsonLow: number | null }>;
+  /** Each model's own answers graded as if they were the judgment (AI judgments recorded since v0.20). */
+  byModel: Array<{ model: string; votes: number; graded: number; nEff: number; hitRate: number | null; hitRateEff: number | null }>;
+  /**
+   * Did the events behind a judgment point the right way? For each event type and direction in the
+   * fact sheet: how often the stock then beat (+) or lagged (−) the benchmark, whatever the judgment was.
+   */
+  byEvent: Array<{ eventType: string; direction: 1 | -1; graded: number; hitRate: number | null; meanExcess: number | null }>;
   promotion: { eligible: boolean; reason: string };
 }
 
@@ -164,11 +171,45 @@ export function buildScorecard(preds: readonly Prediction[], prices: Prices, asO
           hitRateEff: rate(es), wilsonLow: wilsonLower(es.filter((x) => x.hit).length, es.length),
         };
       }),
+      byModel: byModel(ps, prices, horizon, benchmark),
+      byEvent: byEvent(ps, prices, horizon, benchmark),
       promotion: { eligible: false, reason: "" },
     };
   }
   for (const card of Object.values(labels)) card.promotion = promotion(card, labels, rule);
   return { asOf, horizonDays: horizon, labels };
+}
+
+function byModel(ps: readonly Prediction[], prices: Prices, horizon: number, benchmark?: string): LabelCard["byModel"] {
+  const per = new Map<string, Prediction[]>();
+  for (const p of ps) {
+    for (const v of p.votes ?? []) {
+      if (v.rejected || (v.stance !== "bullish" && v.stance !== "bearish")) continue;
+      const key = v.model ?? v.provider;
+      per.set(key, [...(per.get(key) ?? []), { ...p, stance: v.stance }]);
+    }
+  }
+  return [...per].map(([model, vs]) => {
+    const g = grade(vs, prices, horizon, benchmark);
+    const e = nonOverlapping(g, horizon);
+    return { model, votes: vs.length, graded: g.length, nEff: e.length, hitRate: rate(g), hitRateEff: rate(e) };
+  }).sort((a, b) => b.graded - a.graded);
+}
+
+function byEvent(ps: readonly Prediction[], prices: Prices, horizon: number, benchmark?: string): LabelCard["byEvent"] {
+  const per = new Map<string, number[]>();
+  for (const p of ps) {
+    const kinds = new Set((p.events ?? []).filter((e) => e.direction !== 0).map((e) => `${e.eventType}|${Math.sign(e.direction)}`));
+    if (!kinds.size) continue;
+    const x = forwardExcess(prices, p, horizon, benchmark);
+    if (x === null) continue;
+    for (const k of kinds) per.set(k, [...(per.get(k) ?? []), x]);
+  }
+  return [...per].map(([k, xs]) => {
+    const [eventType, d] = k.split("|") as [string, string];
+    const direction = Number(d) as 1 | -1;
+    return { eventType, direction, graded: xs.length, hitRate: xs.filter((x) => Math.sign(x) === direction).length / xs.length, meanExcess: mean(xs) };
+  }).sort((a, b) => b.graded - a.graded);
 }
 
 /** Whether a decision source has *earned* more authority (DESIGN: 権限の段階的委譲). */

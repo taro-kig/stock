@@ -6,8 +6,8 @@ export const recordPredictions = defineNode({
   type: "eval.record",
   title: "Record predictions",
   category: "eval",
-  description: "Stores every judgment (stance + conviction) under a label so it can be graded once the horizon has passed.",
-  version: 1,
+  description: "Stores every judgment (stance, conviction, thesis, each model's vote, the events behind it) under a label so it can be graded once the horizon has passed, split by model and event type, and read back as the previous judgment.",
+  version: 2,
   cache: "none",
   params: z.object({ label: z.string().optional() }),
   inputs: { judgments: { type: "Judgments" } },
@@ -15,7 +15,12 @@ export const recordPredictions = defineNode({
   async run(ctx, p, i) {
     const label = p.label ?? ctx.workflow;
     const count = ctx.services.predictions.record(
-      Object.values(i.judgments).map((j) => ({ label, asOf: ctx.asOf, ticker: j.ticker, stance: j.stance, conviction: j.conviction, status: j.status, runId: ctx.runId, prompt: j.prompt ?? null })),
+      Object.values(i.judgments).map((j) => ({
+        label, asOf: ctx.asOf, ticker: j.ticker, stance: j.stance, conviction: j.conviction, status: j.status, runId: ctx.runId, prompt: j.prompt ?? null,
+        thesis: j.thesis || null, invalidation: j.invalidation.length ? j.invalidation : null,
+        votes: j.votes.length ? j.votes.map((v) => ({ provider: v.provider, ...(v.model ? { model: v.model } : {}), stance: v.stance, rejected: v.rejected !== null })) : null,
+        events: j.sources?.length ? j.sources.map((s) => ({ eventType: s.eventType, direction: s.direction })) : null,
+      })),
     );
     return { count };
   },
