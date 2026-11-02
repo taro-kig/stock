@@ -44,6 +44,25 @@ export interface EventScore {
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
+/**
+ * Which fields missed and what was expected, e.g.
+ * "horizon=weeks（期待 months） · direction=+2（期待 +1）".
+ */
+export function explainMismatch(c: EventCase, v: EventExtraction, s: EventScore): string {
+  const e = c.expect;
+  const sign = (n: number) => (n > 0 ? `+${n}` : String(n));
+  const show: Record<Field, () => string> = {
+    relevant: () => `relevant=${v.relevant && v.eventType !== "none"}（期待 ${(Array.isArray(e.relevant) ? e.relevant : [e.relevant]).join("/")}）`,
+    tickers: () => `tickers=${v.tickers.join(",") || "なし"}（期待 ${(e.tickers ?? []).join(",")}）`,
+    eventType: () => `eventType=${v.eventType}（期待 ${(e.eventType ?? []).join("/")}）`,
+    direction: () => `direction=${sign(v.direction)}（期待 ${(e.direction ?? []).map(sign).join("/")}）`,
+    materiality: () => `materiality=${v.materiality}（期待 ${(e.materiality ?? []).join("/")}）`,
+    horizon: () => `horizon=${v.horizon}（期待 ${(e.horizon ?? []).join("/")}）`,
+  };
+  const missed = (Object.entries(s.fields) as Array<[Field, boolean | null]>).filter(([, ok]) => ok === false).map(([f]) => show[f]());
+  return missed.length ? missed.join(" · ") : "?";
+}
+
 export function scoreEvent(c: EventCase, v: EventExtraction | null): EventScore {
   const fields = Object.fromEntries(FIELDS.map((f) => [f, null])) as Record<Field, boolean | null>;
   if (!v) return { ok: false, fields: { ...fields, relevant: false } };
@@ -171,7 +190,7 @@ export async function evalEvents(set: EventGoldenSet, prompts: EventPromptArg[],
           else {
             row.accepted++;
             if (s.ok) row.correct++;
-            else row.failures.push({ id: c.id, reason: `wrong: ${JSON.stringify({ relevant: r.value.relevant, eventType: r.value.eventType, direction: r.value.direction, materiality: r.value.materiality, tickers: r.value.tickers })}` });
+            else row.failures.push({ id: c.id, reason: `wrong: ${explainMismatch(c, r.value, s)}` });
           }
         }
         Object.assign(row, usage(budget), { accuracy: row.correct / row.n });
@@ -189,8 +208,9 @@ export async function evalEvents(set: EventGoldenSet, prompts: EventPromptArg[],
             continue;
           }
           row.accepted++;
-          if (scoreEvent(c, res.value).ok) row.correctAccepted++;
-          else row.failures.push({ id: c.id, reason: "accepted but wrong" });
+          const sc = scoreEvent(c, res.value);
+          if (sc.ok) row.correctAccepted++;
+          else row.failures.push({ id: c.id, reason: `accepted but wrong: ${res.value ? explainMismatch(c, res.value, sc) : "no value"}` });
         }
         Object.assign(row, { costUsd: usage(budget).costUsd, precision: row.accepted ? row.correctAccepted / row.accepted : 0, coverage: row.accepted / row.n });
         report.ensemble.push(row);

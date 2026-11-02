@@ -129,3 +129,19 @@ describe("prompt versions", () => {
     expect(seen).toContain("## eventType の判定基準");
   });
 });
+
+describe("failure reasons", () => {
+  it("name the fields that missed and what was expected", async () => {
+    const { explainMismatch, scoreEvent } = await import("../src/eval/promptEval.ts");
+    const { EventCase } = await import("../src/eval/golden.ts");
+    const c = EventCase.parse({
+      id: "x", candidates: { X101: "架空精機" }, doc: { title: "t" },
+      expect: { relevant: true, tickers: ["X101"], eventType: ["guidance_up"], direction: [2], materiality: [3], horizon: ["months"] },
+    });
+    const v = { relevant: true, tickers: ["X101"], eventType: "guidance_up" as const, direction: 1, materiality: 3, horizon: "weeks" as const, confidence: 0.9, evidence: [], rationale: "" };
+    const s = scoreEvent(c, v);
+    expect(s.ok).toBe(false);
+    expect(explainMismatch(c, v, s)).toBe("direction=+1（期待 +2） · horizon=weeks（期待 months）");
+  });
+});
+
