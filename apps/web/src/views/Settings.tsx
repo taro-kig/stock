@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { SettingStatus } from "@stockai/core";
 import type { SettingsView } from "../../shared/types.ts";
 import { del, post, put, useApi } from "../api.ts";
-import { BackupPane, WatchlistPane } from "./SettingsExtra.tsx";
+import { BackupPane } from "./SettingsExtra.tsx";
 import { Empty, ErrorLine, Pane } from "../components/ui.tsx";
 import { time } from "../format.ts";
 
@@ -160,7 +160,6 @@ export function Settings({ toast }: { toast: Toast }) {
           </Pane>
         );
       })}
-      <WatchlistPane toast={toast} />
       <BackupPane toast={toast} />
     </div>
   );

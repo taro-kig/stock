@@ -1,6 +1,6 @@
 import type { NodeDescription } from "@stockai/core";
 import { useApi } from "../api.ts";
-import { Empty, Pane, PortType } from "../components/ui.tsx";
+import { FLOW_TABS, SubTabs, Empty, Pane, PortType } from "../components/ui.tsx";
 import { step, useKeys } from "../keys.ts";
 import { navigate } from "../router.ts";
 
@@ -29,6 +29,7 @@ export function Nodes({ param }: { param: string | null }) {
   return (
     <div className="split-view">
       <nav className="split-list">
+        <SubTabs items={FLOW_TABS} current="nodes" />
         <div className="list-head"><span>ノード {nodes.length}</span><span>j/k</span></div>
         {nodes.map((n) => {
           const head = n.category !== lastCat ? <div className="list-group">{CATEGORY_JA[n.category] ?? n.category}</div> : null;

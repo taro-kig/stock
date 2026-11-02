@@ -4,7 +4,7 @@ import { PulseContext, useApi, useStream } from "./api.ts";
 import { time, until, usd } from "./format.ts";
 import { useKeys } from "./keys.ts";
 import { Editor } from "./editor/Editor.tsx";
-import { navigate, TABS, useRoute, type View } from "./router.ts";
+import { navigate, TABS, tabOf, useRoute, type View } from "./router.ts";
 import { Approvals } from "./views/Approvals.tsx";
 import { Help } from "./views/Help.tsx";
 import { Nodes } from "./views/Nodes.tsx";
@@ -14,9 +14,10 @@ import { Prompts } from "./views/Prompts.tsx";
 import { Runs } from "./views/Runs.tsx";
 import { Scorecard } from "./views/Scorecard.tsx";
 import { Settings } from "./views/Settings.tsx";
+import { Watchlist } from "./views/Watchlist.tsx";
 import { Workflows } from "./views/Workflows.tsx";
 
-const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", prompts: "プロンプト", calendar: "カレンダー", editor: "編集" };
+const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", prompts: "プロンプト", calendar: "カレンダー", watchlist: "銘柄", editor: "編集" };
 
 interface Toast {
   id: number;
@@ -58,6 +59,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
     Escape: () => setHelp(false),
     t: toggleTheme,
     u: toggleUpDown,
+    ",": () => navigate("settings"),
   });
 
   const data = ov.data;
@@ -76,7 +78,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         <div className="brand"><span className="brand-mark">▁▃▆</span>stockai</div>
         <nav className="tabs">
           {TABS.map((v, i) => (
-            <a key={v} className="tab" href={`#/${v}`} aria-current={route.view === v || (v === "workflows" && route.view === "editor") ? "page" : undefined}>
+            <a key={v} className="tab" href={`#/${v}`} aria-current={tabOf(route.view) === v ? "page" : undefined}>
               <span className="key">{i + 1}</span>
               {LABELS[v]}
               {v === "approvals" && pending > 0 && <span className="count">{pending}</span>}
@@ -87,6 +89,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
           {data?.fake && <span className="badge fake" title="疑似モデル (--fake)。API キー不要・成績に意味はありません">FAKE</span>}
           <span className={connected ? "ok" : "fail"} title={connected ? "サーバーと接続中" : "切断（再接続中）"}>{connected ? "●" : "○"}</span>
           <span className="clock">{now.toLocaleDateString("sv-SE")} {now.toLocaleTimeString("ja-JP")}</span>
+          <a className="tab gear" href="#/settings" title="設定（API キー・通知・バックアップ） ," aria-current={route.view === "settings" ? "page" : undefined}>⚙<span className="key">,</span></a>
         </div>
       </header>
 
@@ -98,6 +101,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         {route.view === "workflows" && <Workflows param={route.param} toast={toast} />}
         {route.view === "nodes" && <Nodes param={route.param} />}
         {route.view === "settings" && <Settings toast={toast} />}
+        {route.view === "watchlist" && <Watchlist toast={toast} />}
         {route.view === "prompts" && <Prompts param={route.param} toast={toast} />}
         {route.view === "calendar" && <Calendar />}
         {route.view === "editor" && <Editor key={route.param ?? "new"} name={route.param} toast={toast} />}

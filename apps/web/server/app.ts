@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, Overview, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -565,6 +565,8 @@ export function createApp(o: AppOptions): App {
     if (req.method === "GET" && path === "/api/config/watchlist") {
       return send(res, 200, {
         watchlist: s.config.watchlist, benchmark: s.config.market.benchmark ?? "", currency: s.config.market.currency,
+        history: watchlistHistory(s, 30),
+        heldNotWatched: Object.keys(s.heldTickers()).filter((t) => !(t in s.config.watchlist)),
         file: o.configPath ? editableConfigPath(o.configPath) : null, loadedFrom: o.configPath ?? null,
       } satisfies WatchlistView);
     }

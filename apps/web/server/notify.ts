@@ -75,7 +75,7 @@ export class RunNotifier {
     if (run.status === "waiting" && changes && this.#wants("approval")) {
       const n: Notice = {
         title: `🗂 ウォッチリストの見直し: 追加 ${changes.add.length} / 削除 ${changes.remove.length}`,
-        description: "Web 画面の「3 承認」で承認・却下してください。",
+        description: "Web 画面の「2 承認」で承認・却下してください。",
         tone: "warn",
         fields: [
           ...changes.add.slice(0, 12).map((a) => ({ name: `+ ${a.ticker} ${a.name} (${a.sector})`, value: a.reason || "—" })),
@@ -91,7 +91,7 @@ export class RunNotifier {
       const n: Notice = {
         title: `⏳ 承認待ち: ${head}`,
         description:
-          (orders.length ? `注文 ${orders.length} 件。Web 画面の「3 承認」で承認・却下してください。` : "承認待ちです（注文なし）。") +
+          (orders.length ? `注文 ${orders.length} 件。Web 画面の「2 承認」で承認・却下してください。` : "承認待ちです（注文なし）。") +
           (broken.length ? `\n※ 問題のあったノード: ${broken.join(", ")}` : ""),
         tone: "warn",
         fields: orders.slice(0, 20).map((p) => ({

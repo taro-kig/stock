@@ -516,3 +516,14 @@ select.input { padding-right: 0.5ch; }
 .cal-run { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .cal-run:hover { text-decoration: underline; }
 .cal-time { margin-left: 0.4ch; font-size: 10px; color: var(--dim); font-weight: 400; }
+
+/* ── top bar gear & sub-tabs ───────────────────────────────── */
+.tab.gear { padding: 0 1.2ch; border-right: 0; border-left: 1px solid var(--line); align-self: stretch; font-size: 15px; }
+.tab.gear .key { font-size: 11px; }
+.subtabs { display: flex; gap: 0; margin: 0 2ch calc(var(--lh) * 0.5); border: 1px solid var(--line); width: fit-content; }
+.subtab { padding: 0 1.5ch; color: var(--dim); text-decoration: none; }
+.subtab + .subtab { border-left: 1px solid var(--line); }
+.subtab:hover { color: var(--fg); background: var(--bg-2); }
+.subtab[aria-selected="true"] { color: var(--accent); background: var(--bg); }
+.watchlist-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(34ch, 44ch); gap: 2ch; align-items: start; }
+@media (max-width: 1200px) { .watchlist-layout { grid-template-columns: 1fr; } }

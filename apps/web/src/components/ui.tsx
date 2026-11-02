@@ -87,3 +87,19 @@ export function ErrorLine({ error }: { error: string | undefined }) {
   if (!error) return null;
   return <div className="callout fail">✕ {error}</div>;
 }
+
+/** Small switch between sibling screens (e.g. ワークフロー | ノード under the フロー tab). */
+export function SubTabs({ items, current }: { items: Array<{ href: string; label: string; id: string }>; current: string }) {
+  return (
+    <div className="subtabs" role="tablist">
+      {items.map((i) => (
+        <a key={i.id} href={i.href} role="tab" aria-selected={i.id === current} className="subtab">{i.label}</a>
+      ))}
+    </div>
+  );
+}
+
+export const FLOW_TABS = [
+  { id: "workflows", href: "#/workflows", label: "ワークフロー" },
+  { id: "nodes", href: "#/nodes", label: "ノード" },
+];

@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
+import type { WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -144,6 +144,10 @@ export interface WatchlistView {
   benchmark: string;
   /** AI ticker suggestions are offered for USD (US stocks) only. */
   currency: "JPY" | "USD";
+  /** Recent watchlist changes (screen, Claude, review), newest first. */
+  history: WatchlistChangeRow[];
+  /** Still held in an account but no longer watched (stops and exits keep working). */
+  heldNotWatched: string[];
   /** Where edits are saved (config/config.yaml; created from the example on first save). */
   file: string | null;
   loadedFrom: string | null;

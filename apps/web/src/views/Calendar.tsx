@@ -98,7 +98,7 @@ export function Calendar() {
       <Pane title="直近の決算" aux={data?.market === "us" ? "90日先まで" : "—"}>
         {data?.market !== "us" ? <Empty>米国株の設定でのみ表示します</Empty> : !data.earningsSource.configured && !data.earningsSource.lastFetch ? (
           <p className="dim">
-            決算予定は Alpha Vantage の無料キーで取得します。<a className="accent" href="#/settings">7 設定</a> で <code>ALPHAVANTAGE_API_KEY</code> を入れると、次の日次実行から表示されます。
+            決算予定は Alpha Vantage の無料キーで取得します。<a className="accent" href="#/settings">⚙ 設定</a> で <code>ALPHAVANTAGE_API_KEY</code> を入れると、次の日次実行から表示されます。
           </p>
         ) : next.length === 0 ? <Empty>予定なし（ウォッチリストの銘柄）</Empty> : (
           <table className="t">

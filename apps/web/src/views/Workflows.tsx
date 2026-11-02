@@ -3,7 +3,7 @@ import type { WorkflowGraph } from "@stockai/core";
 import type { ImportResult, WorkflowInfo } from "../../shared/types.ts";
 import { ApiError, post, useApi } from "../api.ts";
 import { Dag } from "../components/Dag.tsx";
-import { Empty, ErrorLine, Kbd, Pane, Status } from "../components/ui.tsx";
+import { FLOW_TABS, SubTabs, Empty, ErrorLine, Kbd, Pane, Status } from "../components/ui.tsx";
 import { ago, time } from "../format.ts";
 import { step, useKeys } from "../keys.ts";
 import { navigate } from "../router.ts";
@@ -94,6 +94,7 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
           void pickFile(e.dataTransfer.files[0]);
         }}
       >
+        <SubTabs items={FLOW_TABS} current="workflows" />
         <div className="list-head"><span>ワークフロー {wfs.length}</span><span>j/k</span></div>
         <div className="btn-row" style={{ padding: "0 2ch calc(var(--lh) * 0.5)" }}>
           <button className="btn" onClick={() => navigate("editor", null)}>＋ 新規 <kbd>n</kbd></button>

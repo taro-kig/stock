@@ -27,7 +27,7 @@ IBKR の実装はそのまま残し、ウィブル証券を **2つ目のブロ�
 
 1. ウィブル証券で口座を開設する
 2. 開発者サイトで **API の利用申請**（個人）→ 審査後にアプリを作成し **App Key / App Secret** を発行（発行時に SMS 認証と取引パスワード）。**API キーの初期有効期間は 45 日**なので、期限前の更新を忘れないこと
-3. キーを Web UI の「7 設定」画面で `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` に入れる（CLI なら `npm run stockai -- settings set WEBULL_APP_KEY`）。
+3. キーを Web UI の⚙ 設定画面で `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` に入れる（CLI なら `npm run stockai -- settings set WEBULL_APP_KEY`）。
    証券口座のキーなので、**自宅のマシンだけ**に置き、クラウド環境には入れない
 
 4. `config/config.yaml` の `webull:`（例は `config/config.example.yaml`）

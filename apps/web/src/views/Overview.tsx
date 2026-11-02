@@ -1,7 +1,7 @@
 import type { Overview as OverviewData } from "../../shared/types.ts";
 import { Empty, Kbd, Meter, Pane, Spark, Status } from "../components/ui.tsx";
 import { ago, money, moneyOrDash, pct, runDuration, signedPct, time, until, usd } from "../format.ts";
-import { navigate } from "../router.ts";
+import { navigate, tabKey } from "../router.ts";
 
 export function Overview({ data }: { data: OverviewData | undefined }) {
   if (!data) return <Empty>読み込み中…</Empty>;
@@ -12,7 +12,7 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
   return (
     <div className="grid cols-2">
       <div className="stack">
-        <Pane title="承認待ち" aux={gates.length ? `${gates.length} 件` : undefined} className={gates.length ? "alert" : ""} actions={gates.length ? <span><Kbd>3</Kbd> 承認へ</span> : undefined}>
+        <Pane title="承認待ち" aux={gates.length ? `${gates.length} 件` : undefined} className={gates.length ? "alert" : ""} actions={gates.length ? <span><Kbd>{tabKey("approvals")}</Kbd> 承認へ</span> : undefined}>
           {gates.length === 0 ? (
             <div className="dim">
               承認待ちの注文はありません。
@@ -41,7 +41,7 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
           )}
         </Pane>
 
-        <Pane title="ワークフロー" aux={`${data.workflows.length}`} actions={<span><Kbd>5</Kbd></span>}>
+        <Pane title="ワークフロー" aux={`${data.workflows.length}`} actions={<span><Kbd>{tabKey("workflows")}</Kbd></span>}>
           <table className="t">
             <thead><tr><th>名前</th><th>最終実行</th><th>基準日</th><th className="num">所要</th><th>次回</th></tr></thead>
             <tbody>
@@ -61,9 +61,9 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
           </table>
         </Pane>
 
-        <Pane title="最近の実行" actions={<span><Kbd>2</Kbd></span>}>
+        <Pane title="最近の実行" actions={<span><Kbd>{tabKey("runs")}</Kbd></span>}>
           {data.recent.length === 0 ? (
-            <Empty>まだ実行がありません。<Kbd>5</Kbd> からワークフローを実行できます。</Empty>
+            <Empty>まだ実行がありません。<Kbd>{tabKey("workflows")}</Kbd> からワークフローを実行できます。</Empty>
           ) : (
             <table className="t">
               <thead><tr><th>状態</th><th>ワークフロー</th><th>基準日</th><th>開始</th><th className="num">所要</th></tr></thead>
@@ -117,7 +117,7 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
           )}
         </Pane>
 
-        <Pane title="確度" aux={card ? `${card.horizonDays}営業日 · ${card.asOf}` : undefined} actions={<span><Kbd>4</Kbd></span>}>
+        <Pane title="確度" aux={card ? `${card.horizonDays}営業日 · ${card.asOf}` : undefined} actions={<span><Kbd>{tabKey("scorecard")}</Kbd></span>}>
           {!card || Object.keys(card.labels).length === 0 ? (
             <Empty>採点できる判断がまだありません。判断から{card?.horizonDays ?? 20}営業日後に採点されます。</Empty>
           ) : (
