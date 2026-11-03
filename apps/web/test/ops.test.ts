@@ -478,3 +478,18 @@ describe("models registered for a key that has none", () => {
     expect(services.resolvedModels().event.vote).toEqual(expect.arrayContaining(["gemini-lite", "deepseek"]));
   });
 });
+
+describe("workflows for the other market", () => {
+  it("flags a US workflow when the settings are for Japanese stocks", async () => {
+    const { call, dir: root } = await start();
+    const dir = join(root, "wf");
+    writeFileSync(join(dir, "daily-rules.yaml"), readFileSync(join(ROOT, "workflows/daily-rules.yaml"), "utf8"));
+    writeFileSync(join(dir, "daily-jp-rules.yaml"), readFileSync(join(ROOT, "workflows/daily-jp-rules.yaml"), "utf8"));
+    const wfs = (await call<Array<{ name: string; market: string | null; marketMismatch: string | null }>>("GET", "/api/workflows")).body;
+    const by = Object.fromEntries(wfs.map((w) => [w.name, w]));
+    expect(by["daily-rules"]).toMatchObject({ market: "us" });
+    expect(by["daily-rules"]!.marketMismatch).toContain("今の設定（config.yaml）は日本株");
+    expect(by["daily-jp-rules"]).toMatchObject({ market: "jp", marketMismatch: null });
+    expect(by["demo-ai"]).toMatchObject({ market: null, marketMismatch: null });
+  });
+});

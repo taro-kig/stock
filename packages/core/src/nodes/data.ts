@@ -202,6 +202,7 @@ export const jquantsPrices = defineNode({
   description: "Downloads split-adjusted daily bars from J-Quants (JPX). Needs JQUANTS_API_KEY. Fails rather than decide on stale prices: the Free plan omits the latest 12 weeks.",
   version: 1,
   cache: "daily",
+  market: "jp",
   params: z.object({
     requestsPerMinute: z.number().positive().default(5), // Free: 5, Light: 60, Standard: 120
     maxStaleDays: z.number().int().positive().default(7),
@@ -316,6 +317,7 @@ export const twelveDataPrices = defineNode({
     "US daily bars from Twelve Data (free plan: 800 requests/day, 8/min; key in TWELVEDATA_API_KEY). Keeps a local copy, so daily runs download only the last bars and replays of past dates need no network.",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     apiKeyEnv: z.string().default("TWELVEDATA_API_KEY"),
     /** Ticker -> Twelve Data symbol when they differ. */
@@ -332,7 +334,12 @@ export const twelveDataPrices = defineNode({
   async run(ctx, p) {
     const { prices, counts, failures } = await loadTwelveData(ctx, p.universe === "research" ? researchTickers(ctx) : universe(ctx), p);
     for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
-    if (!Object.keys(prices).length) throw noPricesError("Twelve Data", failures);
+    if (!Object.keys(prices).length) {
+      const e = noPricesError("Twelve Data", failures);
+      // the usual cause: a US workflow run with the Japanese settings (6758 is not a US symbol)
+      if (ctx.services.config.market.currency !== "USD") e.message += " — this is a US workflow but the settings are for Japanese stocks (market.currency JPY): run a daily-jp-* workflow, or switch config.yaml to the US example";
+      throw e;
+    }
     return { prices };
   },
 });
@@ -345,6 +352,7 @@ export const earningsCalendar = defineNode({
     "Next earnings date per ticker (US). Downloads the Alpha Vantage calendar once a day (free key ALPHAVANTAGE_API_KEY: 25 requests/day, one is enough) and keeps what was known on each day, so replays only see dates known at the time.",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({ apiKeyEnv: z.string().default("ALPHAVANTAGE_API_KEY"), staleDays: z.number().int().min(1).default(7) }),
   inputs: {},
   outputs: { earnings: { type: "Earnings" } },
@@ -389,6 +397,7 @@ export const earningsResultsNode = defineNode({
     "Reported EPS vs consensus per ticker (US, Alpha Vantage EARNINGS, same free key as the calendar). Downloads a ticker only when a report has just passed or it was never fetched (at most maxFetches per run, once a day per ticker) to stay within 25 requests/day. Beat / miss is computed here, not read by a model.",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     apiKeyEnv: z.string().default("ALPHAVANTAGE_API_KEY"),
     /** Requests per run (the free key allows 25 a day; the calendar uses one). */
@@ -447,6 +456,7 @@ export const estimatesNode = defineNode({
     "How the consensus EPS estimate moved over ~30 / ~90 days, with up / down revision counts when available. Always uses our own daily record of the calendar's consensus (from data.earnings, free); also asks Alpha Vantage EARNINGS_ESTIMATES (same key, weekly per ticker, max maxFetches per run) and falls back silently when the key cannot use it.",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     apiKeyEnv: z.string().default("ALPHAVANTAGE_API_KEY"),
     /** API requests per run (the free key allows 25 a day, shared with the calendar and results). 0 = calendar record only. */
@@ -504,6 +514,7 @@ export const marketNode = defineNode({
     "Sector ETFs vs the benchmark (Twelve Data, ~13 symbols, one credit each per day) and market-wide risk gauges from FRED (VIX, high-yield spread, 10-year yield, 10y−2y; free key FRED_API_KEY, optional). Computes a risk level: caution → smaller new positions, stress → no new positions (portfolio.propose).",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     apiKeyEnv: z.string().default("TWELVEDATA_API_KEY"),
     fredKeyEnv: z.string().default("FRED_API_KEY"),
@@ -572,6 +583,7 @@ export const researchUniverseNode = defineNode({
     "Builds the stocks used to measure factors from SEC data: NYSE / Nasdaq companies, sized by public float (large ≥ $10B, mid $2–10B, small $0.3–2B; one bulk request), sector from the SIC code, perBucket companies per size in a fixed pseudo-random order. Rebuilt every rebuildDays. config research.universe overrides it. Never fails the run: on errors the previous (or built-in) list is kept.",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     userAgentEnv: z.string().default("SEC_USER_AGENT"),
     perBucket: z.number().int().min(10).max(500).default(120),

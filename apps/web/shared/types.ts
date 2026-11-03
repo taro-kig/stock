@@ -84,6 +84,10 @@ export interface WorkflowInfo {
   lastRun: RunSummary | null;
   /** Set when the workflow is switched off (no scheduled, manual or CLI runs). */
   disabled: { since: string; note: string } | null;
+  /** Market the workflow is built for (null: either). */
+  market: "us" | "jp" | null;
+  /** Set when that market is not the one in config.yaml: running it will not find data for the watchlist. */
+  marketMismatch: string | null;
 }
 
 export interface ScheduleItem {

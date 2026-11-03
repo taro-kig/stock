@@ -207,3 +207,15 @@ describe("stringifyWorkflow", () => {
     }
   });
 });
+
+describe("workflow market", () => {
+  it("is decided by the market-specific nodes it uses", async () => {
+    const { workflowMarket } = await import("../src/workflow/registry.ts");
+    const { builtinRegistry } = await import("../src/nodes/index.ts");
+    const r = builtinRegistry();
+    expect(workflowMarket(["data.pricesTwelveData", "signal.factors", "source.secFilings"], r)).toBe("us");
+    expect(workflowMarket(["data.pricesJQuants", "source.rss"], r)).toBe("jp");
+    expect(workflowMarket(["data.pricesSynthetic", "decide.ai"], r)).toBeNull();
+    expect(workflowMarket(["data.pricesTwelveData", "data.pricesJQuants"], r)).toBeNull();
+  });
+});

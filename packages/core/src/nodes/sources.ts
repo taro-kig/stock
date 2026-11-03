@@ -78,6 +78,7 @@ export const secFilings = defineNode({
     "US company filings (8-K etc.) for the watchlist from SEC EDGAR, free. Needs SEC_USER_AGENT with a contact e-mail. Point-in-time: a filing counts from the moment EDGAR accepted it, so past dates can be replayed.",
   version: 2, // v2: Schedule 13D by default
   cache: "daily",
+  market: "us",
   params: z.object({
     /** 8-K: material events. Schedule 13D: someone crossed 5% with intent to influence (activists); "SC 13D" before 2025, "SCHEDULE 13D" after. */
     forms: z.array(z.string()).default(["8-K", "SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"]),
@@ -159,6 +160,7 @@ export const insiderTrades = defineNode({
     "Open-market buys and sells by officers, directors and 10% owners of the watched (and held) US stocks, from SEC Form 4 (filed within 2 business days). Downloads only new filings; a trade counts from the moment EDGAR accepted it. Needs SEC_USER_AGENT; without it the node stays green and outputs nothing.",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     windowDays: z.number().int().min(7).max(365).default(90),
     userAgentEnv: z.string().default("SEC_USER_AGENT"),
@@ -228,6 +230,7 @@ export const fundamentalsNode = defineNode({
     "Revenue / EPS growth, margins and shares outstanding per US ticker from SEC company facts (free; needs SEC_USER_AGENT). Downloads a company weekly, or daily after a report date until its 10-Q / 10-K is in. Numbers are computed by the program and count from their filing date (point in time).",
   version: 1,
   cache: "daily",
+  market: "us",
   params: z.object({
     userAgentEnv: z.string().default("SEC_USER_AGENT"),
     /** Companies downloaded per run (each is one request of a few MB). */

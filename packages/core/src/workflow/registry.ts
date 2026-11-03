@@ -35,6 +35,8 @@ export interface NodeDef<P extends z.ZodObject, I extends PortDecls, O extends P
    */
   version: number;
   cache: CachePolicy;
+  /** Only meaningful for this market (US data sources, Japanese data sources). */
+  market?: "us" | "jp";
   params: P;
   inputs: I;
   outputs: O;
@@ -59,6 +61,7 @@ export interface NodeDescription {
   version: number;
   cache: CachePolicy;
   hasFallback: boolean;
+  market: "us" | "jp" | null;
   inputs: Record<string, PortDecl>;
   outputs: Record<string, PortDecl>;
   paramsSchema: unknown;
@@ -87,8 +90,17 @@ export class NodeRegistry {
   describe(): NodeDescription[] {
     return this.list().map((d) => ({
       type: d.type, title: d.title, category: d.category, description: d.description, version: d.version,
-      cache: d.cache, hasFallback: typeof d.fallback === "function", inputs: d.inputs, outputs: d.outputs,
+      cache: d.cache, hasFallback: typeof d.fallback === "function", market: d.market ?? null, inputs: d.inputs, outputs: d.outputs,
       paramsSchema: z.toJSONSchema(d.params, { io: "input", unrepresentable: "any" }),
     }));
   }
+}
+
+/**
+ * Which market a workflow is for, from its nodes (Twelve Data / SEC → us, J-Quants → jp);
+ * null when it uses no market-specific node (demo, synthetic data).
+ */
+export function workflowMarket(nodeTypes: readonly string[], registry: NodeRegistry): "us" | "jp" | null {
+  const ms = new Set(nodeTypes.map((t) => registry.get(t)?.market).filter((m): m is "us" | "jp" => Boolean(m)));
+  return ms.size === 1 ? [...ms][0]! : null;
 }

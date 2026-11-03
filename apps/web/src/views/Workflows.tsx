@@ -138,6 +138,7 @@ export function Workflows({ param, toast }: { param: string | null; toast: (m: s
               <div className="dim">{sel.description}</div>
             </div>
             {sel.problems.length > 0 && <div className="callout fail">{sel.problems.map((p) => <div key={p}>✕ {p}</div>)}</div>}
+            {sel.marketMismatch && <div className="callout warn">⚠ {sel.marketMismatch}</div>}
             {sel.disabled && (
               <div className="callout warn">
                 ⏸ 無効（{time(sel.disabled.since)} から）。スケジュール・画面・CLI のどこからも実行されません。承認待ちの実行があれば、承認・却下はできます。

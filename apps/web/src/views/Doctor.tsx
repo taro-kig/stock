@@ -18,9 +18,10 @@ export function DoctorPane({ toast }: { toast: Toast }) {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<{ at: string; results: CheckResult[] } | null>(null);
   const wfs = useApi<WorkflowInfo[]>("/api/workflows");
-  const runnable = (wfs.data ?? []).filter((w) => !w.problems.length && !w.disabled);
+  const runnable = (wfs.data ?? []).filter((w) => !w.problems.length && !w.disabled && !w.marketMismatch);
   const [wf, setWf] = useState("");
-  const trial = wf || runnable.find((w) => w.name === "daily-rules")?.name || runnable[0]?.name || "";
+  // the cheap rules baseline of whichever market the settings are for
+  const trial = wf || runnable.find((w) => w.name === "daily-rules" || w.name === "daily-jp-rules")?.name || runnable.find((w) => w.market)?.name || runnable[0]?.name || "";
 
   async function check() {
     setBusy(true);

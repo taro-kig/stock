@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  loadWorkflow, toGraph, toIsoDate, validateWorkflow, WorkflowSpec,
+  loadWorkflow, toGraph, toIsoDate, validateWorkflow, workflowMarket, WorkflowSpec,
   type AccountState, latestFactorReport as coreLatestFactorReport, type Fill, type Judgment, type NodeRegistry, type NodeRunRow, type OrderTicket, type Proposal, type RunRow, type Scorecard, type Services,
   type UniverseChanges,
 } from "@stockai/core";
@@ -46,6 +46,19 @@ export function workflowInfo(w: WorkflowFile, s: Services, registry: NodeRegistr
     nodeCount: w.spec ? Object.keys(w.spec.nodes).length : 0,
     lastRun: last ? summary(last) : null,
     disabled: s.runStore.disabled(w.name),
+    ...marketOf(w, s, registry),
+  };
+}
+
+function marketOf(w: WorkflowFile, s: Services, registry: NodeRegistry): Pick<WorkflowInfo, "market" | "marketMismatch"> {
+  const market = w.spec ? workflowMarket(Object.values(w.spec.nodes).map((n) => n.use), registry) : null;
+  const config = s.config.market.currency === "USD" ? "us" : "jp";
+  const JA = { us: "米国株", jp: "日本株" } as const;
+  return {
+    market,
+    marketMismatch: market && market !== config
+      ? `${JA[market]}用のワークフローですが、今の設定（config.yaml）は${JA[config]}です。ウォッチリストの銘柄のデータが取れません（${config === "jp" ? "daily-jp-* を使う" : "米国株用のワークフローを使う"}か、設定を${JA[market]}に切り替える）`
+      : null,
   };
 }
 
