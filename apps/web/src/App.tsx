@@ -98,7 +98,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         {route.view === "overview" && <Overview data={data} />}
         {route.view === "runs" && <Runs param={route.param} />}
         {route.view === "approvals" && <Approvals overview={data} param={route.param} toast={toast} />}
-        {route.view === "scorecard" && <Scorecard card={data?.scorecard} />}
+        {route.view === "scorecard" && <Scorecard card={data?.scorecard} toast={toast} />}
         {route.view === "workflows" && <Workflows param={route.param} toast={toast} />}
         {route.view === "nodes" && <Nodes param={route.param} />}
         {route.view === "settings" && <Settings toast={toast} />}

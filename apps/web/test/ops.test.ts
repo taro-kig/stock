@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { ModelsView, PromptsView, StockView, TodayView, WatchlistView } from "../shared/types.ts";
+import type { ModelsView, PromptsView, StockView, TodayView, WatchlistView, WeightTargets } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -372,5 +372,23 @@ describe("today API", () => {
     expect(fred.day).toBe("2026-10-20");
     expect(fred.stale).toBe(true); // more than 4 days old
     expect(v.freshness.find((f) => f.label === "株価")!.day).toBeNull();
+  });
+});
+
+describe("applying factor weights", () => {
+  it("lists score nodes and writes new weights into the workflow, with a log", async () => {
+    const { call } = await start();
+    const t = (await call<WeightTargets>("GET", "/api/factors/targets")).body;
+    const target = t.targets.find((x) => x.workflow === "demo-ai")!;
+    expect(target.node).toBe("score");
+    expect(target.explicit).toBe(false);
+    expect((await call("POST", "/api/factors/apply", { workflow: "demo-ai", node: "score", weights: { nope: 1 }, previous: target.weights })).status).toBe(400);
+    expect((await call("POST", "/api/factors/apply", { workflow: "demo-ai", node: "score", weights: { momentum: 0.5 }, previous: {} })).status).toBe(409);
+    const ok = await call<{ file: string }>("POST", "/api/factors/apply", { workflow: "demo-ai", node: "score", weights: { momentum: 0.5, high52: 0.25 }, previous: target.weights });
+    expect(ok.status).toBe(200);
+    expect(readFileSync(ok.body.file, "utf8")).toContain("weights: { momentum: 0.5, high52: 0.25 }");
+    const after = (await call<WeightTargets>("GET", "/api/factors/targets")).body;
+    expect(after.targets.find((x) => x.workflow === "demo-ai")!.weights).toEqual({ momentum: 0.5, high52: 0.25 });
+    expect(after.history[0]).toMatchObject({ workflow: "demo-ai", node: "score", to: { momentum: 0.5, high52: 0.25 }, source: "ui" });
   });
 });

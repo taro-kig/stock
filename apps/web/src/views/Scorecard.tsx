@@ -1,7 +1,9 @@
 import type { FactorReport, FactorStats, LabelCard, Scorecard as Card } from "@stockai/core";
-import { useApi } from "../api.ts";
+import { useEffect, useState } from "react";
+import type { WeightTargets } from "../../shared/types.ts";
+import { post, useApi } from "../api.ts";
 import { Empty, Meter, Pane } from "../components/ui.tsx";
-import { pct, signedPct, EVENT_JA } from "../format.ts";
+import { pct, signedPct, EVENT_JA, FACTOR_JA, time } from "../format.ts";
 
 const needOf = (k: LabelCard) => Number(/nEff \d+ < (\d+)/.exec(k.promotion.reason)?.[1] ?? 100);
 
@@ -116,7 +118,9 @@ function LabelPane({ k }: { k: LabelCard }) {
   );
 }
 
-export function Scorecard({ card }: { card: Card | null | undefined }) {
+type Toast = (m: string, err?: boolean) => void;
+
+export function Scorecard({ card, toast }: { card: Card | null | undefined; toast: Toast }) {
   const accuracy = !card || Object.keys(card.labels).length === 0 ? (
     <Pane title="確度">
       <Empty>まだ採点できる判断がありません。</Empty>
@@ -137,7 +141,7 @@ export function Scorecard({ card }: { card: Card | null | undefined }) {
   return (
     <div className="stack">
       {accuracy}
-      <FactorPane />
+      <FactorPane toast={toast} />
     </div>
   );
 }
@@ -169,7 +173,7 @@ function FactorRow({ f, weight, suggested, showBuckets }: { f: FactorStats; weig
 }
 
 /** How well each scoring factor predicted, measured on past dates (factor-research workflow). */
-function FactorPane() {
+function FactorPane({ toast }: { toast: Toast }) {
   const { data, error } = useApi<{ report: FactorReport; runId: string; workflow: string } | null>("/api/factors");
   if (error) return null;
   if (!data) {
@@ -207,13 +211,85 @@ function FactorPane() {
       <p className="dim">
         <span className="up">■</span> プラスで t ≥ 2（効いていそう）、<span className="down">■</span> マイナスで t ≤ −2（逆に効いている）。
         提案は、測った IC に比例させた重みを、日付が少ないうちは今の重みに寄せた値です（今の重みと同じ目盛り）。
-        提案の重みを使うときは、「7 フロー」で該当ワークフローの signal.score ノードの weights に入れてください（自動では変わりません）。
+        提案の重みは下で確認・調整してから、ワークフローのスコアに適用できます（自動では変わりません）。
       </p>
-      <div className="btn-row">
-        <button className="btn" type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(r.suggested))}>提案の重みをコピー</button>
-        <a className="faint" href={`#/runs/${data.runId}`}>実行 {data.runId} ↗</a>
-      </div>
+      <ApplyWeights suggested={r.suggested} toast={toast} />
+      <p className="faint"><a href={`#/runs/${data.runId}`}>実行 {data.runId} ↗</a></p>
       {r.notes.map((n) => <p key={n} className="faint">· {n}</p>)}
     </Pane>
+  );
+}
+
+/** Review the suggested weights, adjust them, and write them into a workflow's signal.score node. */
+function ApplyWeights({ suggested, toast }: { suggested: Record<string, number>; toast: Toast }) {
+  const { data, reload } = useApi<WeightTargets>("/api/factors/targets");
+  const [key, setKey] = useState("");
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const targets = data?.targets ?? [];
+  const target = targets.find((t) => `${t.workflow}/${t.node}` === key) ?? targets.find((t) => t.workflow === "daily-ai") ?? targets[0];
+  useEffect(() => {
+    if (!target) return;
+    const names = [...new Set([...Object.keys(target.weights), ...Object.keys(suggested)])];
+    setDraft(Object.fromEntries(names.map((n) => [n, String(suggested[n] ?? 0)])));
+  }, [target?.workflow, target?.node, JSON.stringify(suggested)]);
+  if (!data || !target) return null;
+  const names = Object.keys(draft).sort((a, b) => (Number(draft[b]) || 0) - (Number(draft[a]) || 0));
+  const parsed = Object.fromEntries(names.map((n) => [n, Number(draft[n])]));
+  const invalid = names.some((n) => !Number.isFinite(parsed[n]) || parsed[n]! < 0 || parsed[n]! > 5) || !names.some((n) => parsed[n]! > 0);
+  async function apply() {
+    setBusy(true);
+    try {
+      const weights = Object.fromEntries(Object.entries(parsed).filter(([, v]) => v > 0));
+      const r = await post<{ file: string }>("/api/factors/apply", { workflow: target!.workflow, node: target!.node, weights, previous: target!.weights });
+      toast(`${target!.workflow} の ${target!.node} に重みを適用しました（${r.file}、直前の版は .bak）。次の実行から使われます`);
+      reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="apply-weights">
+      <div className="btn-row">
+        <span className="dim">適用先</span>
+        <select className="input" value={`${target.workflow}/${target.node}`} onChange={(e) => setKey(e.target.value)} aria-label="target">
+          {targets.map((t) => <option key={`${t.workflow}/${t.node}`} value={`${t.workflow}/${t.node}`}>{t.workflow} · {t.node}{t.explicit ? "" : "（既定の重み）"}</option>)}
+        </select>
+      </div>
+      <table className="t">
+        <thead><tr><th>因子</th><th className="num">今</th><th className="num">新しい重み</th><th className="num">変化</th></tr></thead>
+        <tbody>
+          {names.map((n) => {
+            const cur = target.weights[n] ?? 0;
+            const next = parsed[n] ?? 0;
+            return (
+              <tr key={n}>
+                <td>{FACTOR_JA[n] ?? n}</td>
+                <td className="num dim">{cur.toFixed(2)}</td>
+                <td className="num"><input className="input num" style={{ width: "8ch" }} inputMode="decimal" value={draft[n] ?? ""} onChange={(e) => setDraft((d) => ({ ...d, [n]: e.target.value }))} aria-label={n} /></td>
+                <td className={`num ${next > cur ? "up" : next < cur ? "down" : "faint"}`}>{Number.isFinite(next) ? `${next - cur >= 0 ? "+" : ""}${(next - cur).toFixed(2)}` : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="btn-row">
+        <button className="btn" type="button" onClick={() => setDraft(Object.fromEntries(names.map((n) => [n, String(target.weights[n] ?? 0)])))}>今の重みに戻す</button>
+        <button className="btn primary" type="button" disabled={busy || invalid} onClick={() => void apply()}>この重みを適用</button>
+        <span className="faint">重みは比率なので合計は 1 でなくてよい。0 の因子は使わない。</span>
+      </div>
+      {data.history.length > 0 && (
+        <details>
+          <summary className="dim">重みの変更履歴（{data.history.length}）</summary>
+          {data.history.map((h, k) => (
+            <div key={k} className="faint">
+              {time(h.at)} · {h.workflow}/{h.node}: {Object.entries(h.to).map(([f, w]) => `${FACTOR_JA[f] ?? f} ${w}`).join("、")}
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
   );
 }

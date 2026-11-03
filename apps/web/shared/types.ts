@@ -271,3 +271,9 @@ export interface TodayView {
   /** Last download per data source (age in days; stale when older than usual). */
   freshness: Array<{ label: string; day: string | null; age: number | null; stale: boolean; hint: string }>;
 }
+
+/** signal.score nodes whose weights the factor research can be applied to. */
+export interface WeightTargets {
+  targets: Array<{ workflow: string; file: string; node: string; weights: Record<string, number>; explicit: boolean }>;
+  history: Array<{ at: string; workflow: string; node: string; from: Record<string, number>; to: Record<string, number>; source: string }>;
+}

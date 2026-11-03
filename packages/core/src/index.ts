@@ -53,3 +53,4 @@ export { atr, periodReturn, type Bar, type Prices } from "./signals/technical.ts
 export { forwardExcess } from "./eval/scorecard.ts";
 export { resolveRef } from "./workflow/spec.ts";
 export type { FactorRow, FactorTable } from "./strategy/factors.ts";
+export { setWorkflowParam } from "./workflow/editFile.ts";

@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
-import type { CalendarView, ImportResult, ModelsView, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
+import { addDays, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import type { CalendarView, ImportResult, ModelsView, WeightTargets, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { stockView, todayView } from "./stock.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -387,6 +387,28 @@ export function createApp(o: AppOptions): App {
     };
   }
 
+  function ensureWeightLog(): void {
+    s.db.exec("CREATE TABLE IF NOT EXISTS weight_changes (at TEXT, workflow TEXT, node TEXT, from_json TEXT, to_json TEXT, source TEXT)");
+  }
+
+  /** Every signal.score node in the workflows, with the weights it uses now, and the change log. */
+  function weightTargets(): WeightTargets {
+    ensureWeightLog();
+    const def = registry.get("signal.score");
+    const targets: WeightTargets["targets"] = [];
+    for (const w of workflows()) {
+      for (const [id, cfg] of Object.entries(w.spec?.nodes ?? {})) {
+        if (cfg.use !== "signal.score" || !def) continue;
+        const p = def.params.safeParse(cfg.params);
+        if (!p.success) continue;
+        targets.push({ workflow: w.name, file: w.file, node: id, weights: (p.data as { weights: Record<string, number> }).weights, explicit: "weights" in cfg.params });
+      }
+    }
+    const history = (s.db.prepare("SELECT * FROM weight_changes ORDER BY at DESC LIMIT 30").all() as Array<{ at: string; workflow: string; node: string; from_json: string; to_json: string; source: string }>)
+      .map((r) => ({ at: r.at, workflow: r.workflow, node: r.node, from: JSON.parse(r.from_json) as Record<string, number>, to: JSON.parse(r.to_json) as Record<string, number>, source: r.source }));
+    return { targets, history };
+  }
+
   /** One short line of what a family uses, for the switch history. */
   function useLine(f: ModelUse): string {
     const r = resolved();
@@ -583,6 +605,31 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "GET" && path === "/api/factors") return send(res, 200, latestFactorReport(s));
     if (req.method === "GET" && path === "/api/today") return send(res, 200, todayView(s, clock()));
+    if (req.method === "GET" && path === "/api/factors/targets") return send(res, 200, weightTargets());
+    if (req.method === "POST" && path === "/api/factors/apply") {
+      const body = await readJson(req);
+      const target = weightTargets().targets.find((t) => t.workflow === body["workflow"] && t.node === body["node"]);
+      if (!target) throw new HttpError(404, "そのワークフローに signal.score ノードがありません");
+      const weights = body["weights"];
+      if (!weights || typeof weights !== "object" || Array.isArray(weights)) throw new HttpError(400, "weights must be an object");
+      const clean: Record<string, number> = {};
+      for (const [k, v] of Object.entries(weights as Record<string, unknown>)) {
+        if (!(k in FACTOR_INFO)) throw new HttpError(400, `unknown factor ${k}`);
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 5) throw new HttpError(400, `${k}: 0〜5 の数値`);
+        clean[k] = Math.round(v * 1000) / 1000;
+      }
+      if (!Object.values(clean).some((v) => v > 0)) throw new HttpError(400, "重みが全部 0 です");
+      if (JSON.stringify(body["previous"] ?? null) !== JSON.stringify(target.weights)) throw new HttpError(409, "ワークフローの重みが読み込み時から変わっています。画面を再読み込みしてください");
+      try {
+        setWorkflowParam(target.file, target.node, "weights", clean);
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : String(e));
+      }
+      ensureWeightLog();
+      s.db.prepare("INSERT INTO weight_changes VALUES (?,?,?,?,?,?)").run(clock().toISOString(), target.workflow, target.node, JSON.stringify(target.weights), JSON.stringify(clean), String(body["source"] ?? "ui").slice(0, 40));
+      broadcast({ type: "config_changed" });
+      return send(res, 200, { ok: true, file: target.file });
+    }
     if (req.method === "GET" && (g = m(/^\/api\/stocks\/([A-Z0-9][A-Z0-9.-]{0,9})$/))) return send(res, 200, stockView(s, registry, g[1]!, clock()));
     if (req.method === "GET" && path === "/api/models") {
       return send(res, 200, {
