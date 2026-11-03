@@ -16,6 +16,15 @@ export interface FactorRow {
   ret20: number | null;
   /** close / max(close over 252 days) - 1 (0 = at the 52-week high). */
   fromHigh52: number | null;
+  /** Average daily traded value (close × volume) over 20 days, in the price currency (null without volume). */
+  adv20?: number | null;
+}
+
+/** Average close × volume over the last n bars (null when volume is missing). */
+export function avgTradedValue(bars: readonly { close: number; volume: number }[], n = 20): number | null {
+  const last = bars.slice(-n);
+  if (last.length < Math.min(n, 5) || last.every((b) => !b.volume)) return null;
+  return last.reduce((s, b) => s + b.close * (b.volume || 0), 0) / last.length;
 }
 
 export interface FactorTable {
@@ -51,6 +60,7 @@ export function computeFactors(
       trend: trendLabel(bars),
       ret20: finiteOrNull(periodReturn(bars, 20)),
       fromHigh52: bars.length >= 20 ? finiteOrNull(last.close / Math.max(...bars.slice(-252).map((b) => b.close)) - 1) : null,
+      adv20: avgTradedValue(bars),
     };
   }
   return { asOf, benchmark: bench ? { ticker: bench, trend: trendLabel(prices[bench]!) } : null, rows };

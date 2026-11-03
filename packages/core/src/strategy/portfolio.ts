@@ -20,6 +20,8 @@ export interface Candidate {
   trendOk: boolean;
   /** e.g. "earnings in 2 days" — blocks entry. */
   blockedReason?: string | undefined;
+  /** Upper bound from liquidity (e.g. 2% of the average daily traded value). */
+  maxShares?: number | undefined;
 }
 
 export interface Proposal {
@@ -96,7 +98,8 @@ export function proposeRebalance(inp: RebalanceInput, cfg: RiskConfig, opt: Reba
     if (slots <= 0) break;
     const c = inp.candidates[t];
     if (held.has(t) || exitedNow.has(t) || !c || !c.trendOk || c.blockedReason || (eligible && !eligible.has(t))) continue;
-    const shares = positionSize(inp.equity * (inp.sizeMult ?? 1), c.price, c.atr, cfg);
+    const sized = positionSize(inp.equity * (inp.sizeMult ?? 1), c.price, c.atr, cfg);
+    const shares = c.maxShares === undefined ? sized : Math.min(sized, Math.floor(c.maxShares / cfg.lotSize) * cfg.lotSize);
     if (shares === 0) continue;
     const value = shares * c.price;
     if (((sectorValue.get(c.sector) ?? 0) + value) / inp.equity > cfg.maxSectorWeight) continue;

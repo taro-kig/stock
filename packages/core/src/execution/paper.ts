@@ -38,6 +38,21 @@ export function lastClose(prices: Prices, ticker: string, asOf: IsoDate): number
 }
 
 /**
+ * Square-root market impact (Almgren et al. / Grinold–Kahn): coef × daily volatility × √(order value / average
+ * daily traded value), as a fraction of the price, capped at 5%. 0 when volume is unknown.
+ */
+export function marketImpact(orderValue: number, bars: ReadonlyArray<{ close: number; volume: number }>, coef = 1): number {
+  if (coef <= 0 || bars.length < 21) return 0;
+  const last = bars.slice(-21);
+  const adv = last.slice(1).reduce((s, b) => s + b.close * (b.volume || 0), 0) / 20;
+  if (!(adv > 0)) return 0;
+  const rets = last.slice(1).map((b, i) => Math.log(b.close / last[i]!.close));
+  const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const vol = Math.sqrt(rets.reduce((a, b) => a + (b - m) ** 2, 0) / (rets.length - 1));
+  return Math.min(0.05, coef * vol * Math.sqrt(orderValue / adv));
+}
+
+/**
  * Simulated broker. Fills at the as-of close ± slippage, plus a fee.
  * (Live paper trading would fill at the next open; close-fill keeps replays simple.)
  */
@@ -124,7 +139,7 @@ export class PaperBook {
   /** Applies proposals once per run (idempotent: resuming a run never double-fills). */
   apply(
     runId: string, account: string, asOf: IsoDate, proposals: readonly Proposal[], prices: Prices,
-    opts: { slippageBps: number; feeBps: number; lotSize: number; sectors: Record<string, string> },
+    opts: { slippageBps: number; feeBps: number; lotSize: number; sectors: Record<string, string>; impactCoef?: number },
   ): Fill[] {
     const existing = this.fillsForRun(runId, account);
     if (existing.length) return existing;
@@ -137,7 +152,10 @@ export class PaperBook {
     for (const p of [...proposals].sort((x, y) => (x.action === y.action ? 0 : x.action === "sell" ? -1 : 1))) {
       const close = lastClose(prices, p.ticker, asOf);
       if (close === undefined) continue;
-      const slip = (p.action === "buy" ? 1 : -1) * (opts.slippageBps / 10_000);
+      // fixed spread + square-root market impact: the bigger the order vs what trades in a day, the worse the price
+      const bars = prices[p.ticker]?.filter((b) => b.date <= asOf) ?? [];
+      const impact = marketImpact(p.shares * close, bars, opts.impactCoef ?? 1);
+      const slip = (p.action === "buy" ? 1 : -1) * (opts.slippageBps / 10_000 + impact);
       const price = close * (1 + slip);
       if (p.action === "sell") {
         const pos = this.#db.prepare("SELECT shares FROM paper_positions WHERE account = ? AND ticker = ?").get(account, p.ticker) as { shares: number } | undefined;

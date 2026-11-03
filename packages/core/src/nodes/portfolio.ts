@@ -28,7 +28,7 @@ export const proposeNode = defineNode({
   category: "risk",
   description:
     "Turns judgments into orders under hard limits: ATR sizing, lot rounding, max weight/positions/sector, stops, drawdown kill switch. The AI decides what; these rules decide how much.",
-  version: 4, // v2: no buy-back of a name sold in the same rebalance · v3: new entries only from the watchlist · v4: market risk level
+  version: 5, // v2: no buy-back of a name sold in the same rebalance · v3: new entries only from the watchlist · v4: market risk level · v5: liquidity
   cache: "inputs",
   params: z.object({
     topN: z.number().int().positive().default(5),
@@ -42,6 +42,12 @@ export const proposeNode = defineNode({
     /** Size of new positions when the market input says "caution" (1 = unchanged). "stress" always stops new buys unless marketFilter is off. */
     cautionSize: z.number().min(0).max(1).default(0.5),
     marketFilter: z.boolean().default(true),
+    /** New buys only at or above this price (default: $5 for USD, ¥100 for JPY; 0 = off). */
+    minPrice: z.number().min(0).optional(),
+    /** New buys only if the 20-day average traded value is at least this (default: $5M / ¥500M; 0 = off). */
+    minTradedValue: z.number().min(0).optional(),
+    /** A new position may be at most this share of the 20-day average traded value (so it can be sold in a day or two). */
+    maxAdvShare: z.number().min(0).max(1).default(0.02),
   }),
   inputs: { judgments: { type: "Judgments" }, factors: { type: "Factors" }, account: { type: "Account" }, earnings: { type: "Earnings", optional: true }, market: { type: "Market", optional: true } },
   outputs: { proposals: { type: "Proposals" } },
@@ -55,8 +61,20 @@ export const proposeNode = defineNode({
     for (const r of Object.values(i.factors.rows)) {
       if (r.atr === null) continue; // cannot size without volatility
       const e = i.earnings?.[r.ticker];
-      const blocked = e && p.earningsBlackoutDays > 0 && e.daysAway <= p.earningsBlackoutDays ? `決算まで ${e.daysAway} 日（${e.reportDate}）` : undefined;
-      candidates[r.ticker] = { ticker: r.ticker, price: r.close, atr: r.atr, sector: r.sector, trendOk: !p.requireTrend || r.trend === "up", blockedReason: blocked };
+      const usd = ctx.services.config.market.currency === "USD";
+      const minPrice = p.minPrice ?? (usd ? 5 : 100);
+      const minValue = p.minTradedValue ?? (usd ? 5_000_000 : 500_000_000);
+      const money = (x: number) => (usd ? `$${(x / 1e6).toFixed(1)}M` : `¥${(x / 1e8).toFixed(1)}億`);
+      const adv = r.adv20 ?? null;
+      const blocked = e && p.earningsBlackoutDays > 0 && e.daysAway <= p.earningsBlackoutDays
+        ? `決算まで ${e.daysAway} 日（${e.reportDate}）`
+        : minPrice > 0 && r.close < minPrice
+          ? `株価 ${r.close} が下限 ${minPrice} 未満（低位株）`
+          : minValue > 0 && adv !== null && adv < minValue
+            ? `売買代金が少ない（20日平均 ${money(adv)} < ${money(minValue)}）`
+            : undefined;
+      const maxShares = adv !== null && p.maxAdvShare > 0 ? Math.floor((p.maxAdvShare * adv) / r.close) : undefined;
+      candidates[r.ticker] = { ticker: r.ticker, price: r.close, atr: r.atr, sector: r.sector, trendOk: !p.requireTrend || r.trend === "up", blockedReason: blocked, maxShares };
       if (blocked && js[r.ticker] && isBuy(r.ticker)) ctx.log(`${r.ticker}: no new entry, ${blocked}`);
     }
     const stressed = p.marketFilter && i.market?.risk === "stress";

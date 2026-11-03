@@ -50,7 +50,7 @@ export const factorsNode = defineNode({
   title: "Price factors",
   category: "signal",
   description: "Momentum 12-1, relative strength, trend, ATR, volatility, 20-day return and distance from the 52-week high per ticker. No LLM.",
-  version: 3, // v2: ret20, fromHigh52 · v3: also held tickers that left the watchlist
+  version: 4, // v2: ret20, fromHigh52 · v3: also held tickers that left the watchlist · v4: adv20
   cache: "daily",
   params: z.object({ benchmark: z.string().optional(), relDays: z.number().int().positive().default(126) }),
   inputs: { prices: { type: "Prices" } },
