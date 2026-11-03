@@ -128,6 +128,26 @@ export class PaperBook {
     return [...out.values()];
   }
 
+  /** Every fill (optionally of one ticker), oldest first, in each account's currency. */
+  allFills(ticker?: string): Fill[] {
+    const rows = (ticker
+      ? this.#db.prepare("SELECT f.*, a.currency FROM paper_fills f JOIN paper_accounts a ON a.account = f.account WHERE f.ticker = ? ORDER BY f.as_of, f.rowid").all(ticker)
+      : this.#db.prepare("SELECT f.*, a.currency FROM paper_fills f JOIN paper_accounts a ON a.account = f.account ORDER BY f.as_of, f.rowid").all()) as Array<{
+      run_id: string; account: string; as_of: string; ticker: string; side: "buy" | "sell"; shares: number; price: number; fee_minor: number; reason: string; currency: "JPY" | "USD";
+    }>;
+    return rows.map((r) => ({ runId: r.run_id, account: r.account, asOf: r.as_of, ticker: r.ticker, side: r.side, shares: r.shares, price: r.price, fee: r.fee_minor / MINOR[r.currency], reason: r.reason }));
+  }
+
+  /** Open positions (optionally of one ticker) across all paper accounts. */
+  openPositions(ticker?: string): Array<{ account: string; currency: "JPY" | "USD"; ticker: string; shares: number; entryPrice: number; highestClose: number; entryDate: IsoDate; sector: string }> {
+    const rows = (ticker
+      ? this.#db.prepare("SELECT p.*, a.currency FROM paper_positions p JOIN paper_accounts a ON a.account = p.account WHERE p.ticker = ? AND p.shares > 0").all(ticker)
+      : this.#db.prepare("SELECT p.*, a.currency FROM paper_positions p JOIN paper_accounts a ON a.account = p.account WHERE p.shares > 0").all()) as Array<{
+      account: string; currency: "JPY" | "USD"; ticker: string; shares: number; entry_price: number; highest_close: number; entry_date: string; sector: string | null;
+    }>;
+    return rows.map((r) => ({ account: r.account, currency: r.currency, ticker: r.ticker, shares: r.shares, entryPrice: r.entry_price, highestClose: r.highest_close, entryDate: r.entry_date, sector: r.sector ?? "unknown" }));
+  }
+
   fillsForRun(runId: string, account: string): Fill[] {
     const rows = this.#db.prepare("SELECT * FROM paper_fills WHERE run_id = ? AND account = ? ORDER BY rowid").all(runId, account) as Array<{
       run_id: string; account: string; as_of: string; ticker: string; side: "buy" | "sell"; shares: number; price: number; fee_minor: number; reason: string;

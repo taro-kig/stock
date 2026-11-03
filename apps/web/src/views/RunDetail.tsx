@@ -6,6 +6,7 @@ import { Empty, Pane, PortType, Stance, Status } from "../components/ui.tsx";
 import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pct, price, runDuration, EVENT_JA } from "../format.ts";
 import { navigate } from "../router.ts";
 import { ScorecardTable } from "./Scorecard.tsx";
+import { TickerLink } from "./StockPage.tsx";
 
 const STANCE_JA: Record<string, string> = { bullish: "強気", bearish: "弱気", neutral: "中立", abstain: "見送り" };
 const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : undefined);
@@ -80,7 +81,7 @@ export function JudgmentsTable({ items, names, compact = false }: { items: Judgm
           const isOpen = open.has(j.ticker);
           return [
             <tr key={j.ticker} className="clickable" aria-expanded={isOpen} onClick={() => toggle(j.ticker)}>
-              <td className="nowrap"><span className="faint">{isOpen ? "▾" : "▸"}</span> {j.ticker} <span className="dim">{names[j.ticker] ?? ""}</span></td>
+              <td className="nowrap"><span className="faint">{isOpen ? "▾" : "▸"}</span> <TickerLink t={j.ticker} /> <span className="dim">{names[j.ticker] ?? ""}</span></td>
               <td><Stance s={j.stance} /></td>
               <td className="num">{num(j.conviction)}</td>
               <td className="nowrap"><Status s={j.status === "consensus" || j.status === "rules" ? "ok" : j.status === "escalated" ? "cached" : j.status === "vetoed" ? "fallback" : "skipped"} label={false} />{j.status}</td>
@@ -109,7 +110,7 @@ export function OrdersTable({ items, names, currency }: { items: Proposal[]; nam
         {items.map((p) => (
           <tr key={p.action + p.ticker}>
             <td className={p.action === "buy" ? "up strong" : "down strong"}>{p.action === "buy" ? "買" : "売"}</td>
-            <td className="nowrap">{p.ticker} <span className="dim">{names[p.ticker] ?? ""}</span></td>
+            <td className="nowrap"><TickerLink t={p.ticker} /> <span className="dim">{names[p.ticker] ?? ""}</span></td>
             <td className="num">{p.shares.toLocaleString()}</td>
             <td className="num">{price(p.price, currency)}</td>
             <td className="num">{money(p.shares * p.price, currency)}</td>

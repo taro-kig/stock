@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export const VIEWS = ["overview", "runs", "approvals", "scorecard", "workflows", "nodes", "settings", "prompts", "calendar", "watchlist", "editor"] as const;
+export const VIEWS = ["overview", "runs", "approvals", "scorecard", "workflows", "nodes", "settings", "prompts", "calendar", "watchlist", "editor", "stock"] as const;
 export type View = (typeof VIEWS)[number];
 /**
  * Views with a numbered tab, ordered by how often they are used (daily first).
@@ -13,7 +13,7 @@ export const tabKey = (v: (typeof TABS)[number]): string => String(TABS.indexOf(
 
 /** The tab a view belongs to (for highlighting). */
 export function tabOf(v: View): View {
-  return v === "editor" || v === "nodes" ? "workflows" : v;
+  return v === "editor" || v === "nodes" ? "workflows" : v === "stock" ? "watchlist" : v;
 }
 
 export interface Route {

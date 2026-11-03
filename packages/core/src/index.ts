@@ -45,3 +45,11 @@ export { latestFactorReport, researchFactors, spearman, type FactorReport, type 
 export { RESEARCH_UNIVERSE_US } from "./strategy/researchUniverse.ts";
 export { ScreenRequest, screenStocks, type ScreenCandidate, type ScreenResult } from "./universe/screen.ts";
 export { BUCKET_JA, SIZE_BUCKETS, type SizeBucket } from "./universe/companies.ts";
+export { compositeScore, DEFAULT_WEIGHTS, scoreContributions } from "./strategy/scoring.ts";
+export { earningsReactions, type EarningsReaction } from "./strategy/history.ts";
+export { summarizeInsider, type InsiderMap, type InsiderSummary } from "./data/insider.ts";
+export { stopPrice } from "./strategy/risk.ts";
+export { atr, periodReturn, type Bar, type Prices } from "./signals/technical.ts";
+export { forwardExcess } from "./eval/scorecard.ts";
+export { resolveRef } from "./workflow/spec.ts";
+export type { FactorRow, FactorTable } from "./strategy/factors.ts";

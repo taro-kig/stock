@@ -562,3 +562,38 @@ select.input { padding-right: 0.5ch; }
 .evidence a { color: var(--info); text-decoration: none; }
 .evidence a:hover { text-decoration: underline; }
 .evidence .dossier { white-space: pre-wrap; margin: 4px 0 0; padding: 1ch; background: var(--bg); border: 1px solid var(--line); max-height: 24em; overflow: auto; font: inherit; }
+
+/* ── stock page ─────────────────────────────────────────────── */
+.ticker-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--faint); }
+.ticker-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.stock-head { display: flex; gap: 1.5ch; align-items: baseline; flex-wrap: wrap; }
+.stock-ticker { font-size: 20px; font-weight: 500; color: var(--fg); }
+.pchart .seg { margin-bottom: 6px; }
+.pchart-wrap { position: relative; }
+.pchart svg { display: block; }
+.pchart .grid { stroke: var(--line); stroke-width: 1; }
+.pchart .axis { fill: var(--faint); font-size: 11px; font-family: var(--font); }
+.pchart .line { fill: none; stroke: var(--fg-2); stroke-width: 2; stroke-linejoin: round; }
+.pchart .fill-mark { stroke: var(--bg); stroke-width: 2; }
+.pchart .fill-mark.buy { fill: var(--up); }
+.pchart .fill-mark.sell { fill: var(--down); }
+.pchart .jstrip.bullish { fill: var(--up); }
+.pchart .jstrip.bearish { fill: var(--down); }
+.pchart .jstrip.neutral { fill: var(--line-2); }
+.pchart .cross { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 2 3; }
+.pchart .hover-dot { fill: var(--fg); stroke: var(--bg); stroke-width: 2; }
+.pchart .tip { position: absolute; top: 4px; padding: 4px 1ch; background: var(--bg-1); border: 1px solid var(--line-2); pointer-events: none; font-size: 12px; min-width: 22ch; }
+.legend { display: flex; gap: 1.5ch; flex-wrap: wrap; margin-top: 4px; font-size: 12px; }
+.sw.up { color: var(--up); } .sw.down { color: var(--down); } .sw.neutral { color: var(--line-2); }
+.contrib { display: grid; gap: 4px; }
+.contrib-row { display: grid; grid-template-columns: 20ch 1fr 7ch; gap: 1ch; align-items: center; }
+.contrib-label { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.contrib-track { position: relative; height: 10px; }
+.contrib-mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line-2); }
+.contrib-bar { position: absolute; top: 0; height: 10px; border-radius: 2px; }
+.contrib-bar.pos { background: var(--up); }
+.contrib-bar.neg { background: var(--down); }
+.contrib-val { color: var(--fg-2); }
+.sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sources blockquote { margin: 2px 0 2px 1ch; padding-left: 1ch; border-left: 2px solid var(--line-2); color: var(--fg-2); }
+.sources a { color: var(--info); text-decoration: none; }

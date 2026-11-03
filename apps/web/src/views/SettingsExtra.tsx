@@ -5,6 +5,7 @@ import { post, put, useApi } from "../api.ts";
 import { Empty, ErrorLine, Kbd, Pane } from "../components/ui.tsx";
 import { time } from "../format.ts";
 import { SuggestBox, type NewRow } from "./SuggestBox.tsx";
+import { TickerLink } from "./StockPage.tsx";
 
 type Toast = (m: string, err?: boolean) => void;
 
@@ -96,7 +97,7 @@ export function WatchlistPane({ toast }: { toast: Toast }) {
                 {r.isNew ? (
                   <input className={`input ${dupes.has(r.ticker.trim()) ? "bad" : ""}`} value={r.ticker} placeholder="AAPL" onChange={(e) => set(r.key, { ticker: e.target.value.toUpperCase() })} aria-label="ticker" />
                 ) : (
-                  <b>{r.ticker}</b>
+                  <b><TickerLink t={r.ticker} /></b>
                 )}
               </td>
               <td><input className="input" value={r.name} onChange={(e) => set(r.key, { name: e.target.value })} aria-label={`${r.ticker} name`} /></td>

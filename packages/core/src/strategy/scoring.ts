@@ -81,6 +81,27 @@ export function compositeScore(
   return total;
 }
 
+/**
+ * What each factor added to each ticker's composite (weight × normalized value ÷ total weight
+ * used), so the contributions sum to the composite score. For "why is this stock ranked here".
+ */
+export function scoreContributions(
+  factors: Record<string, Record<string, number | null | undefined>>,
+  tickers: readonly string[],
+  weights: Record<string, number> = DEFAULT_WEIGHTS,
+  opts: NormalizeOptions = {},
+): Record<string, Record<string, number>> {
+  const used = Object.entries(weights).filter(([name, w]) => factors[name] && w !== 0);
+  const total = used.reduce((s, [, w]) => s + w, 0);
+  const out: Record<string, Record<string, number>> = Object.fromEntries(tickers.map((t) => [t, {}]));
+  if (!total) return out;
+  for (const [name, w] of used) {
+    const z = normalize(Object.fromEntries(tickers.map((t) => [t, factors[name]![t]])), opts);
+    for (const t of tickers) out[t]![name] = (w * z[t]!) / total;
+  }
+  return out;
+}
+
 /** Tickers ordered best-first. */
 export function rankTickers(scores: Record<string, number>): string[] {
   return Object.keys(scores).sort((a, b) => scores[b]! - scores[a]! || a.localeCompare(b));

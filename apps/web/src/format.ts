@@ -98,3 +98,18 @@ export const EVENT_JA: Record<string, string> = {
   analyst_upgrade: "格上げ", analyst_downgrade: "格下げ", product_business: "製品・事業", legal_regulatory: "訴訟・規制",
   scandal: "不祥事", management: "経営陣", macro_sector: "業界・マクロ", other: "その他", none: "関連なし",
 };
+
+/** Scoring factors in Japanese (packages/core strategy/factorLib.ts FACTOR_INFO). */
+export const FACTOR_JA: Record<string, string> = {
+  momentum: "モメンタム", relStrength: "相対強度", event: "イベント", insider: "インサイダー買い", quality: "品質（営業利益率）",
+  growth: "成長（売上の伸び）", revision: "予想修正", sector: "業種の強さ", high52: "52週高値への近さ", sue: "決算サプライズ",
+  lowvol: "低ボラティリティ", reversal: "短期リバーサル",
+};
+
+/** Large money amounts: $1.2B / $340M (USD) or ¥1.2兆 / ¥340億 (JPY). */
+export function big(x: number | null | undefined, currency?: string | null): string {
+  if (!isNum(x)) return "—";
+  const a = Math.abs(x);
+  if (currency === "JPY") return a >= 1e12 ? `¥${(x / 1e12).toFixed(1)}兆` : a >= 1e8 ? `¥${(x / 1e8).toFixed(0)}億` : `¥${Math.round(x).toLocaleString()}`;
+  return a >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : a >= 1e6 ? `$${(x / 1e6).toFixed(0)}M` : `$${Math.round(x).toLocaleString()}`;
+}

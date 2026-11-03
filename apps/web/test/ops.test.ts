@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { ModelsView, PromptsView, WatchlistView } from "../shared/types.ts";
+import type { ModelsView, PromptsView, StockView, WatchlistView } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -338,5 +338,25 @@ describe("models API", () => {
     expect((await call("PUT", "/api/models/use/judge", { value: "auto" })).status).toBe(200);
     expect(services.config.models!.use.judge).toBe("auto");
     expect((await call("PUT", "/api/models/use/nope", { value: null })).status).toBe(404);
+  });
+});
+
+describe("stock page API", () => {
+  it("assembles prices, judgments, the score breakdown and fills for one ticker", async () => {
+    const { call, settle } = await start();
+    for (const d of ["2026-07-20", "2026-07-21", "2026-07-22"]) {
+      await call("POST", "/api/workflows/demo-ai/run", { asOf: d });
+      await settle();
+    }
+    const t = "7203";
+    const v = (await call<StockView>("GET", `/api/stocks/${t}`)).body;
+    expect(v.ticker).toBe(t);
+    expect(v.inWatchlist).toBe(true);
+    expect(v.bars.length).toBeGreaterThan(100);
+    expect(v.judgments.map((j) => j.asOf)).toEqual(["2026-07-20", "2026-07-21", "2026-07-22"]);
+    expect(v.score?.asOf).toBe("2026-07-22");
+    const sum = Object.values(v.score!.contributions).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(v.score!.total, 6); // contributions add up to the composite
+    expect((await call("GET", "/api/stocks/bad%20ticker")).status).toBe(404);
   });
 });

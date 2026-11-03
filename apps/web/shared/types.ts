@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
+import type { EarningsReaction, EarningsResult, Fundamentals, InsiderSummary, NextEarnings, Revision, ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -233,4 +233,32 @@ export interface CalendarView {
   /** Past runs by run date (asOf). */
   runs: Array<{ date: string; workflow: string; status: string; runId: string }>;
   earningsSource: { configured: boolean; lastFetch: string | null; rows: number | null };
+}
+
+/** Everything known about one ticker (the stock page). */
+export interface StockView {
+  ticker: string;
+  name: string;
+  sector: string;
+  inWatchlist: boolean;
+  held: boolean;
+  currency: string;
+  /** Date of the last bar. */
+  asOf: string;
+  bars: Array<{ date: string; close: number }>;
+  benchmark: string | null;
+  returns: { d20: number | null; d60: number | null; d250: number | null; bench60: number | null };
+  /** Recorded judgments (every workflow), with the 20-day excess return that followed when known. */
+  judgments: Array<{ asOf: string; label: string; stance: string; conviction: number; thesis: string | null; invalidation: string[]; excess20: number | null; hit: boolean | null }>;
+  fills: Fill[];
+  positions: Array<{ account: string; currency: string; shares: number; entryPrice: number; entryDate: string; close: number; daysHeld: number; pnl: number; pnlPct: number; stop: number | null }>;
+  /** The newest composite score with each factor's contribution (they sum to `total`). */
+  score: { asOf: string; runId: string; workflow: string; total: number; rank: number; of: number; contributions: Record<string, number>; weights: Record<string, number> } | null;
+  fundamentals: Fundamentals | null;
+  valuation: { pe: number | null; ps: number | null; marketCap: number | null } | null;
+  estimates: Revision[];
+  earnings: { next: NextEarnings | null; results: EarningsResult[]; reactions: EarningsReaction[] };
+  insider: InsiderSummary | null;
+  sectorRead: { etf: string; rank: number | null; of: number; rel60: number | null } | null;
+  events: Array<{ learnedAt: string; title: string; url: string; source: string; eventType: string; direction: number; materiality: number; evidence: string[] }>;
 }
