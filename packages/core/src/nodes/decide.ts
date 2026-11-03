@@ -1,3 +1,4 @@
+import { benchmarkOf } from "./scope.ts";
 import { z } from "zod";
 import { buildDossier, Judge, type Judgment } from "../ai/judge.ts";
 import { BudgetExceeded } from "../harness/budget.ts";
@@ -91,7 +92,7 @@ export const aiDecide = defineNode({
     const held = Object.keys(i.account?.positions ?? {});
     const candidates = [...new Set([...ranked.slice(0, p.maxCandidates), ...held.filter((t) => i.factors.rows[t])])];
     const judgments: Record<string, Judgment> = {};
-    const bench = s.config.market.benchmark;
+    const bench = benchmarkOf(ctx);
     const label = p.historyLabel ?? ctx.workflow;
     const lastJudgment = (t: string) => {
       const prev = s.predictions.previous(label, t, ctx.asOf);

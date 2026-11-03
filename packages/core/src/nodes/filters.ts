@@ -1,3 +1,4 @@
+import { watchlistOf } from "./scope.ts";
 import { z } from "zod";
 import { dedup, type Match } from "../signals/prefilter.ts";
 import { contradictsResults } from "../data/earningsResults.ts";
@@ -53,7 +54,7 @@ export const watchlistFilter = defineNode({
   inputs: { docs: { type: "Documents" } },
   outputs: { matches: { type: "Matches" } },
   async run(ctx, _p, i) {
-    const w = ctx.services.watchlist;
+    const w = watchlistOf(ctx);
     const matches: Match[] = [];
     for (const doc of i.docs) {
       const candidates = w.match(doc);

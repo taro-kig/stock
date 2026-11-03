@@ -24,6 +24,8 @@ import { backupDir, listBackups, runBackup } from "../util/backup.ts";
 import { runDoctor, STATUS_MARK } from "../doctor.ts";
 import { usTradingDays } from "../util/marketCalendar.ts";
 import { c, money, num, pct, status, table } from "./format.ts";
+import { defaultMarketId } from "../markets.ts";
+import { workflowMarket } from "../workflow/registry.ts";
 
 const HELP = `stockai — mid-term AI trading workflows
 
@@ -248,8 +250,9 @@ async function cmdRun(file: string): Promise<void> {
     if (!opt.from || !opt.to) throw new Error("--from and --to go together");
     if (!s.fake) console.error(c.yellow("warning: replaying the past with real LLMs is optimistic — models may know what happened (DESIGN §9)."));
     let last: RunResult | undefined;
-    // US config: exchange trading days (holidays skipped); otherwise weekdays
-    const days = s.config.market.currency === "USD" ? usTradingDays : weekdays;
+    // US workflows: exchange trading days (holidays skipped); otherwise weekdays
+    const market = workflowMarket(Object.values(spec.nodes).map((n) => n.use), builtinRegistry()) ?? defaultMarketId(s.config);
+    const days = market === "us" ? usTradingDays : weekdays;
     for (const d of days(assertIsoDate(opt.from), assertIsoDate(opt.to), Number(opt.step))) {
       last = await engine.run(spec, { asOf: d });
       const acct = tryOutput<AccountState>(last, "execute", "account");

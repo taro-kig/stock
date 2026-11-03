@@ -1,3 +1,4 @@
+import { benchmarkOf, heldOf, marketOf, watchlistOf } from "./scope.ts";
 import { z } from "zod";
 import { TwelveDataClient } from "../data/twelveData.ts";
 import type { Bar, Prices } from "../signals/technical.ts";
@@ -31,6 +32,7 @@ export const universeReview = defineNode({
     "Proposes watchlist changes (US stocks): additions from the AI for the given themes, verified against the SEC list and checked for liquidity; removals for low liquidity or missing data, or for two soft signs (no news and an always-neutral AI). Runs at most once per minDaysBetween; live runs only.",
   version: 2, // v2: additions can come from the data screen
   cache: "none",
+  market: "us",
   params: z.object({
     themes: z.array(z.string()).default([]).describe("empty: diversify the current watchlist"),
     addCount: z.number().int().min(0).max(15).default(5),
@@ -60,7 +62,7 @@ export const universeReview = defineNode({
     const s = ctx.services;
     const empty = (skipped: string): { changes: UniverseChanges } => ({ changes: { asOf: ctx.asOf, add: [], remove: [], notes: [], skipped } });
     if (!ctx.live) return empty("過去日付の再生では見直さない（AI の知識が今のものなので）");
-    if (s.config.market.currency !== "USD") return empty("米国株の設定でのみ動く");
+    if (marketOf(ctx).id !== "us") return empty("米国株のワークフローでのみ動く");
     ensureReviews(s.db);
     const last = s.db.prepare("SELECT at FROM universe_reviews ORDER BY at DESC LIMIT 1").get() as { at: string } | undefined;
     if (last && ctx.wallNow().getTime() - Date.parse(last.at) < p.minDaysBetween * 86_400_000) {
@@ -70,9 +72,9 @@ export const universeReview = defineNode({
 
     const notes: string[] = [];
     const prices: Prices = i.prices;
-    const bench = s.config.market.benchmark;
-    const w = s.watchlist;
-    const held = s.heldTickers();
+    const bench = benchmarkOf(ctx);
+    const w = watchlistOf(ctx);
+    const held = heldOf(ctx);
     const added = additionDates(s);
 
     // ── how earlier picks did (since they were added) ─────────────

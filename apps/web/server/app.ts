@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, defaultMarketId, MARKET_IDS, type MarketId, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, WeightTargets, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { journalView, stockView, todayView } from "./stock.ts";
@@ -10,7 +10,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
-import { discoverWorkflows, equitySeries, latestFactorReport, latestScorecard, ranToday, runDetail, summary, workflowInfo, type WorkflowFile } from "./views.ts";
+import { discoverWorkflows, equitySeries, latestFactorReport, latestScorecard, ranToday, runDetail, runMarketOf, summary, workflowInfo, type WorkflowFile } from "./views.ts";
 
 export interface AppOptions {
   services: Services;
@@ -195,8 +195,11 @@ export function createApp(o: AppOptions): App {
     },
     ranToday: (w) => ranToday(s, w, clock),
     isDisabled: (w) => s.runStore.disabled(w) !== null,
-    // US config: no runs on exchange holidays (weekday closures; weekends are handled by `days`)
-    ...(s.config.market.currency === "USD" ? { holiday: (d: string) => usHoliday(d) } : {}),
+    // US workflows: no runs on exchange holidays (weekday closures; weekends are handled by `days`)
+    holiday: (d: string, workflow?: string) => {
+      const w = workflow ? workflows().find((x) => x.name === workflow) : undefined;
+      return runMarketOf(w?.spec ?? null, s, registry) === "us" ? usHoliday(d) : null;
+    },
     clock,
   });
 
@@ -263,7 +266,7 @@ export function createApp(o: AppOptions): App {
     const from = fromQ ?? local(monday);
     const to = toQ ?? addDays(from, 41);
     if (to < from || addDays(from, 120) < to) throw new HttpError(400, "range: from <= to, at most 120 days");
-    const us = s.config.market.currency === "USD";
+    const us = s.activeMarkets().includes("us");
     const held = s.heldTickers();
     const names = (t: string) => s.watchlist.entries[t]?.name ?? t;
     const tickers = [...new Set([...s.watchlist.tickers, ...Object.keys(held)])];
@@ -500,7 +503,10 @@ export function createApp(o: AppOptions): App {
       now: clock().toISOString(),
       fake: s.fake,
       currency: s.config.market.currency,
-      pending: runs.filter((r) => r.status === "waiting").map((r) => ({ run: summary(r), gates: runDetail(s, registry, r).waiting })),
+      pending: runs.filter((r) => r.status === "waiting").map((r) => {
+        const d = runDetail(s, registry, r);
+        return { run: summary(r), gates: d.waiting, currency: d.currency };
+      }),
       workflows: workflows().map((w) => workflowInfo(w, s, registry)),
       recent: runs.slice(0, 12).map(summary),
       equity: equitySeries(s),
@@ -782,7 +788,6 @@ export function createApp(o: AppOptions): App {
       }
     }
     if (req.method === "POST" && path === "/api/universe/screen") {
-      if (s.config.market.currency !== "USD") throw new HttpError(400, "データでの銘柄探しは米国株の設定（market.currency: USD）でのみ使えます");
       if (screening) throw new HttpError(409, "別の銘柄探しを実行中です");
       const parsed = ScreenRequest.safeParse(await readJson(req));
       if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
@@ -844,6 +849,10 @@ export function createApp(o: AppOptions): App {
     if (req.method === "GET" && path === "/api/config/watchlist") {
       return send(res, 200, {
         watchlist: s.config.watchlist, benchmark: s.config.market.benchmark ?? "", currency: s.config.market.currency,
+        markets: MARKET_IDS.map((id) => {
+          const p = s.market(id);
+          return { id, label: p.label, currency: p.currency, benchmark: p.benchmark ?? "", lotSize: p.lotSize, count: s.watchlistFor(id).tickers.length, isDefault: id === defaultMarketId(s.config) };
+        }),
         history: watchlistHistory(s, 30),
         heldNotWatched: Object.keys(s.heldTickers()).filter((t) => !(t in s.config.watchlist)),
         file: o.configPath ? editableConfigPath(o.configPath) : null, loadedFrom: o.configPath ?? null,
@@ -861,13 +870,14 @@ export function createApp(o: AppOptions): App {
       }
       let r: ReturnType<typeof saveWatchlist>;
       try {
-        r = saveWatchlist(o.configPath, body["watchlist"] as never, typeof body["benchmark"] === "string" ? body["benchmark"] : undefined);
+        const benchmarks = body["benchmarks"] && typeof body["benchmarks"] === "object" ? (body["benchmarks"] as Partial<Record<MarketId, string>>) : undefined;
+        r = saveWatchlist(o.configPath, body["watchlist"] as never, typeof body["benchmark"] === "string" ? body["benchmark"] : undefined, benchmarks);
       } catch (e) {
         const msg = e instanceof Error && "issues" in e ? (e as { issues: Array<{ path: PropertyKey[]; message: string }> }).issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
         throw new HttpError(400, msg);
       }
       const before = s.config.watchlist;
-      s.updateWatchlist(r.config.watchlist, r.config.market.benchmark ?? "");
+      s.updateWatchlist(r.config.watchlist, r.config.market.benchmark ?? "", r.config.markets);
       logWatchlistChange(
         s, "ui",
         Object.keys(r.config.watchlist).filter((t) => !(t in before)).map((t) => ({ ticker: t, name: r.config.watchlist[t]!.name, reason: "" })),

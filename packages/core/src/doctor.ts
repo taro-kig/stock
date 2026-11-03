@@ -101,13 +101,14 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
     }
   };
   const c = s.config;
-  const us = c.market.currency === "USD";
+  const markets = s.activeMarkets();
+  const us = markets.includes("us");
   const env = s.env;
 
   // ── config ──────────────────────────────────────────────────
   await check("config", "config", "設定ファイル", async () => ({
     status: Object.keys(c.watchlist).length ? "ok" : "fail",
-    detail: `${s.configPath ?? "(パス不明)"} · ${us ? "米国株" : "日本株"} · ${Object.keys(c.watchlist).length} 銘柄 · ベンチマーク ${c.market.benchmark ?? "なし"}`,
+    detail: `${s.configPath ?? "(パス不明)"} · ${markets.map((m) => { const p = s.market(m); return `${p.label} ${s.watchlistFor(m).tickers.length} 銘柄（ベンチマーク ${p.benchmark ?? "なし"}・${p.lotSize} 株単位）`; }).join(" · ")}`,
     ...(Object.keys(c.watchlist).length ? {} : { hint: "「6 銘柄」で銘柄を追加" }),
   }));
   await check("prompts", "config", "プロンプトの版", async () => {
@@ -144,11 +145,17 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
   }
 
   // ── data ────────────────────────────────────────────────────
+  if (markets.includes("jp")) {
+    await check("jquants", "data", "株価（J-Quants・日本株）", async () =>
+      env["JQUANTS_API_KEY"]
+        ? { status: "ok", detail: "JQUANTS_API_KEY 設定済み（接続は日本株のワークフローの実行で確認。無料プランは直近 12 週間の株価が出ない）" }
+        : { status: "fail", detail: "JQUANTS_API_KEY が未設定（ウォッチリストに日本株がある）", hint: "J-Quants でキーを取り、⚙ 設定で入力" });
+  }
   if (us) {
     await check("twelvedata", "data", "株価（Twelve Data）", async () => {
       const key = env["TWELVEDATA_API_KEY"];
       if (!key) return { status: "fail", detail: "TWELVEDATA_API_KEY が未設定", hint: "twelvedata.com で無料キーを取り、⚙ 設定で入力" };
-      const sym = c.market.benchmark ?? Object.keys(c.watchlist)[0]!;
+      const sym = s.market("us").benchmark ?? s.watchlistFor("us").tickers[0] ?? "SPY";
       const res = await s.fetch(`https://api.twelvedata.com/time_series?${new URLSearchParams({ symbol: sym, interval: "1day", outputsize: "5", order: "asc" })}`, {
         headers: { authorization: `apikey ${key}` }, signal: AbortSignal.timeout(20_000),
       });
@@ -163,8 +170,9 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       if (!ua) return { status: "fail", detail: "SEC_USER_AGENT が未設定", hint: "⚙ 設定で「stockai 自分のメール」の形で入力" };
       const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
       const map = await sec.tickerMap();
-      const t = Object.keys(c.watchlist).find((x) => map[x] !== undefined);
-      const missing = Object.keys(c.watchlist).filter((x) => map[x] === undefined);
+      const usTickers = s.watchlistFor("us").tickers;
+      const t = usTickers.find((x) => map[x] !== undefined);
+      const missing = usTickers.filter((x) => map[x] === undefined);
       if (!t) return { status: "warn", detail: "ウォッチリストの銘柄が SEC のティッカー一覧に無い", hint: "ティッカーを確認（米国の上場企業か）" };
       const { filings } = await sec.submissions(map[t]!);
       // the financials (XBRL company facts) of the same company, stored like the daily run would
@@ -214,7 +222,7 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
     await check("estimates", "data", "アナリスト予想（Alpha Vantage・任意）", async () => {
       const key = env["ALPHAVANTAGE_API_KEY"];
       if (!key) return { status: "skip", detail: "ALPHAVANTAGE_API_KEY が未設定" };
-      const t = Object.keys(c.watchlist).find((x) => x !== c.market.benchmark);
+      const t = s.watchlistFor("us").tickers.find((x) => x !== s.market("us").benchmark);
       if (!t) return { status: "skip", detail: "ウォッチリストが空" };
       try {
         const snaps = await fetchEarningsEstimates(key, t, s.fetch);

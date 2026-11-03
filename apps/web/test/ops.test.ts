@@ -134,12 +134,14 @@ describe("backup API", () => {
 });
 
 describe("AI ticker suggestions", () => {
-  it("is offered for US configs only", async () => {
+  it("finds US stocks even when the default market is Japanese (they join the US part of the watchlist)", async () => {
     const { call } = await start();
-    const r = await call<{ error: string }>("POST", "/api/universe/suggest", { theme: "半導体", count: 5 });
-    expect(r.status).toBe(400); // the test config is the Japanese one
-    expect(r.body.error).toMatch(/USD/);
-    expect((await call<{ currency: string }>("GET", "/api/config/watchlist")).body.currency).toBe("JPY");
+    const r = await call<{ theme: string }>("POST", "/api/universe/suggest", { theme: "半導体", count: 5 });
+    expect(r.status).toBe(200); // the test config is the Japanese one
+    const w = (await call<{ currency: string; markets: Array<{ id: string; count: number; benchmark: string; lotSize: number; isDefault: boolean }> }>("GET", "/api/config/watchlist")).body;
+    expect(w.currency).toBe("JPY");
+    expect(w.markets.find((m) => m.id === "jp")).toMatchObject({ isDefault: true, benchmark: "1306", lotSize: 100 });
+    expect(w.markets.find((m) => m.id === "us")).toMatchObject({ isDefault: false, benchmark: "SPY", lotSize: 1, count: 0 });
     expect((await call("POST", "/api/universe/suggest", { theme: "x" })).status).toBe(400);
   });
 });
@@ -480,7 +482,7 @@ describe("models registered for a key that has none", () => {
 });
 
 describe("workflows for the other market", () => {
-  it("flags a US workflow when the settings are for Japanese stocks", async () => {
+  it("flags a US workflow while the watchlist has no US stocks", async () => {
     const { call, dir: root } = await start();
     const dir = join(root, "wf");
     writeFileSync(join(dir, "daily-rules.yaml"), readFileSync(join(ROOT, "workflows/daily-rules.yaml"), "utf8"));
@@ -488,7 +490,7 @@ describe("workflows for the other market", () => {
     const wfs = (await call<Array<{ name: string; market: string | null; marketMismatch: string | null }>>("GET", "/api/workflows")).body;
     const by = Object.fromEntries(wfs.map((w) => [w.name, w]));
     expect(by["daily-rules"]).toMatchObject({ market: "us" });
-    expect(by["daily-rules"]!.marketMismatch).toContain("今の設定（config.yaml）は日本株");
+    expect(by["daily-rules"]!.marketMismatch).toContain("ウォッチリストに米国株がありません");
     expect(by["daily-jp-rules"]).toMatchObject({ market: "jp", marketMismatch: null });
     expect(by["demo-ai"]).toMatchObject({ market: null, marketMismatch: null });
   });

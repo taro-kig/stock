@@ -75,7 +75,7 @@ export function additionDates(s: Services): Record<string, { at: string; source:
 }
 
 export interface WatchlistPatch {
-  add?: Array<{ ticker: string; name: string; aliases?: string[]; sector?: string; reason?: string }>;
+  add?: Array<{ ticker: string; name: string; aliases?: string[]; sector?: string; reason?: string; market?: "us" | "jp" }>;
   remove?: Array<{ ticker: string; reason?: string }>;
   benchmark?: string;
 }
@@ -86,7 +86,7 @@ export interface WatchlistPatch {
  */
 export function applyWatchlistPatch(s: Services, patch: WatchlistPatch, source: ChangeSource, note = "", at: Date = new Date()) {
   if (!s.configPath) throw new Error("the config file path is unknown, so the watchlist cannot be saved (start with --config)");
-  const next: Record<string, { name: string; aliases: string[]; sector: string }> = structuredClone(s.config.watchlist);
+  const next: Record<string, { name: string; aliases: string[]; sector: string; market?: "us" | "jp" | undefined }> = structuredClone(s.config.watchlist);
   const added: WatchlistChangeRow["added"] = [];
   const updated: string[] = [];
   const removed: WatchlistChangeRow["removed"] = [];
@@ -103,12 +103,13 @@ export function applyWatchlistPatch(s: Services, patch: WatchlistPatch, source: 
   for (const a of patch.add ?? []) {
     const t = a.ticker.trim().toUpperCase();
     const prev = next[t];
-    next[t] = { name: a.name.trim(), aliases: a.aliases ?? prev?.aliases ?? [], sector: a.sector ?? prev?.sector ?? "unknown" };
+    const market = a.market ?? prev?.market;
+    next[t] = { name: a.name.trim(), aliases: a.aliases ?? prev?.aliases ?? [], sector: a.sector ?? prev?.sector ?? "unknown", ...(market ? { market } : {}) };
     if (prev) updated.push(t);
     else added.push({ ticker: t, name: a.name.trim(), reason: a.reason ?? "" });
   }
   const r = saveWatchlist(s.configPath, next, patch.benchmark);
-  s.updateWatchlist(r.config.watchlist, r.config.market.benchmark ?? "");
+  s.updateWatchlist(r.config.watchlist, r.config.market.benchmark ?? "", r.config.markets);
   logWatchlistChange(s, source, added, removed, note, at);
   return { file: r.file, created: r.created, added: added.map((x) => x.ticker), updated, removed: removed.map((x) => x.ticker), skipped, tickers: Object.keys(r.config.watchlist).length };
 }

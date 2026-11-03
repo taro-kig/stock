@@ -74,7 +74,11 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 
 describe("IBKR workflow (fake broker)", () => {
   const setup = (broker: FakeBroker, ibkr: Record<string, unknown> = {}, clock?: () => Date) => {
+    // ibkr-paper is a US workflow and only sees US stocks; the demo news is about Japanese companies,
+    // so their entries are marked as US here to keep the order mechanics testable with that fixture
     const cfg = loadConfig(resolve(ROOT, "config/config.jp.example.yaml"));
+    for (const e of Object.values(cfg.watchlist)) e.market = "us";
+    cfg.markets = { us: { benchmark: "1306" } }; // the synthetic series the replays below were tuned on
     cfg.ibkr = IbkrConfig.parse({ maxOrderValue: 5_000_000, ...ibkr });
     const services = new Services(cfg, { fake: true, dbPath: ":memory:", brokerFactory: async () => broker });
     const spec = loadWorkflow(resolve(ROOT, "workflows/ibkr-paper.yaml"));

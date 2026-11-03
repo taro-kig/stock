@@ -57,3 +57,4 @@ export { setWorkflowParam } from "./workflow/editFile.ts";
 export { buildTrades, summarize as summarizeTrades, type JournalSummary, type Trade } from "./eval/journal.ts";
 export { trackOrders, type OrderState, type OrderUpdate } from "./execution/tracking.ts";
 export type { TrackedOrder } from "./execution/ledger.ts";
+export { defaultMarketId, MARKET_IDS, MARKET_LABEL, MarketConfig, MarketsConfig, marketOfTicker, marketProfile, marketProfiles, type MarketId, type MarketProfile } from "./markets.ts";

@@ -34,11 +34,18 @@ pricing:
   deepseek-chat: [0.27, 1.10]
 
 sources:
-  - { name: google_news_jp_kessan, url: "https://news.google.com/rss/search?q=%E6%B1%BA%E7%AE%97+%E4%B8%8A%E6%96%B9%E4%BF%AE%E6%AD%A3&hl=ja&gl=JP&ceid=JP:ja", weight: 0.8 }
+  - { name: google_news_jp_kessan, url: "https://news.google.com/rss/search?q=%E6%B1%BA%E7%AE%97+%E4%B8%8A%E6%96%B9%E4%BF%AE%E6%AD%A3&hl=ja&gl=JP&ceid=JP:ja", weight: 0.8, market: jp }
 
 market:
   currency: JPY
   benchmark: "1306"     # TOPIX ETF, used for relative strength, regime filter and grading
+
+# US and Japanese stocks can share one watchlist: codes like 7203 / 130A are Japanese, the rest US
+# (or set `market: us|jp` on an entry). US workflows (daily-ai, ibkr-paper, …) see only the US stocks,
+# daily-jp-* only the Japanese ones; each has its own account and currency. Per-market settings (defaults shown):
+# markets:
+#   us: { benchmark: SPY, lotSize: 1 }
+#   jp: { benchmark: "1306", lotSize: 100 }
 
 watchlist:
   "7203": { name: トヨタ自動車, aliases: [トヨタ, Toyota], sector: auto }

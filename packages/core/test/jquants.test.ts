@@ -68,7 +68,8 @@ describe("data.pricesJQuants", () => {
     asOf: "2026-11-02",
     log: () => {},
     metric: () => {},
-    services: { env, config: { market: { benchmark: undefined } }, watchlist: { tickers: ["7203"] }, heldTickers: () => ({}) },
+    market: { id: "jp", label: "日本株", currency: "JPY", benchmark: undefined, lotSize: 100 },
+    services: { env, config: { market: { currency: "JPY" } }, watchlistFor: () => ({ tickers: ["7203"] }), heldTickers: () => ({}) },
   });
 
   it("refuses to run without a key", async () => {

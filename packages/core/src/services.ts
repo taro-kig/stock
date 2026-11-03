@@ -1,3 +1,4 @@
+import { defaultMarketId, MARKET_IDS, marketOfTicker, marketProfile, type MarketId, type MarketProfile } from "./markets.ts";
 import { join } from "node:path";
 import type { AppConfig } from "./config.ts";
 import { PredictionStore } from "./eval/predictions.ts";
@@ -72,6 +73,7 @@ export class Services {
   #docStore?: DocStore;
   #runStore?: RunStore;
   #watchlist?: Watchlist | undefined;
+  readonly #marketWatchlists = new Map<MarketId, Watchlist>();
   #paper?: PaperBook;
   #predictions?: PredictionStore;
   #prices?: PriceStore;
@@ -124,21 +126,49 @@ export class Services {
   get runStore(): RunStore {
     return (this.#runStore ??= new RunStore(this.db));
   }
+  /** The whole watchlist (every market). Nodes use watchlistFor(their market). */
   get watchlist(): Watchlist {
     return (this.#watchlist ??= new Watchlist(this.config.watchlist));
+  }
+
+  /** The market a ticker belongs to: the watchlist entry's `market`, else from the code. */
+  marketOf(ticker: string): MarketId {
+    return this.config.watchlist[ticker]?.market ?? marketOfTicker(ticker);
+  }
+
+  /** The watchlist stocks of one market. */
+  watchlistFor(market: MarketId): Watchlist {
+    let w = this.#marketWatchlists.get(market);
+    if (!w) {
+      w = new Watchlist(Object.fromEntries(Object.entries(this.config.watchlist).filter(([t]) => this.marketOf(t) === market)));
+      this.#marketWatchlists.set(market, w);
+    }
+    return w;
+  }
+
+  /** Settings of one market (currency, benchmark, lot size). */
+  market(id: MarketId): MarketProfile {
+    return marketProfile(this.config, id);
+  }
+
+  /** Markets with at least one stock in the watchlist or held, default market first. */
+  activeMarkets(): MarketId[] {
+    const used = new Set([...Object.keys(this.config.watchlist), ...Object.keys(this.heldTickers())].map((t) => this.marketOf(t)));
+    const def = defaultMarketId(this.config);
+    return [def, ...MARKET_IDS.filter((m) => m !== def)].filter((m) => m === def || used.has(m));
   }
 
   /**
    * Tickers held in any paper or broker account, with their sector. They stay in the price
    * universe even after leaving the watchlist, so stops, valuation and exits keep working.
    */
-  heldTickers(): Record<string, string> {
+  heldTickers(market?: MarketId): Record<string, string> {
     void this.paperBook; // make sure both tables exist
     void this.brokerLedger;
     const rows = this.db
       .prepare("SELECT ticker, sector FROM paper_positions WHERE shares > 0 UNION SELECT ticker, sector FROM broker_positions")
       .all() as Array<{ ticker: string; sector: string | null }>;
-    return Object.fromEntries(rows.map((r) => [r.ticker, r.sector ?? "unknown"]));
+    return Object.fromEntries(rows.filter((r) => !market || this.marketOf(r.ticker) === market).map((r) => [r.ticker, r.sector ?? "unknown"]));
   }
 
   /** Fingerprint of the loaded config: part of every node cache key, so edits never serve stale results. */
@@ -149,11 +179,13 @@ export class Services {
   }
 
   /** Replace the watchlist (and optionally the benchmark) while running, e.g. from the settings screen. */
-  updateWatchlist(watchlist: AppConfig["watchlist"], benchmark?: string): void {
-    const c = this.config as { watchlist: AppConfig["watchlist"]; market: AppConfig["market"] };
+  updateWatchlist(watchlist: AppConfig["watchlist"], benchmark?: string, markets?: AppConfig["markets"]): void {
+    const c = this.config as { watchlist: AppConfig["watchlist"]; market: AppConfig["market"]; markets: AppConfig["markets"] };
     c.watchlist = watchlist;
     if (benchmark !== undefined) c.market = { ...c.market, benchmark };
+    if (markets !== undefined) c.markets = markets;
     this.#watchlist = undefined;
+    this.#marketWatchlists.clear();
     this.#configHash = undefined;
   }
   get paperBook(): PaperBook {

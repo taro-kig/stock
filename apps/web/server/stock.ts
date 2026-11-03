@@ -99,7 +99,8 @@ export function stockView(s: Services, registry: NodeRegistry, ticker: string, n
   const today = now.toISOString().slice(0, 10);
   const w = s.watchlist;
   const held = s.heldTickers();
-  const bench = s.config.market.benchmark;
+  const tickerMarket = s.market(s.marketOf(ticker));
+  const bench = tickerMarket.benchmark;
   const bars = barsFor(s, registry, ticker);
   const benchBars = bench ? barsFor(s, registry, bench) : [];
   const asOf = bars.at(-1)?.date ?? today;
@@ -142,7 +143,7 @@ export function stockView(s: Services, registry: NodeRegistry, ticker: string, n
 
   return {
     ticker, name: ticker in w.entries ? w.name(ticker) : ticker, sector: sectorName, inWatchlist: ticker in w.entries, held: ticker in held,
-    currency: s.config.market.currency, asOf,
+    currency: tickerMarket.currency, asOf,
     bars: bars.slice(-400).map((b) => ({ date: b.date, close: b.close })),
     benchmark: bench ?? null,
     returns: { d20: ret(20), d60: ret(60), d250: ret(250), bench60: bret(60) },

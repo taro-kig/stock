@@ -8,7 +8,7 @@ import { navigate, tabKey } from "../router.ts";
 export function Overview({ data }: { data: OverviewData | undefined }) {
   if (!data) return <Empty>読み込み中…</Empty>;
   const now = new Date(data.now).getTime();
-  const gates = data.pending.flatMap((p) => p.gates.map((g) => ({ run: p.run, gate: g })));
+  const gates = data.pending.flatMap((p) => p.gates.map((g) => ({ run: p.run, gate: g, currency: p.currency })));
   const card = data.scorecard;
 
   return (
@@ -24,7 +24,7 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
             <table className="t">
               <thead><tr><th>ワークフロー</th><th>基準日</th><th className="num">注文</th><th className="num">買い</th><th className="num">売り</th><th>待機</th></tr></thead>
               <tbody>
-                {gates.map(({ run, gate }) => {
+                {gates.map(({ run, gate, currency }) => {
                   const buy = gate.proposals.filter((p) => p.action === "buy");
                   const sell = gate.proposals.filter((p) => p.action === "sell");
                   return (
@@ -32,8 +32,8 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
                       <td><Status s="waiting" label={false} />{run.workflow}</td>
                       <td>{run.asOf}</td>
                       <td className="num">{gate.proposals.length}</td>
-                      <td className="num up">{moneyOrDash(buy.reduce((s, p) => s + p.shares * p.price, 0), data.currency)}</td>
-                      <td className="num down">{moneyOrDash(sell.reduce((s, p) => s + p.shares * p.price, 0), data.currency)}</td>
+                      <td className="num up">{moneyOrDash(buy.reduce((s, p) => s + p.shares * p.price, 0), currency)}</td>
+                      <td className="num down">{moneyOrDash(sell.reduce((s, p) => s + p.shares * p.price, 0), currency)}</td>
                       <td className="dim">{ago(run.createdAt, now)}</td>
                     </tr>
                   );

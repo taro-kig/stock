@@ -1,3 +1,4 @@
+import { benchmarkOf, watchlistOf } from "./scope.ts";
 import { z } from "zod";
 import { buildScorecard } from "../eval/scorecard.ts";
 import { SECTOR_ETFS } from "../data/market.ts";
@@ -48,7 +49,7 @@ export const scorecardNode = defineNode({
   async run(ctx, p, i) {
     const preds = ctx.services.predictions.all(ctx.asOf);
     return {
-      scorecard: buildScorecard(preds, i.prices, ctx.asOf, p.horizonDays, { minNEff: p.minNEff, minWilsonLow: p.minWilsonLow, baselineLabel: p.baselineLabel }, ctx.services.config.market.benchmark),
+      scorecard: buildScorecard(preds, i.prices, ctx.asOf, p.horizonDays, { minNEff: p.minNEff, minWilsonLow: p.minWilsonLow, baselineLabel: p.baselineLabel }, benchmarkOf(ctx)),
     };
   },
 });
@@ -83,12 +84,12 @@ export const factorResearchNode = defineNode({
     const s = ctx.services;
     const universe = p.universe === "research"
       ? researchUniverse(ctx)
-      : Object.fromEntries(s.watchlist.tickers.map((t) => [t, s.watchlist.sector(t)]));
+      : Object.fromEntries(watchlistOf(ctx).tickers.map((t) => [t, watchlistOf(ctx).sector(t)]));
     const facts = i.fundamentals && Object.keys(i.fundamentals).length
       ? Object.fromEntries(Object.keys(universe).map((t) => [t, s.fundamentals.facts(t, ctx.asOf)]))
       : undefined;
     const report = researchFactors({
-      asOf: ctx.asOf, prices: i.prices, universe, benchmark: s.config.market.benchmark, sectorEtfs: SECTOR_ETFS, facts,
+      asOf: ctx.asOf, prices: i.prices, universe, benchmark: benchmarkOf(ctx), sectorEtfs: SECTOR_ETFS, facts,
       ...(p.universe === "research" ? { buckets: researchBuckets(ctx) } : {}),
       ...(p.weights ? { weights: p.weights } : {}), horizon: p.horizon, step: p.step, lookbackDays: p.lookbackDays, minStocks: p.minStocks,
     });

@@ -145,9 +145,10 @@ export function verify(c: Omit<Candidate, "status" | "problem" | "listing">, lis
 }
 
 export async function suggestTickers(s: Services, req: SuggestRequest, now: Date = new Date(), promptVersion?: string, model?: string): Promise<SuggestResult> {
-  if (s.config.market.currency !== "USD") throw new Error("銘柄探しは米国株の設定（market.currency: USD）でのみ使えます");
+  // finds US stocks (verified against SEC listings); they join the US part of the watchlist whatever the default market is
   const r = SuggestRequest.parse(req);
-  const exclude = new Set([...s.watchlist.tickers, ...(s.config.market.benchmark ? [s.config.market.benchmark] : [])].map(normTicker));
+  const bench = s.market("us").benchmark;
+  const exclude = new Set([...s.watchlist.tickers, ...(bench ? [bench] : [])].map(normTicker));
   const p: LLMProvider = s.universeModel(model);
   // Ask for a few extra: some will fail verification.
   const want = Math.min(40, Math.ceil(r.count * 1.5));
@@ -186,6 +187,7 @@ export async function suggestTickers(s: Services, req: SuggestRequest, now: Date
 
 function sectorCounts(s: Services): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const t of s.watchlist.tickers) out[s.watchlist.sector(t)] = (out[s.watchlist.sector(t)] ?? 0) + 1;
+  const w = s.watchlistFor("us");
+  for (const t of w.tickers) out[w.sector(t)] = (out[w.sector(t)] ?? 0) + 1;
   return out;
 }

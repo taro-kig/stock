@@ -4,6 +4,7 @@ import { isMap, parseDocument, YAMLMap } from "yaml";
 import { z } from "zod";
 import { AppConfig } from "../config.ts";
 import { PoolInput } from "../llm/catalog.ts";
+import { MARKET_IDS, marketOfTicker, type MarketId } from "../markets.ts";
 import { AUTO, explicitModelNames, MODEL_USES, NO_MODEL, type ModelsConfig, type ModelUse } from "../llm/roles.ts";
 
 /** One watchlist row as edited in the UI. */
@@ -11,6 +12,8 @@ export const WatchlistEntryInput = z.strictObject({
   name: z.string().trim().min(1).max(80),
   aliases: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   sector: z.string().trim().min(1).max(40).default("unknown"),
+  /** Only needed when the code does not tell (4-character codes are Japanese, the rest US). */
+  market: z.enum(MARKET_IDS).optional(),
 });
 
 export const WatchlistInput = z
@@ -54,13 +57,18 @@ export function saveWatchlist(
   loadedFrom: string,
   watchlist: z.input<typeof WatchlistInput>,
   benchmark?: string,
+  /** Benchmark per market; "" removes the setting (the built-in default applies). */
+  benchmarks?: Partial<Record<MarketId, string>>,
 ): { file: string; created: boolean; config: AppConfig } {
   const wl = WatchlistInput.parse(watchlist);
-  if (benchmark !== undefined && benchmark.trim() && !/^[A-Z0-9][A-Z0-9.-]{0,9}$/.test(benchmark.trim())) throw new Error("benchmark: A-Z, 0-9, '.', '-'");
+  for (const b of [benchmark, ...Object.values(benchmarks ?? {})]) {
+    if (b !== undefined && b.trim() && !/^[A-Z0-9][A-Z0-9.-]{0,9}$/.test(b.trim())) throw new Error("benchmark: A-Z, 0-9, '.', '-'");
+  }
   return editConfig(loadedFrom, (doc) => {
     const map = new YAMLMap();
     for (const [ticker, e] of Object.entries(wl).sort(([a], [b]) => a.localeCompare(b))) {
-      const entry = doc.createNode({ name: e.name, ...(e.aliases.length ? { aliases: e.aliases } : {}), sector: e.sector });
+      // `market` is written only when it differs from what the code says
+      const entry = doc.createNode({ name: e.name, ...(e.aliases.length ? { aliases: e.aliases } : {}), sector: e.sector, ...(e.market && e.market !== marketOfTicker(ticker) ? { market: e.market } : {}) });
       entry.flow = true;
       map.set(doc.createNode(ticker), entry);
     }
@@ -71,6 +79,18 @@ export function saveWatchlist(
       const b = benchmark.trim();
       if (b) doc.setIn(["market", "benchmark"], b);
       else doc.deleteIn(["market", "benchmark"]);
+    }
+    // the default market keeps its benchmark in `market.benchmark` (where older configs have it), others in `markets.<id>`
+    const def: MarketId = doc.getIn(["market", "currency"]) === "USD" ? "us" : "jp";
+    for (const [id, raw] of Object.entries(benchmarks ?? {}) as Array<[MarketId, string | undefined]>) {
+      if (raw === undefined) continue;
+      const b = raw.trim();
+      if (id === def) {
+        if (b) doc.setIn(["market", "benchmark"], b);
+        else doc.deleteIn(["market", "benchmark"]);
+        if (doc.hasIn(["markets", id, "benchmark"])) doc.deleteIn(["markets", id, "benchmark"]);
+      } else if (b) doc.setIn(["markets", id, "benchmark"], b);
+      else if (doc.hasIn(["markets", id, "benchmark"])) doc.deleteIn(["markets", id, "benchmark"]);
     }
   });
 }

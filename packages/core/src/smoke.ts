@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { defaultMarketId } from "./markets.ts";
 import { runDoctor, STATUS_MARK } from "./doctor.ts";
 import { fundamentalsAt, parseCompanyFacts } from "./data/fundamentals.ts";
 import { SecClient } from "./data/sec.ts";
@@ -61,11 +62,13 @@ async function step(name: string, fn: () => Promise<Omit<SmokeStep, "name" | "ms
 
 export async function runSmoke(s: Services, o: SmokeOptions = {}): Promise<SmokeReport> {
   const now = o.now ?? new Date();
-  const usd = s.config.market.currency === "USD";
+  const markets = s.activeMarkets();
+  const usd = markets.includes("us");
+  const def = defaultMarketId(s.config);
   const set = (n: string) => Boolean(s.env[n]);
   const env = [
     `Node ${process.version} · ${process.platform}`,
-    `市場 ${usd ? "米国株" : "日本株"} · ウォッチリスト ${Object.keys(s.config.watchlist).length} 銘柄 · ベンチマーク ${s.config.market.benchmark ?? "なし"}`,
+    `市場: ${markets.map((m) => `${s.market(m).label} ${s.watchlistFor(m).tickers.length} 銘柄（ベンチマーク ${s.market(m).benchmark ?? "なし"}）`).join(" · ")}`,
     `設定されているキー: ${KNOWN_SETTINGS.filter((k) => set(k.name)).map((k) => k.name).join(", ") || "なし"}`,
     `モデル: ${s.fake ? "疑似（--fake）" : (s.config.models?.pool ?? []).map((m) => `${m.name}=${m.model}`).join(", ") || "未設定"}`,
   ];
@@ -81,7 +84,7 @@ export async function runSmoke(s: Services, o: SmokeOptions = {}): Promise<Smoke
   }, o.log));
 
   if (!o.skipWorkflow) {
-    const path = o.workflow ?? (usd ? "workflows/daily-ai.yaml" : "workflows/daily-jp-ai.yaml");
+    const path = o.workflow ?? (def === "us" ? "workflows/daily-ai.yaml" : "workflows/daily-jp-ai.yaml");
     steps.push(await step(`ワークフロー ${path}（今日の分）`, async () => {
       const engine = new Engine({ services: s, registry: builtinRegistry(), store: s.runStore });
       const r = await engine.run(loadWorkflow(path));
@@ -119,7 +122,7 @@ export async function runSmoke(s: Services, o: SmokeOptions = {}): Promise<Smoke
       const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
       const rows = await buildResearchUniverse(s, sec, now, { perBucket: 5, seed: 1 });
       const universe = Object.fromEntries(rows.map((r) => [r.ticker, r.sector]));
-      const bench = s.config.market.benchmark;
+      const bench = s.market("us").benchmark;
       const ctx = { services: s, asOf: toIsoDate(now), wallNow: () => now, live: true, log: () => undefined } as unknown as NodeContext;
       const { prices, counts } = await loadTwelveData(ctx, [...Object.keys(universe), ...(bench ? [bench] : [])], { apiKeyEnv: "TWELVEDATA_API_KEY", symbols: {}, historyBars: 600, perMinute: 8, maxStaleDays: 5 });
       const facts: Record<string, ReturnType<typeof parseCompanyFacts>> = {};

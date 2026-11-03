@@ -82,8 +82,8 @@ describe("suggestTickers", () => {
     expect(calls()).toBe(0);
   });
 
-  it("is for US stocks only and validates the request", async () => {
-    await expect(suggestTickers(services({}, "JPY").s, { theme: "半導体" })).rejects.toThrow(/USD/);
+  it("validates the request (US stocks are found whatever the default market is)", async () => {
+    await expect(suggestTickers(services({}, "JPY").s, { theme: "半導体" })).resolves.toMatchObject({ theme: "半導体" });
     await expect(suggestTickers(services({}).s, { theme: "x" })).rejects.toThrow();
     await expect(suggestTickers(services({}).s, { theme: "半導体", count: 100 })).rejects.toThrow();
   });

@@ -4,6 +4,7 @@ export interface WatchlistEntry {
   name: string;
   aliases?: string[] | undefined;
   sector?: string | undefined;
+  market?: "us" | "jp" | undefined;
 }
 
 const norm = (s: string) => s.normalize("NFKC").toLowerCase();

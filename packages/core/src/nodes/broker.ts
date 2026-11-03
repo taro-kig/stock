@@ -1,3 +1,4 @@
+import { marketOf, riskOf, watchlistOf } from "./scope.ts";
 import { z } from "zod";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -20,9 +21,9 @@ export const paperBroker = defineNode({
   async run(ctx, p, i) {
     const s = ctx.services;
     const name = i.account.account;
-    const sectors = Object.fromEntries(Object.keys(s.config.watchlist).map((t) => [t, s.watchlist.sector(t)]));
-    const fills = s.paperBook.apply(ctx.runId, name, ctx.asOf, i.proposals, i.prices, { ...p, lotSize: s.risk.lotSize, sectors });
+    const sectors = Object.fromEntries(Object.keys(s.config.watchlist).map((t) => [t, watchlistOf(ctx).sector(t)]));
+    const fills = s.paperBook.apply(ctx.runId, name, ctx.asOf, i.proposals, i.prices, { ...p, lotSize: marketOf(ctx).lotSize, sectors });
     ctx.metric("fills", fills.length);
-    return { fills, account: s.paperBook.state(name, ctx.asOf, i.prices, s.risk) };
+    return { fills, account: s.paperBook.state(name, ctx.asOf, i.prices, riskOf(ctx)) };
   },
 });

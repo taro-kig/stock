@@ -3,7 +3,8 @@ import type { Services } from "../services.ts";
 import { endOfDay, toIsoDate, type IsoDate } from "../util/dates.ts";
 import { sha256, stableStringify } from "../util/hash.ts";
 import { WaitingForInput, type NodeContext } from "./context.ts";
-import type { NodeRegistry } from "./registry.ts";
+import { defaultMarketId } from "../markets.ts";
+import { workflowMarket, type NodeRegistry } from "./registry.ts";
 import { summarize, type NodeRunRow, type NodeStatus, type RunEvent, type RunStatus, type RunStore } from "./runStore.ts";
 import { dependencies, resolveRef, topoOrder, validateWorkflow, WorkflowError, WorkflowSpec } from "./spec.ts";
 
@@ -81,6 +82,8 @@ export class Engine {
     const values = new Map<string, Record<string, unknown>>();
     const results: Record<string, NodeRunRow> = {};
     let aborted = false;
+    // the market this workflow is for (its nodes decide; demo / neutral workflows use the default market)
+    const market = services.market(workflowMarket(Object.values(spec.nodes).map((n) => n.use), registry) ?? defaultMarketId(services.config));
 
     this.#emit(runId, { type: "run_started", workflow: spec.name, asOf, resumed: Object.keys(prior).length > 0 });
 
@@ -136,7 +139,7 @@ export class Engine {
       const params = def.params.parse(cfg.params);
       const cacheKey =
         cfg.cache && def.cache !== "none"
-          ? sha256(def.type, String(def.version), stableStringify(params), stableStringify(inputHashes), def.cache === "daily" ? asOf : "", services.configHash)
+          ? sha256(def.type, String(def.version), stableStringify(params), stableStringify(inputHashes), def.cache === "daily" ? asOf : "", services.configHash, market.id)
           : null;
 
       const startedAt = new Date();
@@ -150,7 +153,7 @@ export class Engine {
 
       const metrics: Record<string, number> = {};
       const ctx: NodeContext = {
-        runId, workflow: spec.name, nodeId: id, asOf, now, live, runCreatedAt, services, wallNow: this.#clock,
+        runId, workflow: spec.name, nodeId: id, asOf, now, live, runCreatedAt, services, market, wallNow: this.#clock,
         log: (message, data) => this.#emit(runId, { type: "log", node: id, message, data }),
         metric: (name, v) => {
           metrics[name] = (metrics[name] ?? 0) + v;

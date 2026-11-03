@@ -112,7 +112,7 @@ export interface Overview {
   fake: boolean;
   /** Market currency (for amounts that carry no account, like proposed orders). */
   currency: "JPY" | "USD";
-  pending: Array<{ run: RunSummary; gates: WaitingGate[] }>;
+  pending: Array<{ run: RunSummary; gates: WaitingGate[]; currency: "JPY" | "USD" }>;
   workflows: WorkflowInfo[];
   recent: RunSummary[];
   equity: EquitySeries[];
@@ -166,10 +166,13 @@ export interface ImportResult {
 }
 
 export interface WatchlistView {
-  watchlist: Record<string, { name: string; aliases: string[]; sector: string }>;
+  watchlist: Record<string, { name: string; aliases: string[]; sector: string; market?: "us" | "jp" | undefined }>;
+  /** Benchmark of the default market (older clients). */
   benchmark: string;
-  /** AI ticker suggestions are offered for USD (US stocks) only. */
+  /** The default market's currency. */
   currency: "JPY" | "USD";
+  /** Per market: settings in effect and how many stocks it has. */
+  markets: Array<{ id: "us" | "jp"; label: string; currency: "JPY" | "USD"; benchmark: string; lotSize: number; count: number; isDefault: boolean }>;
   /** Recent watchlist changes (screen, Claude, review), newest first. */
   history: WatchlistChangeRow[];
   /** Still held in an account but no longer watched (stops and exits keep working). */

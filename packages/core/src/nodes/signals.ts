@@ -1,3 +1,4 @@
+import { benchmarkOf, heldOf, watchlistOf } from "./scope.ts";
 import { factorColumns } from "../strategy/factorLib.ts";
 import { z } from "zod";
 import { eventScores } from "../signals/aggregate.ts";
@@ -56,14 +57,14 @@ export const factorsNode = defineNode({
   inputs: { prices: { type: "Prices" } },
   outputs: { factors: { type: "Factors" } },
   async run(ctx, p, i) {
-    const w = ctx.services.watchlist;
-    const held = ctx.services.heldTickers();
+    const w = watchlistOf(ctx);
+    const held = heldOf(ctx);
     const watched = Object.fromEntries(
-      Object.entries(i.prices).filter(([t]) => t in w.entries || t in held || t === (p.benchmark ?? ctx.services.config.market.benchmark)),
+      Object.entries(i.prices).filter(([t]) => t in w.entries || t in held || t === (p.benchmark ?? benchmarkOf(ctx))),
     );
     return {
       factors: computeFactors(watched, ctx.asOf, (t) => ({ name: w.name(t), sector: t in w.entries ? w.sector(t) : (held[t] ?? "unknown") }), {
-        benchmark: p.benchmark ?? ctx.services.config.market.benchmark,
+        benchmark: p.benchmark ?? benchmarkOf(ctx),
         relDays: p.relDays,
       }),
     };

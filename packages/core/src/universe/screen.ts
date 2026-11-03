@@ -106,7 +106,8 @@ export async function screenStocks(
   const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
   const notes: string[] = [];
   const funnel: ScreenResult["funnel"] = [];
-  const exclude = new Set([...(o.exclude ?? []), ...s.watchlist.tickers, ...(s.config.market.benchmark ? [s.config.market.benchmark] : [])]);
+  const bench = s.market("us").benchmark;
+  const exclude = new Set([...(o.exclude ?? []), ...s.watchlist.tickers, ...(bench ? [bench] : [])]);
 
   // 1. the whole market
   const market = (await s.companies.market(sec, now)).filter((c) => !exclude.has(c.ticker));

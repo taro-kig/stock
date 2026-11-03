@@ -183,6 +183,8 @@ export function buildMcpServer(o: McpOptions): McpServer {
       const held = s.heldTickers();
       return {
         market: s.config.market,
+        // each stock's market (us / jp): a workflow only sees its market's stocks
+        markets: s.activeMarkets().map((id) => ({ ...s.market(id), stocks: s.watchlistFor(id).tickers })),
         watchlist: w,
         sectorCounts: sectors,
         heldButNotWatched: Object.keys(held).filter((t) => !(t in w)),

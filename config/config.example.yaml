@@ -39,12 +39,20 @@ pricing:
 # English news feeds (in addition to SEC filings, which source.secFilings reads directly).
 # Feed URLs are third-party and may change; a failing feed is skipped. {tickers} becomes the watchlist (comma-separated).
 sources:
-  - { name: yahoo_finance, url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s={tickers}&region=US&lang=en-US", weight: 0.7 }
-  - { name: google_news_us_guidance, url: "https://news.google.com/rss/search?q=raises+OR+cuts+guidance+outlook&hl=en-US&gl=US&ceid=US:en", weight: 0.6 }
+  # market: us = read by US workflows only ({tickers} becomes the US part of the watchlist)
+  - { name: yahoo_finance, url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s={tickers}&region=US&lang=en-US", weight: 0.7, market: us }
+  - { name: google_news_us_guidance, url: "https://news.google.com/rss/search?q=raises+OR+cuts+guidance+outlook&hl=en-US&gl=US&ceid=US:en", weight: 0.6, market: us }
 
 market:
   currency: USD
   benchmark: SPY        # S&P 500 ETF, used for relative strength, regime filter and grading
+
+# US and Japanese stocks can share one watchlist: codes like 7203 / 130A are Japanese, the rest US
+# (or set `market: us|jp` on an entry). US workflows (daily-ai, ibkr-paper, …) see only the US stocks,
+# daily-jp-* only the Japanese ones; each has its own account and currency. Per-market settings (defaults shown):
+# markets:
+#   us: { benchmark: SPY, lotSize: 1 }
+#   jp: { benchmark: "1306", lotSize: 100 }
 
 # name is matched against news text (whole words); aliases add other spellings.
 watchlist:

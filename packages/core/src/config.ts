@@ -4,6 +4,7 @@ import { z } from "zod";
 import { IbkrConfig } from "./execution/ibkr.ts";
 import { WebullConfig } from "./execution/webull.ts";
 import { ModelsConfig } from "./llm/roles.ts";
+import { MARKET_IDS, MarketsConfig } from "./markets.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
 export const NOTIFY_EVENTS = ["approval", "failure", "orders", "fills", "success", "backup", "market", "stops", "earnings", "stale"] as const;
@@ -36,18 +37,29 @@ export const AppConfig = z.strictObject({
     .prefault({}),
   /** USD per 1M tokens [input, output]. Verify against current price pages. */
   pricing: z.record(z.string(), z.tuple([z.number(), z.number()])).default({}),
-  sources: z.array(z.strictObject({ name: z.string(), url: z.url(), weight: z.number().min(0).default(1) })).default([]),
+  /** News feeds. `market` limits a feed to that market's workflows (default: used by all). {tickers} becomes that market's watchlist. */
+  sources: z.array(z.strictObject({ name: z.string(), url: z.url(), weight: z.number().min(0).default(1), market: z.enum(MARKET_IDS).optional() })).default([]),
   watchlist: z.record(
     z.string(),
-    z.strictObject({ name: z.string(), aliases: z.array(z.string()).default([]), sector: z.string().default("unknown") }),
+    z.strictObject({
+      name: z.string(), aliases: z.array(z.string()).default([]), sector: z.string().default("unknown"),
+      /** us / jp. Default: from the code (4-character codes such as 7203 or 130A are Japanese, the rest US). */
+      market: z.enum(MARKET_IDS).optional(),
+    }),
   ),
+  /** The default market: workflows that are for no market in particular (demo) run in it. Per-market settings: `markets`. */
   market: z
     .strictObject({
       currency: z.enum(["JPY", "USD"]).default("JPY"),
-      /** Benchmark ticker (must be present in price data) for relative strength, regime and grading. */
+      /** Benchmark of the default market (same as markets.<default>.benchmark; kept for older configs). */
       benchmark: z.string().optional(),
     })
     .prefault({}),
+  /**
+   * Per-market settings (both optional; defaults: us = SPY / 1 share, jp = 1306 / 100 shares).
+   * The watchlist can hold both; each workflow sees only its market's stocks (see markets.ts).
+   */
+  markets: MarketsConfig.optional(),
   risk: RiskConfig.prefault({}),
   /** Interactive Brokers via IB Gateway (docs/ibkr.md). */
   ibkr: IbkrConfig.optional(),

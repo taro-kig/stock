@@ -1,3 +1,4 @@
+import { marketOf, riskOf, watchlistOf } from "./scope.ts";
 import { z } from "zod";
 import type { BrokerClient, OrderTicket } from "../execution/broker.ts";
 import { checkAccountMode, checkLiveInterlock, checkOrder, limitPrice, orderRef } from "../execution/guards.ts";
@@ -72,11 +73,11 @@ function accountNode(type: string, kind: BrokerKind, title: string, description:
             ctx.metric("trackingFailed", 1);
           }
         }
-        const positions = s.brokerLedger.reconcile(a.accountId, ctx.asOf, a.positions, (t) => lastClose(i.prices, t, ctx.asOf), (t) => s.watchlist.sector(t));
+        const positions = s.brokerLedger.reconcile(a.accountId, ctx.asOf, a.positions, (t) => lastClose(i.prices, t, ctx.asOf), (t) => watchlistOf(ctx).sector(t));
         const peakEquity = s.brokerLedger.recordEquity(a.accountId, ctx.asOf, a.netLiquidation);
         const account: AccountState = {
           account: a.accountId, asOf: ctx.asOf, currency: a.currency, cash: a.cash, equity: a.netLiquidation, peakEquity,
-          mode: tradingMode(a.netLiquidation, peakEquity, s.risk), positions,
+          mode: tradingMode(a.netLiquidation, peakEquity, riskOf(ctx)), positions,
         };
         ctx.metric("equity", account.equity);
         return { account };
@@ -122,7 +123,7 @@ function orderNode(type: string, kind: BrokerKind, title: string, description: s
           }
           const blocked = sent >= prof.limits.maxOrdersPerRun
             ? `maxOrdersPerRun ${prof.limits.maxOrdersPerRun} reached`
-            : checkOrder(base, a, { maxOrderValue: prof.limits.maxOrderValue, maxOrdersPerRun: prof.limits.maxOrdersPerRun, lotSize: s.risk.lotSize });
+            : checkOrder(base, a, { maxOrderValue: prof.limits.maxOrderValue, maxOrdersPerRun: prof.limits.maxOrdersPerRun, lotSize: marketOf(ctx).lotSize });
           if (blocked) {
             ctx.log(`blocked ${ref}: ${blocked}`);
             orders.push({ ...base, status: "blocked", message: blocked });

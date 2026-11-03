@@ -1,3 +1,4 @@
+import { benchmarkOf, heldOf, marketOf, watchlistOf } from "./scope.ts";
 import { groupFailures } from "./problems.ts";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -26,8 +27,9 @@ export const rssSource = defineNode({
   async run(ctx, p) {
     if (!ctx.live) throw new Error("source.rss cannot replay a past date (no point-in-time history); use source.fixture or stored documents");
     // "{tickers}" in a feed URL becomes the watchlist (e.g. Yahoo Finance headline feeds), so it follows watchlist edits.
-    const tickers = ctx.services.watchlist.tickers.map(encodeURIComponent).join(",");
-    const feeds = (p.feeds ?? ctx.services.config.sources).map((f) => ({ ...f, url: f.url.replaceAll("{tickers}", tickers) }));
+    const tickers = watchlistOf(ctx).tickers.map(encodeURIComponent).join(",");
+    const market = marketOf(ctx).id;
+    const feeds = (p.feeds ?? ctx.services.config.sources.filter((f) => !f.market || f.market === market)).map((f) => ({ ...f, url: f.url.replaceAll("{tickers}", tickers) }));
     const docs: Document[] = [];
     let failed = 0;
     const failures: string[] = [];
@@ -98,7 +100,7 @@ export const secFilings = defineNode({
     const ua = s.env[p.userAgentEnv];
     if (!ua) throw new Error(`${p.userAgentEnv} is not set (SEC requires e.g. "stockai you@example.com")`);
     const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
-    const tickers = s.watchlist.tickers;
+    const tickers = watchlistOf(ctx).tickers;
     const needMap = tickers.some((t) => p.ciks[t] === undefined);
     const map = needMap ? await sec.tickerMap() : {};
     const from = ctx.now.getTime() - p.lookbackDays * 86_400_000;
@@ -131,7 +133,7 @@ export const secFilings = defineNode({
           docs.push({
             source: "sec_edgar",
             url: f.url,
-            title: `${s.watchlist.name(t)} (${t}) ${f.form}${items.length ? `: ${items.join("; ")}` : formNote ? `: ${formNote}` : f.description ? `: ${f.description}` : ""}`,
+            title: `${watchlistOf(ctx).name(t)} (${t}) ${f.form}${items.length ? `: ${items.join("; ")}` : formNote ? `: ${formNote}` : f.description ? `: ${f.description}` : ""}`,
             body: [`Form ${f.form} filed ${f.filingDate}`, text].filter(Boolean).join("\n\n"),
             publishedAt: f.acceptedAt,
             fetchedAt: f.acceptedAt,
@@ -171,7 +173,7 @@ export const insiderTrades = defineNode({
   outputs: { insider: { type: "Insider" } },
   async run(ctx, p) {
     const s = ctx.services;
-    const tickers = [...new Set([...s.watchlist.tickers, ...Object.keys(s.heldTickers())])];
+    const tickers = [...new Set([...watchlistOf(ctx).tickers, ...Object.keys(heldOf(ctx))])];
     if (ctx.live) {
       const ua = s.env[p.userAgentEnv];
       if (!ua) {
@@ -243,8 +245,8 @@ export const fundamentalsNode = defineNode({
   outputs: { fundamentals: { type: "Fundamentals" } },
   async run(ctx, p) {
     const s = ctx.services;
-    const benchmark = s.config.market.benchmark;
-    const tickers = (p.universe === "research" ? Object.keys(researchUniverse(ctx)) : [...new Set([...s.watchlist.tickers, ...Object.keys(s.heldTickers())])]).filter((t) => t !== benchmark);
+    const benchmark = benchmarkOf(ctx);
+    const tickers = (p.universe === "research" ? Object.keys(researchUniverse(ctx)) : [...new Set([...watchlistOf(ctx).tickers, ...Object.keys(heldOf(ctx))])]).filter((t) => t !== benchmark);
     if (ctx.live) {
       const ua = s.env[p.userAgentEnv];
       if (!ua) {

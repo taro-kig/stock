@@ -1,3 +1,4 @@
+import { marketOf, riskOf, watchlistOf } from "./scope.ts";
 import { z } from "zod";
 import { proposeRebalance, type Candidate } from "../strategy/portfolio.ts";
 import { defineNode } from "../workflow/registry.ts";
@@ -15,8 +16,8 @@ export const accountNode = defineNode({
   async run(ctx, p, i) {
     const s = ctx.services;
     const name = p.account ?? ctx.workflow;
-    s.paperBook.ensure(name, p.initialCash, s.config.market.currency);
-    const account = s.paperBook.state(name, ctx.asOf, i.prices, s.risk);
+    s.paperBook.ensure(name, p.initialCash, marketOf(ctx).currency);
+    const account = s.paperBook.state(name, ctx.asOf, i.prices, riskOf(ctx));
     ctx.metric("equity", account.equity);
     return { account };
   },
@@ -61,7 +62,7 @@ export const proposeNode = defineNode({
     for (const r of Object.values(i.factors.rows)) {
       if (r.atr === null) continue; // cannot size without volatility
       const e = i.earnings?.[r.ticker];
-      const usd = ctx.services.config.market.currency === "USD";
+      const usd = marketOf(ctx).currency === "USD";
       const minPrice = p.minPrice ?? (usd ? 5 : 100);
       const minValue = p.minTradedValue ?? (usd ? 5_000_000 : 500_000_000);
       const money = (x: number) => (usd ? `$${(x / 1e6).toFixed(1)}M` : `¥${(x / 1e8).toFixed(1)}億`);
@@ -91,11 +92,11 @@ export const proposeNode = defineNode({
         sizeMult,
         thesisBroken: held.filter((t) => js[t]?.stance === "bearish"),
         // held names that left the watchlist are still managed (stops, exits) but never bought again
-        eligible: Object.keys(js).filter((t) => isBuy(t) && t in ctx.services.watchlist.entries),
+        eligible: Object.keys(js).filter((t) => isBuy(t) && t in watchlistOf(ctx).entries),
         // don't churn holdings the decision layer is not negative on (or did not judge)
         keep: held.filter((t) => js[t]?.stance !== "bearish"),
       },
-      ctx.services.risk,
+      riskOf(ctx),
       { topN: p.topN, exitRankMult: p.exitRankMult, timeStopDays: p.timeStopDays },
     );
     ctx.metric("buys", proposals.filter((x) => x.action === "buy").length);

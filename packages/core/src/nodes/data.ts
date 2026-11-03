@@ -1,3 +1,4 @@
+import { benchmarkOf, heldOf, marketOf, watchlistOf } from "./scope.ts";
 import { groupFailures } from "./problems.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -18,8 +19,8 @@ import { defineNode } from "../workflow/registry.ts";
 
 /** Watchlist tickers, anything still held (even if removed from the watchlist) and the benchmark. */
 export function universe(ctx: NodeContext): string[] {
-  const b = ctx.services.config.market.benchmark;
-  return [...new Set([...ctx.services.watchlist.tickers, ...Object.keys(ctx.services.heldTickers()), ...(b ? [b] : [])])];
+  const b = benchmarkOf(ctx);
+  return [...new Set([...watchlistOf(ctx).tickers, ...Object.keys(heldOf(ctx)), ...(b ? [b] : [])])];
 }
 
 /**
@@ -42,7 +43,7 @@ export function researchBuckets(ctx: NodeContext): Record<string, SizeBucket> {
 
 /** Research universe + benchmark + sector ETFs (for the sector factor's history). */
 export function researchTickers(ctx: NodeContext): string[] {
-  const b = ctx.services.config.market.benchmark;
+  const b = benchmarkOf(ctx);
   return [...new Set([...Object.keys(researchUniverse(ctx)), ...(b ? [b] : []), ...Object.values(SECTOR_ETFS)])];
 }
 
@@ -334,12 +335,7 @@ export const twelveDataPrices = defineNode({
   async run(ctx, p) {
     const { prices, counts, failures } = await loadTwelveData(ctx, p.universe === "research" ? researchTickers(ctx) : universe(ctx), p);
     for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
-    if (!Object.keys(prices).length) {
-      const e = noPricesError("Twelve Data", failures);
-      // the usual cause: a US workflow run with the Japanese settings (6758 is not a US symbol)
-      if (ctx.services.config.market.currency !== "USD") e.message += " — this is a US workflow but the settings are for Japanese stocks (market.currency JPY): run a daily-jp-* workflow, or switch config.yaml to the US example";
-      throw e;
-    }
+    if (!Object.keys(prices).length) throw noPricesError("Twelve Data", failures);
     return { prices };
   },
 });
@@ -409,7 +405,7 @@ export const earningsResultsNode = defineNode({
   outputs: { results: { type: "EarningsResults" } },
   async run(ctx, p) {
     const s = ctx.services;
-    const benchmark = s.config.market.benchmark;
+    const benchmark = benchmarkOf(ctx);
     const tickers = universe(ctx).filter((t) => t !== benchmark); // an index ETF has no earnings
     const today = toIsoDate(ctx.wallNow());
     if (ctx.live) {
@@ -467,7 +463,7 @@ export const estimatesNode = defineNode({
   outputs: { estimates: { type: "Estimates" } },
   async run(ctx, p) {
     const s = ctx.services;
-    const benchmark = s.config.market.benchmark;
+    const benchmark = benchmarkOf(ctx);
     const tickers = universe(ctx).filter((t) => t !== benchmark);
     const today = toIsoDate(ctx.wallNow());
     const key = s.env[p.apiKeyEnv];
@@ -534,7 +530,7 @@ export const marketNode = defineNode({
   async run(ctx, p) {
     const s = ctx.services;
     const etfs = sectorEtfs(p.sectorEtfs);
-    const benchmark = s.config.market.benchmark;
+    const benchmark = benchmarkOf(ctx);
     let prices: Prices = {};
     try {
       const r = await loadTwelveData(ctx, [...new Set([...Object.values(etfs), ...(benchmark ? [benchmark] : [])])], { ...p, symbols: {} });

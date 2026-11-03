@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  loadWorkflow, toGraph, toIsoDate, validateWorkflow, workflowMarket, WorkflowSpec,
+  defaultMarketId, loadWorkflow, MARKET_LABEL, type MarketId, toGraph, toIsoDate, validateWorkflow, workflowMarket, WorkflowSpec,
   type AccountState, latestFactorReport as coreLatestFactorReport, type Fill, type Judgment, type NodeRegistry, type NodeRunRow, type OrderTicket, type Proposal, type RunRow, type Scorecard, type Services,
   type UniverseChanges,
 } from "@stockai/core";
@@ -50,14 +50,18 @@ export function workflowInfo(w: WorkflowFile, s: Services, registry: NodeRegistr
   };
 }
 
+/** The market a workflow runs in: from its nodes, else the default market (as the engine decides). */
+export function runMarketOf(spec: WorkflowSpec | null, s: Services, registry: NodeRegistry): MarketId {
+  return (spec ? workflowMarket(Object.values(spec.nodes).map((n) => n.use), registry) : null) ?? defaultMarketId(s.config);
+}
+
 function marketOf(w: WorkflowFile, s: Services, registry: NodeRegistry): Pick<WorkflowInfo, "market" | "marketMismatch"> {
   const market = w.spec ? workflowMarket(Object.values(w.spec.nodes).map((n) => n.use), registry) : null;
-  const config = s.config.market.currency === "USD" ? "us" : "jp";
-  const JA = { us: "米国株", jp: "日本株" } as const;
+  const empty = market && !s.watchlistFor(market).tickers.length && !Object.keys(s.heldTickers(market)).length;
   return {
     market,
-    marketMismatch: market && market !== config
-      ? `${JA[market]}用のワークフローですが、今の設定（config.yaml）は${JA[config]}です。ウォッチリストの銘柄のデータが取れません（${config === "jp" ? "daily-jp-* を使う" : "米国株用のワークフローを使う"}か、設定を${JA[market]}に切り替える）`
+    marketMismatch: empty
+      ? `${MARKET_LABEL[market]}用のワークフローですが、ウォッチリストに${MARKET_LABEL[market]}がありません。「6 銘柄」で${MARKET_LABEL[market]}を追加すると動きます`
       : null,
   };
 }
@@ -171,7 +175,7 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
     }
   }
   const names = Object.fromEntries(Object.keys(s.config.watchlist).map((t) => [t, s.watchlist.name(t)]));
-  return { run: summary(run), currency: s.config.market.currency, description: spec.description, nodes, edges: graph.edges, highlights: h, waiting, names };
+  return { run: summary(run), currency: s.market(runMarketOf(spec, s, registry)).currency, description: spec.description, nodes, edges: graph.edges, highlights: h, waiting, names };
 }
 
 /** Scorecard with the latest as-of date among recent runs (replays of old dates do not win). */
