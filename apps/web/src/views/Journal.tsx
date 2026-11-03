@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { TrackedOrder } from "@stockai/core";
 import type { JournalView } from "../../shared/types.ts";
-import { useApi } from "../api.ts";
+import { get, useApi } from "../api.ts";
 import { Empty, ErrorLine, Pane, Stance } from "../components/ui.tsx";
 import { big, dateTime, num, pct, price, signedPct } from "../format.ts";
 import { TickerLink } from "./StockPage.tsx";
@@ -14,10 +14,13 @@ export function Journal() {
   if (!data) return <Empty>読み込み中</Empty>;
   if (!data.accounts.length && !data.brokerOrders.length) {
     return (
+      <div className="stack">
+      <ReportPane />
       <Pane title="売買日誌">
         <Empty>まだ取引がありません。</Empty>
         <p className="dim">ペーパー売買で約定すると、銘柄ごとに「買った理由 → 売った理由・結果」がここに並びます。確度の画面が「判断」ごとの成績なのに対し、こちらは実際の「取引」ごとの振り返りです。</p>
       </Pane>
+      </div>
     );
   }
   return (
@@ -66,6 +69,7 @@ export function Journal() {
         );
       })}
       {data.brokerOrders.length > 0 && <BrokerOrders orders={data.brokerOrders} />}
+      <ReportPane />
       <p className="faint">取引 = 最初の買いから株数が 0 に戻るまで。損益は手数料込み、保有中は最新の終値での評価。買った理由はその日の AI の判断（同じワークフローの記録）。</p>
     </div>
   );
@@ -106,6 +110,49 @@ function BrokerOrders({ orders }: { orders: TrackedOrder[] }) {
         </tbody>
       </table>
       <p className="faint">結果は次の実行の最初に確認します（注文一覧に残っていれば注文中、消えていれば保有株数の変化から約定・一部約定・約定せずを判断）。同じ銘柄を手やアプリで売買すると推定がずれます。正確な約定はブローカーの画面で確認してください。</p>
+    </Pane>
+  );
+}
+
+/** The report to paste to Claude: the last 7 or 30 days as Markdown (keys and account numbers masked). */
+function ReportPane() {
+  const [days, setDays] = useState<number | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function make(d: number) {
+    setBusy(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const r = await get<{ markdown: string }>(`/api/report?days=${d}`);
+      setText(r.markdown);
+      setDays(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      setError("コピーできませんでした。下の欄を選んでコピーしてください");
+    }
+  }
+  return (
+    <Pane title="レポート" aux={days ? `直近 ${days} 日` : "Claude に貼る用"}>
+      <div className="btn-row">
+        <button className="btn" type="button" disabled={busy} onClick={() => void make(7)}>直近 7 日</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => void make(30)}>直近 30 日</button>
+        {text && <button className="btn primary" type="button" onClick={() => void copy()}>{copied ? "コピーしました" : "コピー"}</button>}
+        <span className="faint">口座・取引・判断・確度・失敗（ログつき）・LLM の費用をまとめます。キー・メール・証券口座の番号は伏せます。<code>task report</code> でも作れます</span>
+      </div>
+      {error && <p className="warn">{error}</p>}
+      {text && <textarea className="input report-text" readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="report" />}
     </Pane>
   );
 }

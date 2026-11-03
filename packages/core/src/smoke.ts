@@ -163,10 +163,15 @@ export function redactText(text: string, secrets: readonly string[], home: strin
     .replace(/(https:\/\/discord(?:app)?\.com\/api\/webhooks\/)\S+/g, "$1***");
 }
 
-function redact(s: Services, steps: SmokeStep[]): SmokeStep[] {
-  const secrets = Object.entries(s.env)
+/** Values of every secret setting / environment variable (keys, tokens, passwords, webhooks). */
+export function secretsOf(s: Services): string[] {
+  return Object.entries(s.env)
     .filter(([k, v]) => v && (KNOWN_SETTINGS.some((d) => d.name === k && d.secret) || /KEY|SECRET|TOKEN|PASSWORD|WEBHOOK/i.test(k)))
     .map(([, v]) => v!);
+}
+
+function redact(s: Services, steps: SmokeStep[]): SmokeStep[] {
+  const secrets = secretsOf(s);
   return steps.map((st) => ({ ...st, lines: st.lines.map((l) => redactText(l, secrets)), ...(st.error ? { error: redactText(st.error, secrets) } : {}) }));
 }
 

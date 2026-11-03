@@ -140,6 +140,11 @@ tasks:
     cmds:
       - "{{.NODE}} packages/core/src/cli/main.ts smoke {{.CLI_ARGS}}"
 
+  report:
+    desc: "直近の様子をレポートにする（Claude に貼る用。キーと口座番号は伏せる。例: task report -- --days 30）"
+    cmds:
+      - "{{.NODE}} packages/core/src/cli/main.ts report {{.CLI_ARGS}}"
+
   backup:
     desc: データベースを今すぐバックアップ
     cmds:

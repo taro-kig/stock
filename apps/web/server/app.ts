@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, JpScreenRequest, screenJpStocks, refreshUsdJpy, defaultMarketId, marketHoliday, marketHolidaysBetween, MARKET_IDS, type MarketId, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, buildReport, JpScreenRequest, screenJpStocks, refreshUsdJpy, defaultMarketId, marketHoliday, marketHolidaysBetween, MARKET_IDS, type MarketId, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, WeightTargets, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
-import { journalView, stockView, todayView } from "./stock.ts";
+import { barsFor, journalView, stockView, todayView } from "./stock.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
@@ -665,6 +665,15 @@ export function createApp(o: AppOptions): App {
     if (req.method === "GET" && path === "/api/factors") return send(res, 200, latestFactorReport(s));
     if (req.method === "GET" && path === "/api/today") return send(res, 200, todayView(s, clock()));
     if (req.method === "GET" && path === "/api/journal") return send(res, 200, journalView(s, registry, clock()));
+    if (req.method === "GET" && path === "/api/report") {
+      const days = Number(url.searchParams.get("days") ?? "7");
+      if (!Number.isInteger(days) || days < 1 || days > 366) throw new HttpError(400, "days: 1〜366");
+      const lastClose = (t: string) => {
+        const b = barsFor(s, registry, t).at(-1);
+        return b ? { close: b.close, date: b.date } : null;
+      };
+      return send(res, 200, { days, markdown: buildReport(s, { days, now: clock(), lastClose }) });
+    }
     if (req.method === "GET" && path === "/api/factors/targets") return send(res, 200, weightTargets());
     if (req.method === "POST" && path === "/api/factors/apply") {
       const body = await readJson(req);

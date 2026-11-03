@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { runSmoke, smokeMarkdown } from "../smoke.ts";
+import { buildReport } from "../report.ts";
 import { parseArgs } from "node:util";
 import type { Judgment } from "../ai/judge.ts";
 import { loadConfig } from "../config.ts";
@@ -54,6 +55,9 @@ Usage:
                                                  end-to-end check with real data on a copy of the database
                                                  (connection check, today's AI workflow, a small screen, a small factor research);
                                                  writes a shareable report (keys masked) to <dataDir>/smoke/
+  stockai report [--days 7]                      what happened over the last days (accounts, trades, judgments, accuracy,
+                                                 failures with log lines, LLM spend) as Markdown on stdout, also saved to
+                                                 <dataDir>/reports/ (keys and broker account numbers masked)
   stockai backup [--list]                        snapshot the database now (the web server also does it daily)
   stockai settings                               API keys and where each comes from (shell / settings / .env)
   stockai settings set NAME                      store a value (read from stdin, not echoed) in <dataDir>/settings.sqlite
@@ -89,6 +93,7 @@ const { values: opt, positionals } = parseArgs({
     list: { type: "boolean", default: false },
     run: { type: "string" },
     skip: { type: "string" },
+    days: { type: "string", default: "7" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -459,6 +464,19 @@ async function main(): Promise<void> {
       for (const st of report.steps) console.log(`${color[st.status](st.status.padEnd(4))}  ${st.name}  ${c.dim(`${(st.ms / 1000).toFixed(1)}s`)}${st.error ? `  ${c.red(st.error)}` : ""}`);
       console.log(`\n報告: ${file}\nこのファイルの中身を貼ってもらえれば、壊れている所をまとめて直せます（キーやメールは伏せてあります）。`);
       if (report.steps.some((x) => x.status === "fail")) process.exitCode = 1;
+      return;
+    }
+    case "report": {
+      const s = services();
+      const days = Number(opt.days);
+      if (!Number.isInteger(days) || days < 1 || days > 366) throw new Error("--days: 1〜366");
+      const md = buildReport(s, { days });
+      const dir = join(s.config.dataDir, "reports");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `report-${new Date().toISOString().slice(0, 10)}-${days}d.md`);
+      writeFileSync(file, md, "utf8");
+      process.stdout.write(md);
+      console.error(c.dim(`\n保存: ${file}（このまま貼って大丈夫ですが、念のため目を通してください）`));
       return;
     }
     case "backup": {

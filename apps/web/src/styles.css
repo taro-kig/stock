@@ -599,3 +599,4 @@ select.input { padding-right: 0.5ch; }
 .sources a { color: var(--info); text-decoration: none; }
 .journal-stats { display: flex; gap: 4ch; flex-wrap: wrap; align-items: end; margin-bottom: calc(var(--lh) * 0.5); }
 .node-logs { max-height: 16em; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.92em; }
+.report-text { width: 100%; min-height: 18em; margin-top: 6px; font-size: 0.9em; white-space: pre; }

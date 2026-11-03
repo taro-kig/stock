@@ -61,3 +61,4 @@ export { defaultMarketId, marketHoliday, marketHolidaysBetween, marketTradingDay
 export { isJpTradingDay, jpHoliday, jpHolidaysBetween, jpMarketHolidays, jpNationalHolidays, jpTradingDays } from "./util/jpCalendar.ts";
 export { convert, latestUsdJpy, refreshUsdJpy, type FxRate } from "./data/fx.ts";
 export { JP_SECTORS17, JP_SEGMENT_JA, JP_SEGMENTS, JP_SIZE_JA, jpListings, jpNamesMatch, JpScreenRequest, jpTicker, parseJpMaster, screenJpStocks, sizeOfScale, verifyJp, type JpListing, type JpSegment } from "./universe/jp.ts";
+export { buildReport, latestScorecardOf, type ReportOptions } from "./report.ts";
