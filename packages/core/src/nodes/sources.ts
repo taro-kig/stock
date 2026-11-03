@@ -225,7 +225,7 @@ export const fundamentalsNode = defineNode({
   params: z.object({
     userAgentEnv: z.string().default("SEC_USER_AGENT"),
     /** Companies downloaded per run (each is one request of a few MB). */
-    maxFetches: z.number().int().min(0).max(300).default(15),
+    maxFetches: z.number().int().min(0).max(600).default(15),
     refreshDays: z.number().int().min(1).max(90).default(7),
     /** watchlist (+ held) · research: the factor-research stocks (raise maxFetches for the first fill). */
     universe: z.enum(["watchlist", "research"]).default("watchlist"),

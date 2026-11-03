@@ -145,7 +145,9 @@ export function Scorecard({ card }: { card: Card | null | undefined }) {
 const ic = (x: number | null) => (x === null ? "—" : `${x >= 0 ? "+" : ""}${x.toFixed(3)}`);
 const tone = (f: FactorStats) => (f.meanIC === null || f.t === null ? "faint" : f.t >= 2 && f.meanIC > 0 ? "up" : f.t <= -2 ? "down" : f.meanIC > 0 ? "" : "dim");
 
-function FactorRow({ f, weight, suggested }: { f: FactorStats; weight?: number | undefined; suggested?: number | undefined }) {
+const BUCKETS = ["large", "mid", "small"] as const;
+
+function FactorRow({ f, weight, suggested, showBuckets }: { f: FactorStats; weight?: number | undefined; suggested?: number | undefined; showBuckets: boolean }) {
   return (
     <tr>
       <td title={f.note}>{f.label} <span className="faint">{f.factor.startsWith("__") ? "" : f.factor}</span></td>
@@ -154,6 +156,7 @@ function FactorRow({ f, weight, suggested }: { f: FactorStats; weight?: number |
       <td className="num">{pct(f.hitRate, 0)}</td>
       <td className="num">{signedPct(f.spread, 2)}</td>
       <td className="num dim">{ic(f.ic5)} / {ic(f.ic60)}</td>
+      {showBuckets && <td className="num dim nowrap">{BUCKETS.map((b) => ic(f.byBucket?.[b]?.meanIC ?? null)).join(" / ")}</td>}
       <td className="num dim">{Math.round(f.coverage)}</td>
       {weight !== undefined || suggested !== undefined ? (
         <>
@@ -178,6 +181,7 @@ function FactorPane() {
     );
   }
   const r = data.report;
+  const showBuckets = r.factors.some((f) => f.byBucket && Object.keys(f.byBucket).length > 1);
   return (
     <Pane title="因子の検証" aux={`${r.from ?? "—"}〜${r.to ?? "—"} · ${r.universe} 銘柄 · ${r.horizon} 営業日先`}>
       <table className="t">
@@ -189,14 +193,15 @@ function FactorPane() {
             <th className="num" title="IC がプラスだった日の割合">IC＞0</th>
             <th className="num" title="因子の上位 1/5 と下位 1/5 の超過リターンの差（平均）">上位−下位</th>
             <th className="num" title="5 営業日先 / 60 営業日先の平均 IC（効き目の続き方）">5日 / 60日</th>
+            {showBuckets && <th className="num" title="規模別の平均 IC（浮動株時価総額: 大型 ≥ $10B / 中型 $2–10B / 小型 $0.3–2B）">大型 / 中型 / 小型</th>}
             <th className="num" title="値のあった銘柄数（平均）">銘柄</th>
             <th className="num">今の重み</th>
             <th className="num" title="測った IC に比例させ、日付が少ないうちは今の重みに寄せた値。自動では変わりません">提案</th>
           </tr>
         </thead>
         <tbody>
-          {r.factors.map((f) => <FactorRow key={f.factor} f={f} weight={r.weights[f.factor]} suggested={r.suggested[f.factor]} />)}
-          {r.composite.map((f) => <FactorRow key={f.factor} f={f} />)}
+          {r.factors.map((f) => <FactorRow key={f.factor} f={f} weight={r.weights[f.factor]} suggested={r.suggested[f.factor]} showBuckets={showBuckets} />)}
+          {r.composite.map((f) => <FactorRow key={f.factor} f={f} showBuckets={showBuckets} />)}
         </tbody>
       </table>
       <p className="dim">

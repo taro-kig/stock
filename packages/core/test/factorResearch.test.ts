@@ -85,6 +85,12 @@ describe("factor research", () => {
     const total = Object.values(w.suggested).reduce((x, y) => x + y, 0);
     expect(total).toBeCloseTo(0.65, 1); // same total as the current weights
     expect(total - (w.suggested["reversal"] ?? 0)).toBeGreaterThan(0.35); // moved to the factors that worked
+    // IC per size bucket when the universe has buckets
+    const bucketed = researchFactors({ asOf: "2026-10-30", prices, universe, benchmark: "SPY", lookbackDays: 500, minStocks: 16,
+      buckets: Object.fromEntries(Object.keys(universe).map((t, i) => [t, i % 2 ? "small" : "large"])) });
+    const mom = bucketed.factors.find((f) => f.factor === "momentum")!;
+    expect(Object.keys(mom.byBucket!).sort()).toEqual(["large", "small"]);
+    expect(mom.byBucket!["small"]!.meanIC!).toBeGreaterThan(0.1);
     // point in time: nothing after the run date is used
     const early = researchFactors({ asOf: "2025-06-30", prices, universe, benchmark: "SPY", lookbackDays: 365 });
     expect(early.to! <= "2025-06-30").toBe(true);

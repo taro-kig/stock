@@ -10,6 +10,8 @@ import { AlphaVantageLimit, fetchEarningsResults, needsResults } from "../data/e
 import { fetchEarningsEstimates, isPremiumAnswer } from "../data/estimates.ts";
 import { computeMarket, DEFAULT_THRESHOLDS, fetchFredSeries, MACRO_IDS, macroSince, SECTOR_ETFS, sectorEtfs } from "../data/market.ts";
 import { RESEARCH_UNIVERSE_US } from "../strategy/researchUniverse.ts";
+import { BUCKET_JA, buildResearchUniverse, SIZE_BUCKETS, type SizeBucket } from "../universe/companies.ts";
+import { SecClient } from "../data/sec.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -19,9 +21,22 @@ export function universe(ctx: NodeContext): string[] {
   return [...new Set([...ctx.services.watchlist.tickers, ...Object.keys(ctx.services.heldTickers()), ...(b ? [b] : [])])];
 }
 
-/** The research universe (factor measurement only): ticker → sector. */
+/**
+ * The research universe (factor measurement only): ticker → sector. config `research.universe`
+ * if set, else the one built from SEC data (data.researchUniverse), else the built-in large caps.
+ */
 export function researchUniverse(ctx: NodeContext): Record<string, string> {
-  return ctx.services.config.research.universe ?? RESEARCH_UNIVERSE_US;
+  const fixed = ctx.services.config.research.universe;
+  if (fixed) return fixed;
+  const built = ctx.services.companies.research().rows;
+  return built.length ? Object.fromEntries(built.map((r) => [r.ticker, r.sector])) : RESEARCH_UNIVERSE_US;
+}
+
+/** Size bucket per research ticker (built universe only; the built-in list is all large caps). */
+export function researchBuckets(ctx: NodeContext): Record<string, SizeBucket> {
+  if (ctx.services.config.research.universe) return {};
+  const built = ctx.services.companies.research().rows;
+  return built.length ? Object.fromEntries(built.map((r) => [r.ticker, r.bucket])) : Object.fromEntries(Object.keys(RESEARCH_UNIVERSE_US).map((t) => [t, "large" as const]));
 }
 
 /** Research universe + benchmark + sector ETFs (for the sector factor's history). */
@@ -503,6 +518,50 @@ export const marketNode = defineNode({
     ctx.metric(`risk_${market.risk}`, 1);
     if (market.risk !== "normal") ctx.log(`risk ${market.risk}: ${market.reasons.join(", ")}`);
     return { market };
+  },
+});
+
+export const researchUniverseNode = defineNode({
+  type: "data.researchUniverse",
+  title: "Research universe (SEC)",
+  category: "data",
+  description:
+    "Builds the stocks used to measure factors from SEC data: NYSE / Nasdaq companies, sized by public float (large ≥ $10B, mid $2–10B, small $0.3–2B; one bulk request), sector from the SIC code, perBucket companies per size in a fixed pseudo-random order. Rebuilt every rebuildDays. config research.universe overrides it. Never fails the run: on errors the previous (or built-in) list is kept.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    userAgentEnv: z.string().default("SEC_USER_AGENT"),
+    perBucket: z.number().int().min(10).max(500).default(120),
+    /** Changes the sample (same seed = same companies). */
+    seed: z.number().int().default(1),
+    rebuildDays: z.number().int().min(1).max(365).default(30),
+  }),
+  inputs: {},
+  outputs: { count: { type: "Count" } },
+  async run(ctx, p) {
+    const s = ctx.services;
+    if (s.config.research.universe) {
+      ctx.log("config research.universe is set: using it");
+      return { count: Object.keys(s.config.research.universe).length };
+    }
+    const today = toIsoDate(ctx.wallNow());
+    const { built, rows } = s.companies.research();
+    const ua = s.env[p.userAgentEnv];
+    if (ctx.live && ua && (!built || built <= addDays(today, -p.rebuildDays) || rows.length < p.perBucket)) {
+      try {
+        const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
+        const fresh = await buildResearchUniverse(s, sec, ctx.wallNow(), { perBucket: p.perBucket, seed: p.seed });
+        if (fresh.length >= 30) {
+          s.companies.saveResearch(fresh, today);
+          ctx.log(`built: ${SIZE_BUCKETS.map((b) => `${BUCKET_JA[b]} ${fresh.filter((r) => r.bucket === b).length}`).join(" / ")}`);
+        } else ctx.log(`only ${fresh.length} companies found: keeping the previous list`);
+      } catch (e) {
+        ctx.log(`could not build the research universe: ${e instanceof Error ? e.message : String(e)} (keeping the previous list)`);
+      }
+    } else if (ctx.live && !ua) ctx.log(`${p.userAgentEnv} is not set: using the built-in large caps`);
+    const n = Object.keys(researchUniverse(ctx)).length;
+    ctx.metric("stocks", n);
+    return { count: n };
   },
 });
 

@@ -1,6 +1,7 @@
 name: factor-research
-description: "因子の検証（AI は使わない）。検証用の大型株 約110銘柄で、各因子が過去に翌月の超過リターンをどれだけ当てたかを測る。初回は株価と財務データの取得に時間がかかる（Twelve Data 8回/分）。"
+description: "因子の検証（AI は使わない）。SEC のデータから選んだ大型・中型・小型 各120社（NYSE / Nasdaq）で、各因子が過去に翌月の超過リターンをどれだけ当てたかを測る。初回は株価（Twelve Data 8回/分で約50分）と財務データの取得に時間がかかる。"
 nodes:
-  prices:     { use: data.pricesTwelveData, params: { universe: research }, ui: { x: 0, y: 0 } }
-  financials: { use: data.fundamentals, params: { universe: research, maxFetches: 120 }, onError: skip, ui: { x: 0, y: 140 } }
-  factors:    { use: eval.factors, in: { prices: prices, fundamentals: financials }, ui: { x: 300, y: 60 } }
+  universe:   { use: data.researchUniverse, ui: { x: 0, y: 70 } }
+  prices:     { use: data.pricesTwelveData, params: { universe: research }, after: [universe], ui: { x: 260, y: 0 } }
+  financials: { use: data.fundamentals, params: { universe: research, maxFetches: 400, refreshDays: 28 }, onError: skip, after: [universe], ui: { x: 260, y: 140 } }
+  factors:    { use: eval.factors, in: { prices: prices, fundamentals: financials }, ui: { x: 520, y: 70 } }

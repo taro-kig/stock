@@ -36,6 +36,8 @@ export interface FactorStats {
   spread: number | null;
   ic5: number | null;
   ic60: number | null;
+  /** Mean IC within each size bucket (large / mid / small), when the universe has buckets. */
+  byBucket?: Record<string, { meanIC: number | null; dates: number }>;
 }
 
 export interface FactorReport {
@@ -115,6 +117,8 @@ export interface ResearchInput {
   lookbackDays?: number;
   /** Fewest stocks with a value for a date to count. */
   minStocks?: number;
+  /** Ticker → size bucket, for IC per bucket. */
+  buckets?: Record<string, string>;
 }
 
 export function researchFactors(r: ResearchInput): FactorReport {
@@ -196,7 +200,17 @@ export function researchFactors(r: ResearchInput): FactorReport {
     const ic5: number[] = [];
     const ic60: number[] = [];
     const icByDate: Array<number | null> = [];
+    const bucketNames = [...new Set(Object.values(r.buckets ?? {}))];
+    const perBucket = new Map<string, number[]>(bucketNames.map((b) => [b, []]));
     for (const day of daily) {
+      const xb = day.cols[factor];
+      if (xb && r.buckets) {
+        for (const b of bucketNames) {
+          const keep = (o: Record<string, number | null>) => Object.fromEntries(Object.entries(o).filter(([t]) => r.buckets![t] === b));
+          const v = spearman(keep(xb), keep(day.fwd[horizon]!), Math.max(8, Math.floor(minStocks / 2)));
+          if (v !== null) perBucket.get(b)!.push(v);
+        }
+      }
       const x = day.cols[factor];
       if (!x) {
         icByDate.push(null);
@@ -223,6 +237,7 @@ export function researchFactors(r: ResearchInput): FactorReport {
       meanIC: avg(ics), hitRate: ics.length ? ics.filter((v) => v > 0).length / ics.length : null,
       nEff: indep.length, t: m !== null && sd ? (m / sd) * Math.sqrt(indep.length) : null,
       spread: avg(spreads), ic5: avg(ic5), ic60: avg(ic60),
+      ...(bucketNames.length > 1 ? { byBucket: Object.fromEntries([...perBucket].map(([b, xs]) => [b, { meanIC: avg(xs), dates: xs.length }])) } : {}),
     };
   };
 

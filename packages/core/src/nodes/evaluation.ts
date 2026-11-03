@@ -3,7 +3,7 @@ import { buildScorecard } from "../eval/scorecard.ts";
 import { SECTOR_ETFS } from "../data/market.ts";
 import { researchFactors } from "../strategy/factorResearch.ts";
 import { defineNode } from "../workflow/registry.ts";
-import { researchUniverse } from "./data.ts";
+import { researchBuckets, researchUniverse } from "./data.ts";
 
 export const recordPredictions = defineNode({
   type: "eval.record",
@@ -89,6 +89,7 @@ export const factorResearchNode = defineNode({
       : undefined;
     const report = researchFactors({
       asOf: ctx.asOf, prices: i.prices, universe, benchmark: s.config.market.benchmark, sectorEtfs: SECTOR_ETFS, facts,
+      ...(p.universe === "research" ? { buckets: researchBuckets(ctx) } : {}),
       ...(p.weights ? { weights: p.weights } : {}), horizon: p.horizon, step: p.step, lookbackDays: p.lookbackDays, minStocks: p.minStocks,
     });
     ctx.metric("dates", report.factors[0]?.dates ?? 0);

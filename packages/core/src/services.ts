@@ -20,6 +20,7 @@ import { EarningsResultStore } from "./data/earningsResults.ts";
 import { FundamentalsStore } from "./data/fundamentals.ts";
 import { EstimateStore } from "./data/estimates.ts";
 import { MacroStore } from "./data/market.ts";
+import { CompanyStore } from "./universe/companies.ts";
 import { PriceStore } from "./data/priceStore.ts";
 import { PromptRegistry } from "./prompts/registry.ts";
 import { PromptStore } from "./prompts/store.ts";
@@ -82,6 +83,7 @@ export class Services {
   #fundamentals?: FundamentalsStore;
   #estimates?: EstimateStore;
   #macro?: MacroStore;
+  #companies?: CompanyStore;
   #configHash?: string | undefined;
   /** Built providers by pool name. */
   readonly #models = new Map<string, LLMProvider>();
@@ -171,6 +173,11 @@ export class Services {
   }
 
   /** SEC Form 4 insider trades (point-in-time by filing time). */
+  /** Listed companies, sizes, sectors and the research universe (SEC). */
+  get companies(): CompanyStore {
+    return (this.#companies ??= new CompanyStore(this));
+  }
+
   get macro(): MacroStore {
     return (this.#macro ??= new MacroStore(this.db));
   }
