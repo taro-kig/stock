@@ -58,7 +58,8 @@ export interface ScreenCandidate {
 
 export interface ScreenResult {
   asOf: IsoDate;
-  request: z.output<typeof ScreenRequest>;
+  /** The request as understood (US: ScreenRequest, Japan: JpScreenRequest). */
+  request: Record<string, unknown>;
   candidates: ScreenCandidate[];
   /** How many passed each step (for the reviewer). */
   funnel: Array<{ step: string; count: number }>;

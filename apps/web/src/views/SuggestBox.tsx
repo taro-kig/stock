@@ -37,18 +37,25 @@ export interface NewRow {
 /** Two ways to find stocks: from the data (any size) or by asking the AI for a theme. */
 export function SuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast: Toast }) {
   const [mode, setMode] = useState<"data" | "ai">("data");
+  const [market, setMarket] = useState<"us" | "jp">("us");
   return (
     <>
-      <div className="seg" role="radiogroup" aria-label="探し方" style={{ marginTop: "calc(var(--lh) * 0.75)" }}>
-        <button type="button" role="radio" aria-checked={mode === "data"} className={mode === "data" ? "on" : ""} onClick={() => setMode("data")}>データで探す</button>
-        <button type="button" role="radio" aria-checked={mode === "ai"} className={mode === "ai" ? "on" : ""} onClick={() => setMode("ai")}>テーマで AI に聞く</button>
+      <div className="btn-row" style={{ marginTop: "calc(var(--lh) * 0.75)" }}>
+        <div className="seg" role="radiogroup" aria-label="探し方">
+          <button type="button" role="radio" aria-checked={mode === "data"} className={mode === "data" ? "on" : ""} onClick={() => setMode("data")}>データで探す</button>
+          <button type="button" role="radio" aria-checked={mode === "ai"} className={mode === "ai" ? "on" : ""} onClick={() => setMode("ai")}>テーマで AI に聞く</button>
+        </div>
+        <div className="seg" role="radiogroup" aria-label="市場">
+          <button type="button" role="radio" aria-checked={market === "us"} className={market === "us" ? "on" : ""} onClick={() => setMarket("us")}>米国株</button>
+          <button type="button" role="radio" aria-checked={market === "jp"} className={market === "jp" ? "on" : ""} onClick={() => setMarket("jp")}>日本株</button>
+        </div>
       </div>
-      {mode === "data" ? <ScreenBox onAdd={onAdd} toast={toast} /> : <AiSuggestBox onAdd={onAdd} toast={toast} />}
+      {mode === "data" ? <ScreenBox key={market} market={market} onAdd={onAdd} toast={toast} /> : <AiSuggestBox key={market} market={market} onAdd={onAdd} toast={toast} />}
     </>
   );
 }
 
-function AiSuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast: Toast }) {
+function AiSuggestBox({ onAdd, toast, market }: { onAdd: (rows: NewRow[]) => void; toast: Toast; market: "us" | "jp" }) {
   const [theme, setTheme] = useState("");
   const [count, setCount] = useState(10);
   const [size, setSize] = useState("any");
@@ -60,7 +67,7 @@ function AiSuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast
     if (theme.trim().length < 2 || busy) return;
     setBusy(true);
     try {
-      const r = await post<SuggestResult>("/api/universe/suggest", { theme, count, size });
+      const r = await post<SuggestResult>("/api/universe/suggest", { theme, count, size, market });
       setResult(r);
       setPicked(new Set(r.candidates.filter((c) => c.status === "ok").map((c) => c.ticker)));
     } catch (e) {
@@ -90,7 +97,7 @@ function AiSuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast
 
   return (
     <div className="suggest">
-      <div className="label">AI に銘柄を探してもらう <span className="faint">（テーマを選ぶか書く → 候補を確認して追加）</span></div>
+      <div className="label">AI に銘柄を探してもらう <span className="faint">（テーマを選ぶか書く → 候補を確認して追加。{market === "jp" ? "東証の銘柄を J-Quants の上場銘柄一覧で確認" : "NYSE / Nasdaq の銘柄を SEC のリストで確認"}）</span></div>
       <div className="chips">
         {PRESETS.map(([label, text]) => (
           <button key={label} type="button" className={`chip ${theme === text ? "on" : ""}`} onClick={() => setTheme(text)}>{label}</button>
@@ -109,9 +116,9 @@ function AiSuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast
         </select>
         <select className="input" value={size} onChange={(e) => setSize(e.target.value)} aria-label="size">
           <option value="any">規模: 指定なし</option>
-          <option value="large">大型（$10B〜）</option>
-          <option value="mid">中型（$2B〜10B）</option>
-          <option value="small">小型（$300M〜2B）</option>
+          <option value="large">{market === "jp" ? "大型（Core30・Large70）" : "大型（$10B〜）"}</option>
+          <option value="mid">{market === "jp" ? "中型（Mid400）" : "中型（$2B〜10B）"}</option>
+          <option value="small">{market === "jp" ? "小型" : "小型（$300M〜2B）"}</option>
         </select>
         <button className="btn primary" type="submit" disabled={busy || theme.trim().length < 2}>{busy ? "探しています…" : "探す"}</button>
       </form>
@@ -119,7 +126,7 @@ function AiSuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast
         <div className="suggest-result">
           {result.verificationError && <p className="warn">{result.verificationError}</p>}
           <table className="t">
-            <thead><tr><th /><th>ティッカー</th><th>名前</th><th>セクター</th><th>理由</th><th>確認</th></tr></thead>
+            <thead><tr><th /><th>{market === "jp" ? "コード" : "ティッカー"}</th><th>名前</th><th>セクター</th><th>理由</th><th>確認</th></tr></thead>
             <tbody>
               {result.candidates.map((c) => (
                 <tr key={c.ticker} className={c.status === "rejected" ? "disabled-row" : ""}>

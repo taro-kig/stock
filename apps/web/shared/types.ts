@@ -116,6 +116,8 @@ export interface Overview {
   workflows: WorkflowInfo[];
   recent: RunSummary[];
   equity: EquitySeries[];
+  /** All accounts in one currency (set when there are both yen and dollar accounts). */
+  combined: { jpy: number | null; usd: number | null; rate: number | null; rateDate: string | null; accounts: number; note: string | null } | null;
   scorecard: Scorecard | null;
   cost: { spentToday: number; dailyLimit: number; byProvider: Array<{ provider: string; calls: number; costUsd: number }> };
   schedule: ScheduleItem[];
@@ -235,7 +237,7 @@ export interface CalendarView {
   /** Today in the server's local time zone. */
   today: string;
   market: "us" | "jp";
-  holidays: Array<{ date: string; name: string }>;
+  holidays: Array<{ date: string; name: string; market?: "us" | "jp" }>;
   earnings: Array<{ date: string; ticker: string; name: string; time: string | null; estimate: number | null; held: boolean; daysAway: number }>;
   /** Upcoming automatic runs, by local date. */
   schedule: Array<{ date: string; at: string; workflow: string; skipped: string | null }>;

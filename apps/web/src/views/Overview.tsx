@@ -91,7 +91,20 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
           {data.equity.length === 0 ? (
             <Empty>口座の記録はまだありません。</Empty>
           ) : (
-            data.equity.map((e, i) => {
+            <>
+            {data.combined && (
+              <div style={{ marginBottom: "calc(var(--lh) * 0.5)" }}>
+                <div className="nowrap"><span className="fg2">合計</span> <span className="faint">· {data.combined.accounts} 口座（円とドルの口座を換算）</span></div>
+                {data.combined.jpy !== null && data.combined.usd !== null ? (
+                  <>
+                    <div className="h1">{money(data.combined.jpy, "JPY")} <span className="dim" style={{ fontSize: "0.6em" }}>/ {money(data.combined.usd, "USD")}</span></div>
+                    <div className="faint">USD/JPY {data.combined.rate?.toFixed(2)}（{data.combined.rateDate}）で換算。為替の動きも損益に入る</div>
+                  </>
+                ) : <div className="faint">{data.combined.note}</div>}
+                <hr className="rule" />
+              </div>
+            )}
+            {data.equity.map((e, i) => {
               const vals = e.points.map((p) => p[1]);
               const last = vals.at(-1) ?? 0;
               const first = vals[0] ?? last;
@@ -116,7 +129,8 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
                   </div>
                 </div>
               );
-            })
+            })}
+            </>
           )}
         </Pane>
 

@@ -1,11 +1,11 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  defaultMarketId, loadWorkflow, MARKET_LABEL, type MarketId, toGraph, toIsoDate, validateWorkflow, workflowMarket, WorkflowSpec,
+  convert, defaultMarketId, latestUsdJpy, loadWorkflow, MARKET_LABEL, type MarketId, toGraph, toIsoDate, validateWorkflow, workflowMarket, WorkflowSpec,
   type AccountState, latestFactorReport as coreLatestFactorReport, type Fill, type Judgment, type NodeRegistry, type NodeRunRow, type OrderTicket, type Proposal, type RunRow, type Scorecard, type Services,
   type UniverseChanges,
 } from "@stockai/core";
-import type { EquitySeries, Highlights, NodeView, RunDetail, RunSummary, WaitingGate, WorkflowInfo } from "../shared/types.ts";
+import type { EquitySeries, Highlights, NodeView, Overview, RunDetail, RunSummary, WaitingGate, WorkflowInfo } from "../shared/types.ts";
 
 const OK = new Set(["ok", "cached", "fallback"]);
 
@@ -202,8 +202,21 @@ export const latestFactorReport = (s: Services) => coreLatestFactorReport(s);
 export function equitySeries(s: Services): EquitySeries[] {
   return [
     ...s.paperBook.equityHistory().map((e) => ({ account: e.account, kind: "paper" as const, currency: e.currency, points: e.points })),
-    ...s.brokerLedger.equityHistory().map((e) => ({ account: e.account, kind: "broker" as const, currency: null, points: e.points })),
+    ...s.brokerLedger.equityHistory().map((e) => ({ account: e.account, kind: "broker" as const, currency: e.currency, points: e.points })),
   ];
+}
+
+/**
+ * Every account's latest equity added up in yen and in dollars at the latest USD/JPY rate
+ * (null with a single currency: nothing to convert).
+ */
+export function combinedEquity(s: Services, series: EquitySeries[]): Overview["combined"] {
+  const latest = series.map((e) => ({ account: e.account, currency: e.currency, value: e.points.at(-1)?.[1] })).filter((e): e is { account: string; currency: string; value: number } => e.value !== undefined && (e.currency === "USD" || e.currency === "JPY"));
+  if (new Set(latest.map((e) => e.currency)).size < 2) return null;
+  const fx = latestUsdJpy(s);
+  if (!fx) return { jpy: null, usd: null, rate: null, rateDate: null, accounts: latest.length, note: "為替レートがまだ無い（TWELVEDATA_API_KEY か FRED_API_KEY があれば、サーバーが1日1回取得する）" };
+  const jpy = latest.reduce((sum, e) => sum + convert(e.value, e.currency as "USD" | "JPY", "JPY", fx.rate), 0);
+  return { jpy, usd: jpy / fx.rate, rate: fx.rate, rateDate: fx.date, accounts: latest.length, note: null };
 }
 
 export function ranToday(s: Services, workflow: string, clock: () => Date): RunSummary | null {

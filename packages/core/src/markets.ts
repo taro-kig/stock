@@ -1,4 +1,7 @@
 import { z } from "zod";
+import type { IsoDate } from "./util/dates.ts";
+import { jpHoliday, jpHolidaysBetween, jpTradingDays } from "./util/jpCalendar.ts";
+import { US_HOLIDAY_JA, usHoliday, usHolidaysBetween, usTradingDays } from "./util/marketCalendar.ts";
 
 /**
  * Markets the system can watch side by side. Each has its own currency, benchmark, lot size,
@@ -73,4 +76,20 @@ export function marketProfile(c: MarketSource, id: MarketId): MarketProfile {
 
 export function marketProfiles(c: MarketSource): Record<MarketId, MarketProfile> {
   return { us: marketProfile(c, "us"), jp: marketProfile(c, "jp") };
+}
+
+/** The exchange holiday on a weekday (Japanese name), or null: NYSE for us, TSE for jp. */
+export function marketHoliday(id: MarketId, date: IsoDate): string | null {
+  if (id === "jp") return jpHoliday(date);
+  const h = usHoliday(date);
+  return h ? (US_HOLIDAY_JA[h] ?? h) : null;
+}
+
+/** Trading days of the market in [from, to], every `step`-th one. */
+export function marketTradingDays(id: MarketId, from: IsoDate, to: IsoDate, step = 1): IsoDate[] {
+  return id === "jp" ? jpTradingDays(from, to, step) : usTradingDays(from, to, step);
+}
+
+export function marketHolidaysBetween(id: MarketId, from: IsoDate, to: IsoDate): Array<{ date: IsoDate; name: string }> {
+  return id === "jp" ? jpHolidaysBetween(from, to) : usHolidaysBetween(from, to).map((h) => ({ date: h.date, name: h.nameJa }));
 }

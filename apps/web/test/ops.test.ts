@@ -239,7 +239,7 @@ describe("calendar", () => {
       schedule: Array<{ date: string; workflow: string; skipped: string | null }>; market: string;
     };
     expect(c.market).toBe("us");
-    expect(c.holidays).toEqual([{ date: "2026-11-26", name: "感謝祭" }, { date: "2026-12-25", name: "クリスマス" }]);
+    expect(c.holidays).toEqual([{ date: "2026-11-26", name: "感謝祭", market: "us" }, { date: "2026-12-25", name: "クリスマス", market: "us" }]);
     expect(c.earnings).toEqual([expect.objectContaining({ ticker: "NVDA", time: "post-market", daysAway: 5 })]); // ZZZZ is not watched
     expect(c.schedule.some((x) => x.workflow === "workflows/daily-ai.yaml" || x.workflow === "daily-ai")).toBe(true);
     expect((await fetch(`${base}/api/calendar?from=2026-01-01&to=2026-12-31`)).status).toBe(400);
@@ -493,5 +493,39 @@ describe("workflows for the other market", () => {
     expect(by["daily-rules"]!.marketMismatch).toContain("ウォッチリストに米国株がありません");
     expect(by["daily-jp-rules"]).toMatchObject({ market: "jp", marketMismatch: null });
     expect(by["demo-ai"]).toMatchObject({ market: null, marketMismatch: null });
+  });
+});
+
+describe("both markets on one screen", () => {
+  it("adds yen and dollar accounts up at the latest USD/JPY, and the calendar shows both exchanges' holidays", async () => {
+    const { call, services } = await start();
+    services.updateWatchlist({ ...services.config.watchlist, AAPL: { name: "Apple", aliases: [], sector: "tech" } });
+    services.paperBook.ensure("jp-acct", 1_000_000, "JPY");
+    services.paperBook.ensure("us-acct", 10_000, "USD");
+    services.paperBook.state("jp-acct", "2026-11-02", {}, services.risk);
+    services.paperBook.state("us-acct", "2026-11-02", {}, services.risk);
+    let ov = (await call<{ combined: { jpy: number | null; note: string | null } | null }>("GET", "/api/overview")).body;
+    expect(ov.combined).toMatchObject({ jpy: null, note: expect.stringMatching(/為替レート/) });
+    services.priceStore.upsert("fx", "USDJPY", [{ date: "2026-10-30", open: 150, high: 150, low: 150, close: 150, volume: 0 }]);
+    ov = (await call<{ combined: { jpy: number; usd: number; rate: number; accounts: number } }>("GET", "/api/overview")).body as never;
+    expect(ov.combined).toMatchObject({ jpy: 2_500_000, usd: 2_500_000 / 150, rate: 150, accounts: 2 });
+    const c = (await call<{ holidays: Array<{ date: string; name: string; market: string }> }>("GET", "/api/calendar?from=2026-11-01&to=2026-11-30")).body;
+    expect(c.holidays).toEqual([
+      { date: "2026-11-03", name: "日: 文化の日", market: "jp" },
+      { date: "2026-11-23", name: "日: 勤労感謝の日", market: "jp" },
+      { date: "2026-11-26", name: "米: 感謝祭", market: "us" },
+    ]);
+  });
+
+  it("the scheduler skips TSE holidays for Japanese workflows only", async () => {
+    const { Scheduler: S } = await import("../server/scheduler.ts");
+    const fired: string[] = [];
+    const sch = new S([{ workflow: "jp", file: "jp.yaml", at: "16:30", days: [1, 2, 3, 4, 5] }, { workflow: "us", file: "us.yaml", at: "16:30", days: [1, 2, 3, 4, 5] }], {
+      trigger: (f) => fired.push(f), ranToday: () => null,
+      holiday: (d, w) => (w === "jp" ? (d === "2026-11-03" ? "文化の日" : null) : null),
+      clock: () => new Date("2026-11-03T16:45:00"),
+    });
+    sch.tick();
+    expect(fired).toEqual(["us.yaml"]);
   });
 });

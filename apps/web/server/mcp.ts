@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { jpListings, marketOfTicker, screenJpStocks, verifyJp } from "@stockai/core";
 import {
   additionDates, applyWatchlistPatch, parseWorkflow, SECTORS, SecClient, secListings, validateWorkflow, verify, watchlistHistory, WorkflowError,
   latestFactorReport, screenStocks, type NodeRegistry, type Services,
@@ -199,17 +200,23 @@ export function buildMcpServer(o: McpOptions): McpServer {
   server.registerTool(
     "verify_tickers",
     {
-      title: "Verify tickers (SEC)",
+      title: "Verify tickers (SEC / J-Quants)",
       description:
-        "Checks US tickers against the SEC's current list of listed companies: exists, listed on NYSE/Nasdaq, and the company name matches. Use it before proposing or adding stocks. Needs SEC_USER_AGENT on the server.",
+        "Checks tickers against the official lists: US tickers against the SEC's listed companies (exists, NYSE/Nasdaq, name matches; needs SEC_USER_AGENT), Japanese 4-character codes (7203, 130A) against the J-Quants TSE listing (exists, Prime/Standard/Growth, name matches; needs JQUANTS_API_KEY). Use it before proposing or adding stocks.",
       inputSchema: { candidates: z.array(z.object({ ticker: z.string(), name: z.string().describe("company name as commonly written") })).min(1).max(40) },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
     guard(async ({ candidates }: { candidates: Array<{ ticker: string; name: string }> }) => {
-      const listings = await listingsOrThrow();
+      const isJp = (t: string) => marketOfTicker(t.trim().toUpperCase()) === "jp";
+      const us = candidates.some((c) => !isJp(c.ticker)) ? await listingsOrThrow() : null;
+      const jp = candidates.some((c) => isJp(c.ticker)) ? await jpListings(s) : null;
       return candidates.map((c) => {
-        const v = verify({ ticker: c.ticker, name: c.name, aliases: [], sector: "tech", reason: "" }, listings, new Set());
-        return { ticker: v.ticker, ok: v.status === "ok", problem: v.problem, official: v.listing, inWatchlist: v.ticker in s.config.watchlist };
+        if (isJp(c.ticker)) {
+          const v = verifyJp(c.ticker, c.name, jp, new Set());
+          return { ticker: v.ticker, market: "jp", ok: v.status === "ok", problem: v.problem, official: v.listing, inWatchlist: v.ticker in s.config.watchlist };
+        }
+        const v = verify({ ticker: c.ticker, name: c.name, aliases: [], sector: "tech", reason: "" }, us, new Set());
+        return { ticker: v.ticker, market: "us", ok: v.status === "ok", problem: v.problem, official: v.listing, inWatchlist: v.ticker in s.config.watchlist };
       });
     }),
   );
@@ -217,20 +224,25 @@ export function buildMcpServer(o: McpOptions): McpServer {
   server.registerTool(
     "screen_stocks",
     {
-      title: "Screen stocks from data (SEC + prices)",
+      title: "Screen stocks from data (SEC / J-Quants + prices)",
       description:
-        "Finds NYSE/Nasdaq stocks from data rather than memory, any size including small caps: public float size, last year's revenue growth and operating margin for every SEC filer, then sector, filings and prices for a short list; liquidity and price checks; ranked with the scoring factors (weights from the latest factor research when available). Returns candidates with the numbers behind each. Takes a few minutes (price downloads are rate-limited). Use update_watchlist only after the user picked.",
+        "market jp: Japanese stocks from the J-Quants TSE listing (segment prime/standard/growth, TOPIX size, TOPIX-17 sector) ranked on price factors after liquidity checks (needs JQUANTS_API_KEY). Default market us: finds NYSE/Nasdaq stocks from data rather than memory, any size including small caps: public float size, last year's revenue growth and operating margin for every SEC filer, then sector, filings and prices for a short list; liquidity and price checks; ranked with the scoring factors (weights from the latest factor research when available). Returns candidates with the numbers behind each. Takes a few minutes (price downloads are rate-limited). Use update_watchlist only after the user picked.",
       inputSchema: {
+        market: z.enum(["us", "jp"]).optional().describe("default us"),
+        segments: z.array(z.enum(["prime", "standard", "growth"])).optional().describe("jp only; default prime + standard"),
         sizes: z.array(z.enum(["large", "mid", "small"])).min(1).optional().describe("default mid + small"),
-        sectors: z.array(z.string()).optional().describe("tech, semis, communication, consumer, staples, healthcare, financials, energy, industrials, materials, utilities, real_estate; empty = all"),
+        sectors: z.array(z.string()).optional().describe("us: tech, semis, communication, consumer, staples, healthcare, financials, energy, industrials, materials, utilities, real_estate · jp: TOPIX-17 names (自動車・輸送機, 電機・精密, …); empty = all"),
         count: z.number().int().min(1).max(25).optional(),
         minRevenueGrowth: z.number().optional().describe("fraction, 0.1 = +10%"),
         minOperatingMargin: z.number().optional().describe("fraction"),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
-    guard(async (args: Record<string, unknown>) => {
-      const r = await screenStocks(s, Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) as never, { report: latestFactorReport(s)?.report ?? null });
+    guard(async ({ market, segments, ...args }: Record<string, unknown>) => {
+      const clean = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+      const r = market === "jp"
+        ? await screenJpStocks(s, clean({ segments, sizes: args["sizes"], sectors: args["sectors"], count: args["count"] }) as never)
+        : await screenStocks(s, clean(args) as never, { report: latestFactorReport(s)?.report ?? null });
       return { funnel: r.funnel, weightsFrom: r.weightsFrom, notes: r.notes, candidates: r.candidates.map((c) => ({ ticker: c.ticker, name: c.name, sector: c.sector, size: c.bucket, reason: c.reason, inWatchlist: c.ticker in s.config.watchlist })) };
     }),
   );
@@ -336,7 +348,7 @@ export function buildMcpServer(o: McpOptions): McpServer {
     {
       title: "Update watchlist",
       description:
-        "Adds (or updates) and removes watchlist stocks, writing config.yaml (comments kept, previous version in .bak) and applying at once. Every added ticker must pass the SEC check, otherwise nothing is changed. Removing a held stock stops new buys only; its stops and exits keep working. Confirm the list with the user before calling.",
+        "Adds (or updates) and removes watchlist stocks, writing config.yaml (comments kept, previous version in .bak) and applying at once. US and Japanese stocks can be mixed (4-character codes such as 7203 are Japanese). Every added ticker must pass the SEC check (US) or the J-Quants listing check (Japan), otherwise nothing is changed. Removing a held stock stops new buys only; its stops and exits keep working. Confirm the list with the user before calling.",
       inputSchema: {
         add: z.array(z.object({
           ticker: z.string(),
@@ -353,9 +365,11 @@ export function buildMcpServer(o: McpOptions): McpServer {
     guard(async (a: { add: Array<{ ticker: string; name: string; aliases: string[]; sector: string; reason: string }>; remove: Array<{ ticker: string; reason: string }>; note?: string | undefined }) => {
       if (!a.add.length && !a.remove.length) throw new Error("nothing to change");
       if (a.add.length) {
-        const listings = await listingsOrThrow();
+        const isJp = (t: string) => marketOfTicker(t.trim().toUpperCase()) === "jp";
+        const us = a.add.some((x) => !isJp(x.ticker)) ? await listingsOrThrow() : null;
+        const jp = a.add.some((x) => isJp(x.ticker)) ? await jpListings(s) : null;
         const bad = a.add
-          .map((x) => verify({ ...x, sector: x.sector as (typeof SECTORS)[number] }, listings, new Set()))
+          .map((x) => (isJp(x.ticker) ? verifyJp(x.ticker, x.name, jp, new Set()) : verify({ ...x, sector: x.sector as (typeof SECTORS)[number] }, us, new Set())))
           .filter((v) => v.status !== "ok");
         if (bad.length) throw new Error(`not changed: ${bad.map((v) => `${v.ticker}: ${v.problem}`).join("; ")}`);
       }

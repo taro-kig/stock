@@ -57,4 +57,7 @@ export { setWorkflowParam } from "./workflow/editFile.ts";
 export { buildTrades, summarize as summarizeTrades, type JournalSummary, type Trade } from "./eval/journal.ts";
 export { trackOrders, type OrderState, type OrderUpdate } from "./execution/tracking.ts";
 export type { TrackedOrder } from "./execution/ledger.ts";
-export { defaultMarketId, MARKET_IDS, MARKET_LABEL, MarketConfig, MarketsConfig, marketOfTicker, marketProfile, marketProfiles, type MarketId, type MarketProfile } from "./markets.ts";
+export { defaultMarketId, marketHoliday, marketHolidaysBetween, marketTradingDays, MARKET_IDS, MARKET_LABEL, MarketConfig, MarketsConfig, marketOfTicker, marketProfile, marketProfiles, type MarketId, type MarketProfile } from "./markets.ts";
+export { isJpTradingDay, jpHoliday, jpHolidaysBetween, jpMarketHolidays, jpNationalHolidays, jpTradingDays } from "./util/jpCalendar.ts";
+export { convert, latestUsdJpy, refreshUsdJpy, type FxRate } from "./data/fx.ts";
+export { JP_SECTORS17, JP_SEGMENT_JA, JP_SEGMENTS, JP_SIZE_JA, jpListings, jpNamesMatch, JpScreenRequest, jpTicker, parseJpMaster, screenJpStocks, sizeOfScale, verifyJp, type JpListing, type JpSegment } from "./universe/jp.ts";

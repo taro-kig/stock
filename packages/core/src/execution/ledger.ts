@@ -61,6 +61,8 @@ export class BrokerLedger {
     for (const [c, t] of [["pos_before", "REAL"], ["avg_before", "REAL"], ["state", "TEXT"], ["filled_shares", "REAL"], ["fill_price", "REAL"], ["track_note", "TEXT"], ["checked_at", "TEXT"], ["estimated", "INT"]] as const) {
       if (!cols.some((x) => x.name === c)) db.exec(`ALTER TABLE broker_orders ADD COLUMN ${c} ${t}`);
     }
+    // v4: the account's currency next to its equity (US and Japanese accounts are shown together)
+    if (!(db.prepare("PRAGMA table_info(broker_equity)").all() as Array<{ name: string }>).some((c) => c.name === "currency")) db.exec("ALTER TABLE broker_equity ADD COLUMN currency TEXT");
   }
 
   /** Orders sent in the last `days` days whose outcome is not known yet. */
@@ -128,16 +130,21 @@ export class BrokerLedger {
     return out;
   }
 
-  equityHistory(): Array<{ account: string; points: Array<[IsoDate, number]> }> {
-    const rows = this.#db.prepare("SELECT account, as_of, equity FROM broker_equity ORDER BY account, as_of").all() as Array<{ account: string; as_of: string; equity: number }>;
-    const out = new Map<string, Array<[IsoDate, number]>>();
-    for (const r of rows) out.set(r.account, [...(out.get(r.account) ?? []), [r.as_of, r.equity]]);
-    return [...out.entries()].map(([account, points]) => ({ account, points }));
+  equityHistory(): Array<{ account: string; currency: string | null; points: Array<[IsoDate, number]> }> {
+    const rows = this.#db.prepare("SELECT account, as_of, equity, currency FROM broker_equity ORDER BY account, as_of").all() as Array<{ account: string; as_of: string; equity: number; currency: string | null }>;
+    const out = new Map<string, { currency: string | null; points: Array<[IsoDate, number]> }>();
+    for (const r of rows) {
+      const e = out.get(r.account) ?? { currency: null, points: [] };
+      e.points.push([r.as_of, r.equity]);
+      if (r.currency) e.currency = r.currency;
+      out.set(r.account, e);
+    }
+    return [...out.entries()].map(([account, e]) => ({ account, currency: e.currency, points: e.points }));
   }
 
   /** Records equity and returns the running peak (for the drawdown kill switch). */
-  recordEquity(account: string, asOf: IsoDate, equity: number): number {
-    this.#db.prepare("INSERT OR REPLACE INTO broker_equity VALUES (?,?,?)").run(account, asOf, equity);
+  recordEquity(account: string, asOf: IsoDate, equity: number, currency: string | null = null): number {
+    this.#db.prepare("INSERT OR REPLACE INTO broker_equity (account, as_of, equity, currency) VALUES (?,?,?,?)").run(account, asOf, equity, currency);
     const r = this.#db.prepare("SELECT MAX(equity) AS m FROM broker_equity WHERE account = ? AND as_of <= ?").get(account, asOf) as { m: number };
     return Math.max(r.m, equity);
   }

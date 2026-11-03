@@ -65,11 +65,18 @@ const SAMPLE_UNIVERSE = [
   ["LIN", "Linde", "materials"], ["HD", "Home Depot", "consumer"], ["PG", "Procter & Gamble", "staples"],
 ] as const;
 
+const SAMPLE_UNIVERSE_JP = [
+  ["8035", "東京エレクトロン", "semis"], ["6758", "ソニーグループ", "tech"], ["6861", "キーエンス", "tech"], ["7203", "トヨタ自動車", "consumer"],
+  ["6501", "日立製作所", "industrials"], ["4063", "信越化学工業", "materials"], ["8306", "三菱UFJフィナンシャル・グループ", "financials"],
+  ["9984", "ソフトバンクグループ", "communication"],
+] as const;
+
 function suggest(user: string): string {
   const exclude = new Set((user.match(/^除外: (.*)$/m)?.[1] ?? "").split(",").map((t) => t.trim()));
   const n = Number(user.match(/^候補数: (\d+)$/m)?.[1] ?? 10);
   const theme = user.match(/^テーマ: (.*)$/m)?.[1] ?? "";
-  const candidates = SAMPLE_UNIVERSE.filter(([t]) => !exclude.has(t))
+  const sample = user.includes("# 銘柄探し（日本株") ? SAMPLE_UNIVERSE_JP : SAMPLE_UNIVERSE;
+  const candidates = sample.filter(([t]) => !exclude.has(t))
     .slice(0, n)
     .map(([ticker, name, sector]) => ({ ticker, name, aliases: [], sector, reason: `（疑似モデルの固定サンプル）${theme}` }));
   return JSON.stringify({ candidates });

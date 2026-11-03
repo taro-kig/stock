@@ -74,7 +74,7 @@ function accountNode(type: string, kind: BrokerKind, title: string, description:
           }
         }
         const positions = s.brokerLedger.reconcile(a.accountId, ctx.asOf, a.positions, (t) => lastClose(i.prices, t, ctx.asOf), (t) => watchlistOf(ctx).sector(t));
-        const peakEquity = s.brokerLedger.recordEquity(a.accountId, ctx.asOf, a.netLiquidation);
+        const peakEquity = s.brokerLedger.recordEquity(a.accountId, ctx.asOf, a.netLiquidation, a.currency);
         const account: AccountState = {
           account: a.accountId, asOf: ctx.asOf, currency: a.currency, cash: a.cash, equity: a.netLiquidation, peakEquity,
           mode: tradingMode(a.netLiquidation, peakEquity, riskOf(ctx)), positions,

@@ -36,6 +36,7 @@ const BUILTIN_NOTES: Record<string, string> = {
   "redteam-v1": "重大な理由を資料から探す",
   "redteam-v2": "確認する観点の一覧と重大度の基準",
   "universe-v1": "テーマに合う NYSE / Nasdaq の米国株を理由つきで挙げる",
+  "universe-jp-v1": "テーマに合う東証（プライム・スタンダード・グロース）の日本株を理由つきで挙げる",
 };
 
 export interface PromptInfo {

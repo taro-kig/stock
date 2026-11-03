@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, defaultMarketId, MARKET_IDS, type MarketId, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, JpScreenRequest, screenJpStocks, refreshUsdJpy, defaultMarketId, marketHoliday, marketHolidaysBetween, MARKET_IDS, type MarketId, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, WeightTargets, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { journalView, stockView, todayView } from "./stock.ts";
@@ -10,7 +10,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
-import { discoverWorkflows, equitySeries, latestFactorReport, latestScorecard, ranToday, runDetail, runMarketOf, summary, workflowInfo, type WorkflowFile } from "./views.ts";
+import { combinedEquity, discoverWorkflows, equitySeries, latestFactorReport, latestScorecard, ranToday, runDetail, runMarketOf, summary, workflowInfo, type WorkflowFile } from "./views.ts";
 
 export interface AppOptions {
   services: Services;
@@ -143,6 +143,27 @@ export function createApp(o: AppOptions): App {
     }
   }
 
+  /** The market a workflow (by name) runs in. */
+  function marketOfWorkflow(name?: string): MarketId {
+    const w = name ? workflows().find((x) => x.name === name) : undefined;
+    return runMarketOf(w?.spec ?? null, s, registry);
+  }
+
+  /** USD/JPY once a day, only while accounts or stocks of both markets exist (1 Twelve Data credit, or FRED). */
+  let fxBusy = false;
+  function fxTick(): void {
+    if (s.fake || fxBusy || s.activeMarkets().length < 2) return;
+    fxBusy = true;
+    refreshUsdJpy(s, clock())
+      .then((r) => {
+        if (r.status === "updated") console.log(`fx: ${r.detail}`);
+      })
+      .catch((e: unknown) => console.error(`fx: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => {
+        fxBusy = false;
+      });
+  }
+
   function backupNow(): BackupFile {
     return runBackup(s.config, s.db, s.settings, clock());
   }
@@ -195,11 +216,8 @@ export function createApp(o: AppOptions): App {
     },
     ranToday: (w) => ranToday(s, w, clock),
     isDisabled: (w) => s.runStore.disabled(w) !== null,
-    // US workflows: no runs on exchange holidays (weekday closures; weekends are handled by `days`)
-    holiday: (d: string, workflow?: string) => {
-      const w = workflow ? workflows().find((x) => x.name === workflow) : undefined;
-      return runMarketOf(w?.spec ?? null, s, registry) === "us" ? usHoliday(d) : null;
-    },
+    // no runs on the workflow market's exchange holidays (NYSE / TSE; weekends are handled by `days`)
+    holiday: (d: string, workflow?: string) => marketHoliday(marketOfWorkflow(workflow), d),
     clock,
   });
 
@@ -223,7 +241,11 @@ export function createApp(o: AppOptions): App {
   let backupTimer: NodeJS.Timeout | undefined;
   if (o.schedule) {
     backupTick();
-    backupTimer = setInterval(backupTick, 10 * 60_000);
+    fxTick();
+    backupTimer = setInterval(() => {
+      backupTick();
+      fxTick();
+    }, 10 * 60_000);
     backupTimer.unref();
     scheduler.start();
     sweeper = setInterval(() => sweepWaiting(), 10 * 60_000);
@@ -278,14 +300,15 @@ export function createApp(o: AppOptions): App {
         const [hh, mm] = e.at.split(":").map(Number) as [number, number];
         const fire = new Date(y, m - 1, dd, hh, mm, 0, 0);
         if (!e.days.includes(fire.getDay()) || fire < now) continue;
-        const h = us && e.skipHolidays !== false ? usHoliday(fire.toISOString().slice(0, 10)) : null;
+        const h = e.skipHolidays !== false ? marketHoliday(marketOfWorkflow(e.workflow), fire.toISOString().slice(0, 10)) : null;
         const off = s.runStore.disabled(e.workflow);
-        schedule.push({ date: d, at: e.at, workflow: e.workflow, skipped: off ? "無効" : h ? `休場（${US_HOLIDAY_JA[h] ?? h}）` : null });
+        schedule.push({ date: d, at: e.at, workflow: e.workflow, skipped: off ? "無効" : h ? `休場（${h}）` : null });
       }
     }
     return {
       from, to, today, market: us ? "us" : "jp",
-      holidays: us ? usHolidaysBetween(from, to).map((h) => ({ date: h.date, name: h.nameJa })) : [],
+      // every market in use; with both, each name says whose holiday it is
+      holidays: s.activeMarkets().flatMap((m) => marketHolidaysBetween(m, from, to).map((h) => ({ date: h.date, name: s.activeMarkets().length > 1 ? `${m === "us" ? "米" : "日"}: ${h.name}` : h.name, market: m }))),
       earnings: us
         ? s.earnings.between(tickers, from, to).map((e) => ({
             date: e.reportDate, ticker: e.ticker, name: names(e.ticker), time: e.time, estimate: e.estimate, held: e.ticker in held,
@@ -510,6 +533,7 @@ export function createApp(o: AppOptions): App {
       workflows: workflows().map((w) => workflowInfo(w, s, registry)),
       recent: runs.slice(0, 12).map(summary),
       equity: equitySeries(s),
+      combined: combinedEquity(s, equitySeries(s)),
       scorecard: latestScorecard(s),
       cost: { spentToday: budget.spentToday(), dailyLimit: budget.dailyLimitUsd, byProvider: budget.summaryToday().map((p) => ({ provider: p.provider, calls: p.calls, costUsd: p.costUsd })) },
       schedule: scheduler.status(),
@@ -789,11 +813,15 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "POST" && path === "/api/universe/screen") {
       if (screening) throw new HttpError(409, "別の銘柄探しを実行中です");
-      const parsed = ScreenRequest.safeParse(await readJson(req));
+      const { market, ...body } = await readJson(req);
+      const jp = market === "jp";
+      const parsed = jp ? JpScreenRequest.safeParse(body) : ScreenRequest.safeParse(body);
       if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
       screening = true;
       try {
-        return send(res, 200, await screenStocks(s, parsed.data, { now: clock(), report: latestFactorReport(s)?.report ?? null }));
+        return send(res, 200, jp
+          ? await screenJpStocks(s, parsed.data as JpScreenRequest, { now: clock() })
+          : await screenStocks(s, parsed.data as ScreenRequest, { now: clock(), report: latestFactorReport(s)?.report ?? null }));
       } catch (e) {
         throw new HttpError(400, e instanceof Error ? e.message : String(e));
       } finally {
@@ -802,7 +830,7 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "POST" && path === "/api/universe/suggest") {
       const body = await readJson(req);
-      const parsed = SuggestRequest.safeParse({ theme: body["theme"], count: body["count"], size: body["size"] });
+      const parsed = SuggestRequest.safeParse({ theme: body["theme"], count: body["count"], size: body["size"], market: body["market"] });
       if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
       try {
         return send(res, 200, await suggestTickers(s, parsed.data, clock()));

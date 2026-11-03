@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SecClient } from "../data/sec.ts";
 import type { LLMProvider } from "../llm/types.ts";
 import type { Services } from "../services.ts";
+import { jpListings, verifyJp, type JpListing } from "./jp.ts";
 
 /**
  * "Find me stocks for this theme": an LLM proposes US tickers, and every proposal is
@@ -21,6 +22,8 @@ export const SuggestRequest = z.strictObject({
   theme: z.string().trim().min(2).max(200),
   count: z.number().int().min(3).max(25).default(10),
   size: z.enum(SIZES).default("any"),
+  /** us: NYSE / Nasdaq, checked with the SEC list · jp: TSE, checked with the J-Quants listing. */
+  market: z.enum(["us", "jp"]).default("us"),
 });
 export type SuggestRequest = z.input<typeof SuggestRequest>;
 
@@ -51,6 +54,29 @@ export const UNIVERSE_V1_SYSTEM = `あなたは米国株に詳しいアナリス
 - 規模の希望: large = 時価総額 $10B 以上 / mid = $2B〜$10B / small = $300M〜$2B / any = 指定なし。`;
 UNIVERSE_PROMPTS["universe-v1"] = { system: UNIVERSE_V1_SYSTEM };
 
+export const UNIVERSE_JP_V1_SYSTEM = `あなたは日本株に詳しいアナリストの補助として、テーマに合う銘柄の候補を挙げる。売買の推奨ではなく、観察対象（ウォッチリスト）の候補選び。
+規則:
+- 東京証券取引所のプライム・スタンダード・グロース市場に上場している日本の事業会社の普通株だけ（ETF・REIT・インフラファンド・TOKYO PRO Market は除く）。
+- ticker は 4 文字の証券コード（例 7203、6758、130A）。自信がない会社は挙げない。合併・上場廃止・社名変更・持株会社化があった会社は最新の状態で。
+- 1日の売買代金が十分ある（流動性が高い）銘柄を優先。
+- 「除外」に挙がっているコードは出さない。
+- name はニュースの見出しで使われる通称（「株式会社」は付けない。例 トヨタ、ソニーグループ）。aliases には英語名や略称（例 Toyota, Sony）。reason は日本語で、テーマとの関係を具体的に1文。
+- sector は最も近いものを選ぶ。
+- 規模の希望: large = TOPIX Core30・Large70 / mid = TOPIX Mid400 / small = それより小さい / any = 指定なし。`;
+UNIVERSE_PROMPTS["universe-jp-v1"] = { system: UNIVERSE_JP_V1_SYSTEM };
+
+const SuggestionJp = z.object({
+  candidates: z
+    .array(z.object({
+      ticker: z.string().describe("東証の 4 文字の証券コード（例 7203, 130A）"),
+      name: z.string().describe("ニュースで使われる通称（例 トヨタ, ソニーグループ）"),
+      aliases: z.array(z.string()).max(4).default([]).describe("英語名・略称（任意）"),
+      sector: z.enum(SECTORS),
+      reason: z.string().max(200).describe("テーマとの関係を日本語で1文"),
+    }))
+    .max(40),
+});
+
 export interface Listing {
   ticker: string;
   cik: number;
@@ -76,8 +102,8 @@ export interface SuggestResult {
   theme: string;
   model: string;
   candidates: Candidate[];
-  /** SEC check skipped (no SEC_USER_AGENT / unreachable): nothing is "ok". */
-  verification: "sec" | "unavailable";
+  /** The listing used for the check; unavailable (no key / unreachable): nothing is "ok". */
+  verification: "sec" | "jquants" | "unavailable";
   verificationError: string | null;
 }
 
@@ -147,6 +173,7 @@ export function verify(c: Omit<Candidate, "status" | "problem" | "listing">, lis
 export async function suggestTickers(s: Services, req: SuggestRequest, now: Date = new Date(), promptVersion?: string, model?: string): Promise<SuggestResult> {
   // finds US stocks (verified against SEC listings); they join the US part of the watchlist whatever the default market is
   const r = SuggestRequest.parse(req);
+  if (r.market === "jp") return suggestJp(s, r, now, promptVersion, model);
   const bench = s.market("us").benchmark;
   const exclude = new Set([...s.watchlist.tickers, ...(bench ? [bench] : [])].map(normTicker));
   const p: LLMProvider = s.universeModel(model);
@@ -185,9 +212,44 @@ export async function suggestTickers(s: Services, req: SuggestRequest, now: Date
   return { theme: r.theme, model: p.model, candidates: [...ok, ...rejected], verification: listings ? "sec" : "unavailable", verificationError };
 }
 
-function sectorCounts(s: Services): Record<string, number> {
+/** Japanese stocks: same flow, TSE codes checked against the J-Quants listing. */
+async function suggestJp(s: Services, r: z.output<typeof SuggestRequest>, now: Date, promptVersion?: string, model?: string): Promise<SuggestResult> {
+  const bench = s.market("jp").benchmark;
+  const exclude = new Set([...s.watchlist.tickers, ...(bench ? [bench] : [])]);
+  const p: LLMProvider = s.universeModel(model);
+  const want = Math.min(40, Math.ceil(r.count * 1.5));
+  const user =
+    `# 銘柄探し（日本株・東証）\nテーマ: ${r.theme}\n規模の希望: ${r.size}\n候補数: ${want}\n` +
+    `除外: ${[...exclude].filter((t) => /^\d{3}[0-9A-Z]$/.test(t)).sort().join(", ") || "なし"}\n参考: 今のウォッチリスト（日本株）のセクター構成 ${JSON.stringify(sectorCounts(s, "jp"))}`;
+  const prompt = s.prompts.universe(promptVersion?.startsWith("universe-jp") ? promptVersion : "universe-jp-v1");
+  const out = await s.caller.call(p, SuggestionJp, { schemaName: "UniverseSuggestionJp", system: prompt.system, user, promptVersion: prompt.version });
+  if (!out.value) throw new Error(`model gave no usable answer: ${out.error ?? "unknown"}`);
+  let listings: Map<string, JpListing> | null = null;
+  let verificationError: string | null = null;
+  try {
+    listings = await jpListings(s, now);
+  } catch (e) {
+    verificationError = e instanceof Error ? e.message : String(e);
+  }
+  const seen = new Set<string>();
+  const candidates: Candidate[] = [];
+  for (const c of out.value.candidates) {
+    const v = verifyJp(c.ticker, c.name.trim(), listings, exclude);
+    if (seen.has(v.ticker)) continue;
+    seen.add(v.ticker);
+    candidates.push({
+      ticker: v.ticker, name: c.name.trim(), aliases: c.aliases.map((a) => a.trim()).filter(Boolean), sector: c.sector, reason: c.reason.trim(),
+      status: v.status, problem: v.problem, listing: v.listing ? { ticker: v.ticker, cik: 0, name: v.listing.name, exchange: `東証${v.listing.segmentName}` } : null,
+    });
+  }
+  const ok = candidates.filter((c) => c.status !== "rejected").slice(0, r.count);
+  const rejected = candidates.filter((c) => c.status === "rejected");
+  return { theme: r.theme, model: p.model, candidates: [...ok, ...rejected], verification: listings ? "jquants" : "unavailable", verificationError };
+}
+
+function sectorCounts(s: Services, market: "us" | "jp" = "us"): Record<string, number> {
   const out: Record<string, number> = {};
-  const w = s.watchlistFor("us");
+  const w = s.watchlistFor(market);
   for (const t of w.tickers) out[w.sector(t)] = (out[w.sector(t)] ?? 0) + 1;
   return out;
 }
