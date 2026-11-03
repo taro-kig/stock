@@ -236,6 +236,9 @@ npm run stockai -- settings clear GEMINI_API_KEY
 
 CLI でも同じ: `npm run stockai -- doctor`（`--run workflows/daily-rules.yaml` で試運転まで）
 
+**通し確認（`task smoke`）**: 接続チェック → 今日の AI ワークフロー → データでの銘柄探し（少数）→ 因子の検証（各規模5社）を本物のデータで1回ずつ走らせ、結果を `data/smoke/report-….md` に書く。データベースはコピーを使うので、実際の判断・承認・口座の記録は変わらない（LLM と API の利用は本物なので少し費用がかかる）。報告ではキー・トークン・メールアドレス・ホームフォルダを伏せてあるので、そのまま共有できる。重い段階は `task smoke -- --skip research` などで省ける
+
+
 ## 使い方 (CLI)
 
 ```bash

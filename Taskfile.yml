@@ -135,6 +135,11 @@ tasks:
     cmds:
       - "{{.NODE}} packages/core/src/cli/main.ts doctor {{.CLI_ARGS}}"
 
+  smoke:
+    desc: "本物のデータで通し確認して報告を書く（DB はコピーを使う。例: task smoke -- --skip research）"
+    cmds:
+      - "{{.NODE}} packages/core/src/cli/main.ts smoke {{.CLI_ARGS}}"
+
   backup:
     desc: データベースを今すぐバックアップ
     cmds:

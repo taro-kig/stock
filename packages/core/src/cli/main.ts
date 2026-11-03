@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
+import { runSmoke, smokeMarkdown } from "../smoke.ts";
 import { parseArgs } from "node:util";
 import type { Judgment } from "../ai/judge.ts";
 import { loadConfig } from "../config.ts";
@@ -47,6 +48,10 @@ Usage:
   stockai webull check                           read-only: accounts, cash, positions
   stockai doctor [--run WORKFLOW]                connection check: one small real request per service (keys, data, LLM, notify);
                                                  --run also runs that workflow for today and shows its nodes
+  stockai smoke [--workflow PATH] [--skip workflow,screen,research]
+                                                 end-to-end check with real data on a copy of the database
+                                                 (connection check, today's AI workflow, a small screen, a small factor research);
+                                                 writes a shareable report (keys masked) to <dataDir>/smoke/
   stockai backup [--list]                        snapshot the database now (the web server also does it daily)
   stockai settings                               API keys and where each comes from (shell / settings / .env)
   stockai settings set NAME                      store a value (read from stdin, not echoed) in <dataDir>/settings.sqlite
@@ -81,6 +86,7 @@ const { values: opt, positionals } = parseArgs({
     budget: { type: "string", default: "0.5" },
     list: { type: "boolean", default: false },
     run: { type: "string" },
+    skip: { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -427,6 +433,30 @@ async function main(): Promise<void> {
         console.log(nodeTable(Object.values(r.nodes)));
       }
       if (bad) process.exitCode = 1;
+      return;
+    }
+    case "smoke": {
+      // Run against a copy of the database: real records (judgments, approvals, paper account) stay untouched.
+      const base = services();
+      const dir = join(base.config.dataDir, "smoke");
+      mkdirSync(dir, { recursive: true });
+      const copy = join(dir, "stockai.sqlite");
+      for (const f of [copy, `${copy}-wal`, `${copy}-shm`]) if (existsSync(f)) unlinkSync(f);
+      if (existsSync(base.dbPath)) base.db.prepare("VACUUM INTO ?").run(copy);
+      const s = new Services(base.config, { fake: opt.fake, settings: base.settings, configPath: base.configPath, dbPath: copy });
+      const skip = new Set((opt.skip ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+      console.error(c.dim("通し確認を始めます（本物のデータで少しずつ。DB はコピーを使うので実際の記録は変わりません）"));
+      const report = await runSmoke(s, {
+        workflow: opt.workflow, skipWorkflow: skip.has("workflow"), skipScreen: skip.has("screen"), skipResearch: skip.has("research"),
+        log: (m) => console.error(c.dim(m)),
+      });
+      const stamp = report.at.slice(0, 16).replace(/[-:T]/g, "");
+      const file = join(dir, `report-${stamp}.md`);
+      writeFileSync(file, smokeMarkdown(report), "utf8");
+      const color = { ok: c.green, warn: c.yellow, fail: c.red, skip: c.dim };
+      for (const st of report.steps) console.log(`${color[st.status](st.status.padEnd(4))}  ${st.name}  ${c.dim(`${(st.ms / 1000).toFixed(1)}s`)}${st.error ? `  ${c.red(st.error)}` : ""}`);
+      console.log(`\n報告: ${file}\nこのファイルの中身を貼ってもらえれば、壊れている所をまとめて直せます（キーやメールは伏せてあります）。`);
+      if (report.steps.some((x) => x.status === "fail")) process.exitCode = 1;
       return;
     }
     case "backup": {
