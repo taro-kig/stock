@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
 import { Scheduler } from "./scheduler.ts";
-import { discoverWorkflows, equitySeries, latestScorecard, ranToday, runDetail, summary, workflowInfo, type WorkflowFile } from "./views.ts";
+import { discoverWorkflows, equitySeries, latestFactorReport, latestScorecard, ranToday, runDetail, summary, workflowInfo, type WorkflowFile } from "./views.ts";
 
 export interface AppOptions {
   services: Services;
@@ -579,6 +579,7 @@ export function createApp(o: AppOptions): App {
         .then(() => notifier.runSettled(runId));
       return send(res, 202, { ok: true });
     }
+    if (req.method === "GET" && path === "/api/factors") return send(res, 200, latestFactorReport(s));
     if (req.method === "GET" && path === "/api/models") {
       return send(res, 200, {
         pool: s.config.models?.pool ?? [], ...modelUsage(), pricing: s.config.pricing, fallbackPrice: [...FALLBACK_PRICE_PER_M],

@@ -7,6 +7,7 @@ import { accessionPath, SEC_ITEMS, SecClient, type Filing } from "../data/sec.ts
 import { addDays, toIsoDate } from "../util/dates.ts";
 import { fetchFeed } from "../signals/rss.ts";
 import { defineNode } from "../workflow/registry.ts";
+import { researchUniverse } from "./data.ts";
 
 export const rssSource = defineNode({
   type: "source.rss",
@@ -224,15 +225,17 @@ export const fundamentalsNode = defineNode({
   params: z.object({
     userAgentEnv: z.string().default("SEC_USER_AGENT"),
     /** Companies downloaded per run (each is one request of a few MB). */
-    maxFetches: z.number().int().min(0).max(100).default(15),
+    maxFetches: z.number().int().min(0).max(300).default(15),
     refreshDays: z.number().int().min(1).max(90).default(7),
+    /** watchlist (+ held) · research: the factor-research stocks (raise maxFetches for the first fill). */
+    universe: z.enum(["watchlist", "research"]).default("watchlist"),
   }),
   inputs: {},
   outputs: { fundamentals: { type: "Fundamentals" } },
   async run(ctx, p) {
     const s = ctx.services;
     const benchmark = s.config.market.benchmark;
-    const tickers = [...new Set([...s.watchlist.tickers, ...Object.keys(s.heldTickers())])].filter((t) => t !== benchmark);
+    const tickers = (p.universe === "research" ? Object.keys(researchUniverse(ctx)) : [...new Set([...s.watchlist.tickers, ...Object.keys(s.heldTickers())])]).filter((t) => t !== benchmark);
     if (ctx.live) {
       const ua = s.env[p.userAgentEnv];
       if (!ua) {

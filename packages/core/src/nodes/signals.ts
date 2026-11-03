@@ -1,6 +1,5 @@
-import { revisionScore } from "../data/estimates.ts";
+import { factorColumns } from "../strategy/factorLib.ts";
 import { z } from "zod";
-import { insiderScore } from "../data/insider.ts";
 import { eventScores } from "../signals/aggregate.ts";
 import type { EventRecord } from "../signals/models.ts";
 import { computeFactors } from "../strategy/factors.ts";
@@ -75,29 +74,31 @@ export const scoreNode = defineNode({
   type: "signal.score",
   title: "Composite score",
   category: "signal",
-  description: "Weighted, clipped z-scores of factors (and event scores, insider buying and SEC financials — quality = operating margin, growth = revenue growth — if connected).",
-  version: 4,
+  description:
+    "Weighted, clipped z-scores of factors: price factors always; event scores, insider buying, SEC financials (quality, growth, SUE), estimate revisions and sector strength when connected. high52 / sue / lowvol / reversal start at weight 0 — measure them with eval.factors first. Optional rank-based and sector-neutral normalization.",
+  version: 5, // v5: shared factor library, normalization options
   cache: "inputs",
-  params: z.object({ weights: z.record(z.string(), z.number()).default(DEFAULT_WEIGHTS) }),
-  inputs: { factors: { type: "Factors" }, events: { type: "Scores", optional: true }, insider: { type: "Insider", optional: true }, fundamentals: { type: "Fundamentals", optional: true }, estimates: { type: "Estimates", optional: true }, market: { type: "Market", optional: true } },
+  params: z.object({
+    weights: z.record(z.string(), z.number()).default(DEFAULT_WEIGHTS),
+    /** z = z-scores of the values · rank = z-scores of the ranks (robust to outliers). */
+    normalize: z.enum(["z", "rank"]).default("z"),
+    /** Compare each stock with its own sector (sectors with fewer than 3 stocks use the whole list). */
+    sectorNeutral: z.boolean().default(false),
+  }),
+  inputs: {
+    factors: { type: "Factors" },
+    events: { type: "Scores", optional: true },
+    insider: { type: "Insider", optional: true },
+    fundamentals: { type: "Fundamentals", optional: true },
+    estimates: { type: "Estimates", optional: true },
+    market: { type: "Market", optional: true },
+  },
   outputs: { scores: { type: "Scores" } },
-  async run(_ctx, p, i) {
+  async run(ctx, p, i) {
     const rows = Object.values(i.factors.rows);
-    const col = (f: (r: (typeof rows)[number]) => number | null) => Object.fromEntries(rows.map((r) => [r.ticker, f(r)]));
-    const factors: Record<string, Record<string, number | null>> = {
-      momentum: col((r) => r.momentum),
-      relStrength: col((r) => r.relStrength),
-    };
-    if (i.events) factors["event"] = col((r) => i.events?.[r.ticker] ?? 0);
-    // an empty map means "not available" (no SEC_USER_AGENT): leave the factor out rather than score everyone 0
-    if (i.insider && Object.keys(i.insider).length) factors["insider"] = col((r) => insiderScore(i.insider?.[r.ticker]));
-    if (i.fundamentals && Object.keys(i.fundamentals).length) {
-      factors["quality"] = col((r) => i.fundamentals?.[r.ticker]?.operatingMargin ?? null);
-      factors["growth"] = col((r) => i.fundamentals?.[r.ticker]?.revenueTtmYoY ?? null);
-    }
-    // only when some ticker has a usable 30-day change (our own record needs a month to build up)
-    if (i.estimates && Object.values(i.estimates).some((rs) => revisionScore(rs) !== null)) factors["revision"] = col((r) => revisionScore(i.estimates?.[r.ticker]));
-    if (i.market && Object.keys(i.market.sectors).length) factors["sector"] = col((r) => i.market?.sectors[r.sector]?.rel60 ?? null);
-    return { scores: compositeScore(factors, rows.map((r) => r.ticker), p.weights) };
+    const cols = factorColumns({ asOf: ctx.asOf, rows, events: i.events, insider: i.insider, fundamentals: i.fundamentals, estimates: i.estimates, market: i.market });
+    const sectorOf = p.sectorNeutral ? Object.fromEntries(rows.map((r) => [r.ticker, r.sector])) : undefined;
+    return { scores: compositeScore(cols, rows.map((r) => r.ticker), p.weights, { method: p.normalize, sectorOf }) };
   },
 });
+

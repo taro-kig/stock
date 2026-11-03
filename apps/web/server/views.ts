@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   loadWorkflow, toGraph, toIsoDate, validateWorkflow, WorkflowSpec,
-  type AccountState, type Fill, type Judgment, type NodeRegistry, type NodeRunRow, type OrderTicket, type Proposal, type RunRow, type Scorecard, type Services,
+  type AccountState, type FactorReport, type Fill, type Judgment, type NodeRegistry, type NodeRunRow, type OrderTicket, type Proposal, type RunRow, type Scorecard, type Services,
   type UniverseChanges,
 } from "@stockai/core";
 import type { EquitySeries, Highlights, NodeView, RunDetail, RunSummary, WaitingGate, WorkflowInfo } from "../shared/types.ts";
@@ -171,6 +171,22 @@ export function latestScorecard(s: Services): Scorecard | null {
     }
   }
   return best;
+}
+
+/** The newest factor research report (eval.factors), with the run it came from. */
+export function latestFactorReport(s: Services): { report: FactorReport; runId: string; workflow: string } | null {
+  for (const run of s.runStore.listRuns(300)) {
+    const spec = WorkflowSpec.safeParse(JSON.parse(run.specJson));
+    if (!spec.success) continue;
+    const ids = Object.entries(spec.data.nodes).filter(([, c]) => c.use === "eval.factors").map(([id]) => id);
+    if (!ids.length) continue;
+    const rows = s.runStore.nodeRuns(run.runId);
+    for (const id of ids) {
+      const report = artifact<FactorReport>(s, rows.find((r) => r.nodeId === id), "report");
+      if (report) return { report, runId: run.runId, workflow: run.workflow };
+    }
+  }
+  return null;
 }
 
 export function equitySeries(s: Services): EquitySeries[] {

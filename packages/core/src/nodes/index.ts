@@ -2,7 +2,7 @@ import { NodeRegistry } from "../workflow/registry.ts";
 import { paperBroker } from "./broker.ts";
 import { csvPrices, earningsCalendar, earningsResultsNode, estimatesNode, marketNode, jquantsPrices, stooqPrices, syntheticPrices, twelveDataPrices } from "./data.ts";
 import { aiDecide, rulesDecide } from "./decide.ts";
-import { recordPredictions, scorecardNode } from "./evaluation.ts";
+import { recordPredictions, scorecardNode, factorResearchNode } from "./evaluation.ts";
 import { checkEventsNode, dedupNode, mergeDocs, watchlistFilter } from "./filters.ts";
 import { approvalGate } from "./gate.ts";
 import { ibkrAccount, ibkrBroker, webullAccount, webullBroker } from "./brokers.ts";
@@ -23,7 +23,7 @@ export function builtinRegistry(): NodeRegistry {
     accountNode, ibkrAccount, webullAccount, proposeNode,
     approvalGate,
     paperBroker, ibkrBroker, webullBroker,
-    recordPredictions, scorecardNode,
+    recordPredictions, scorecardNode, factorResearchNode,
     universeReview, universeApply,
   );
 }

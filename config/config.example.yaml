@@ -113,3 +113,5 @@ schedule:
   - { workflow: workflows/daily-ai.yaml, at: "06:45", days: [2, 3, 4, 5, 6] }
   # Watchlist review: runs every Saturday, proposes at most every 28 days, waits for approval.
   - { workflow: workflows/universe-review.yaml, at: "10:10", days: [6] }
+  # Factor research (no LLM): how well each scoring factor predicted, on ~110 large US stocks. Results: 4 確度 → 因子の検証.
+  - { workflow: workflows/factor-research.yaml, at: "11:20", days: [6] }

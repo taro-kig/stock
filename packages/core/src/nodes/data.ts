@@ -8,7 +8,8 @@ import { addDays, toIsoDate, weekdays, type IsoDate } from "../util/dates.ts";
 import { fetchEarningsCalendar } from "../data/earnings.ts";
 import { AlphaVantageLimit, fetchEarningsResults, needsResults } from "../data/earningsResults.ts";
 import { fetchEarningsEstimates, isPremiumAnswer } from "../data/estimates.ts";
-import { computeMarket, DEFAULT_THRESHOLDS, fetchFredSeries, MACRO_IDS, macroSince, sectorEtfs } from "../data/market.ts";
+import { computeMarket, DEFAULT_THRESHOLDS, fetchFredSeries, MACRO_IDS, macroSince, SECTOR_ETFS, sectorEtfs } from "../data/market.ts";
+import { RESEARCH_UNIVERSE_US } from "../strategy/researchUniverse.ts";
 import type { NodeContext } from "../workflow/context.ts";
 import { defineNode } from "../workflow/registry.ts";
 
@@ -16,6 +17,17 @@ import { defineNode } from "../workflow/registry.ts";
 export function universe(ctx: NodeContext): string[] {
   const b = ctx.services.config.market.benchmark;
   return [...new Set([...ctx.services.watchlist.tickers, ...Object.keys(ctx.services.heldTickers()), ...(b ? [b] : [])])];
+}
+
+/** The research universe (factor measurement only): ticker → sector. */
+export function researchUniverse(ctx: NodeContext): Record<string, string> {
+  return ctx.services.config.research.universe ?? RESEARCH_UNIVERSE_US;
+}
+
+/** Research universe + benchmark + sector ETFs (for the sector factor's history). */
+export function researchTickers(ctx: NodeContext): string[] {
+  const b = ctx.services.config.market.benchmark;
+  return [...new Set([...Object.keys(researchUniverse(ctx)), ...(b ? [b] : []), ...Object.values(SECTOR_ETFS)])];
 }
 
 /** Parses "Date,Open,High,Low,Close,Volume" CSV (any column order, case-insensitive). */
@@ -271,11 +283,13 @@ export const twelveDataPrices = defineNode({
     perMinute: z.number().positive().default(8),
     /** Use the local copy when a download fails, if its last bar is at most this many days old. */
     maxStaleDays: z.number().int().min(0).default(5),
+    /** watchlist (+ held + benchmark) · research: the factor-research stocks + benchmark + sector ETFs (~125 symbols). */
+    universe: z.enum(["watchlist", "research"]).default("watchlist"),
   }),
   inputs: {},
   outputs: { prices: { type: "Prices" } },
   async run(ctx, p) {
-    const { prices, counts } = await loadTwelveData(ctx, universe(ctx), p);
+    const { prices, counts } = await loadTwelveData(ctx, p.universe === "research" ? researchTickers(ctx) : universe(ctx), p);
     for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
     if (!Object.keys(prices).length) throw new Error("no price data from Twelve Data");
     return { prices };
@@ -308,7 +322,8 @@ export const earningsCalendar = defineNode({
         const entries = await fetchEarningsCalendar(key, s.fetch);
         s.earnings.save(today, entries, ctx.wallNow());
         // keep today's consensus for our companies: the record that estimate revisions are computed from
-        const ours = new Set(universe(ctx));
+        // research stocks too: revision history accumulates for later measurement
+        const ours = new Set([...universe(ctx), ...Object.keys(researchUniverse(ctx))]);
         s.estimates.saveCalendar(today, entries.filter((e) => ours.has(e.ticker)));
         ctx.metric("downloaded", entries.length);
       } catch (e) {

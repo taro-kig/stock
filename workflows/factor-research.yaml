@@ -1,0 +1,6 @@
+name: factor-research
+description: "因子の検証（AI は使わない）。検証用の大型株 約110銘柄で、各因子が過去に翌月の超過リターンをどれだけ当てたかを測る。初回は株価と財務データの取得に時間がかかる（Twelve Data 8回/分）。"
+nodes:
+  prices:     { use: data.pricesTwelveData, params: { universe: research }, ui: { x: 0, y: 0 } }
+  financials: { use: data.fundamentals, params: { universe: research, maxFetches: 120 }, onError: skip, ui: { x: 0, y: 140 } }
+  factors:    { use: eval.factors, in: { prices: prices, fundamentals: financials }, ui: { x: 300, y: 60 } }

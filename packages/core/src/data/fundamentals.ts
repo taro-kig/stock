@@ -145,6 +145,30 @@ export interface Fundamentals {
   operatingMarginPrev: number | null;
   netIncomeTtm: number | null;
   shares: number | null;
+  /**
+   * Standardized unexpected earnings (Foster–Olsen–Shevlin / Bernard–Thomas, seasonal random walk):
+   * (EPS of the latest quarter − EPS a year earlier) / standard deviation of that change over the
+   * previous quarters (at least 4). No analyst consensus needed, so it works for every SEC filer.
+   */
+  sue: number | null;
+  /** When the quarter behind `sue` was filed (the drift after a surprise fades over ~60 trading days). */
+  sueFiled: IsoDate | null;
+}
+
+/** SUE of the latest EPS quarter (null with fewer than 5 year-over-year changes). */
+export function sueOf(eps: ReadonlyArray<{ end: IsoDate; val: number }>): number | null {
+  const diffs: number[] = [];
+  for (let i = 0; i < eps.length; i++) {
+    const target = addDays(eps[i]!.end, -365);
+    const j = eps.findIndex((x) => Math.abs(days(x.end, target)) <= 20);
+    if (j >= 0) diffs.push(eps[i]!.val - eps[j]!.val);
+  }
+  if (diffs.length < 5) return null;
+  const last = diffs.at(-1)!;
+  const prior = diffs.slice(-9, -1);
+  const mean = prior.reduce((a, b) => a + b, 0) / prior.length;
+  const sd = Math.sqrt(prior.reduce((a, b) => a + (b - mean) ** 2, 0) / (prior.length - 1));
+  return sd > 1e-9 ? last / sd : null;
 }
 
 const growth = (now: number | null, before: number | null) => (now === null || before === null || before <= 0 ? null : now / before - 1);
@@ -187,6 +211,8 @@ export function fundamentalsAt(ticker: string, facts: readonly Fact[], asOf: Iso
     grossMargin: margin("grossProfit", 0), grossMarginPrev: margin("grossProfit", 4),
     operatingMargin: margin("operatingIncome", 0), operatingMarginPrev: margin("operatingIncome", 4),
     netIncomeTtm: ttmAt(ni, last.end), shares,
+    sue: sueOf(eps),
+    sueFiled: eps.length ? (facts.filter((f) => f.metric === "eps" && f.filed <= asOf && f.end === eps.at(-1)!.end && f.start).map((f) => f.filed).sort()[0] ?? null) : null,
   };
 }
 

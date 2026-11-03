@@ -1,4 +1,5 @@
-import type { LabelCard, Scorecard as Card } from "@stockai/core";
+import type { FactorReport, FactorStats, LabelCard, Scorecard as Card } from "@stockai/core";
+import { useApi } from "../api.ts";
 import { Empty, Meter, Pane } from "../components/ui.tsx";
 import { pct, signedPct, EVENT_JA } from "../format.ts";
 
@@ -116,16 +117,13 @@ function LabelPane({ k }: { k: LabelCard }) {
 }
 
 export function Scorecard({ card }: { card: Card | null | undefined }) {
-  if (!card || Object.keys(card.labels).length === 0) {
-    return (
-      <Pane title="確度">
-        <Empty>まだ採点できる判断がありません。</Empty>
-        <p className="dim">判断は毎日記録され、20営業日後に対ベンチマークで採点されます。AI とルールの両方のワークフローを毎日動かすと、ここで比較できます。</p>
-      </Pane>
-    );
-  }
-  return (
-    <div className="stack">
+  const accuracy = !card || Object.keys(card.labels).length === 0 ? (
+    <Pane title="確度">
+      <Empty>まだ採点できる判断がありません。</Empty>
+      <p className="dim">判断は毎日記録され、20営業日後に対ベンチマークで採点されます。AI とルールの両方のワークフローを毎日動かすと、ここで比較できます。</p>
+    </Pane>
+  ) : (
+    <>
       <div className="dim">
         {card.horizonDays}営業日後の超過リターンで採点 · 基準日 {card.asOf} ·{" "}
         <span className="faint">期間が重なる判断は独立でないため、実効標本（{card.horizonDays}営業日以上離れた判断）で統計を取ります。</span>
@@ -134,6 +132,83 @@ export function Scorecard({ card }: { card: Card | null | undefined }) {
         {Object.values(card.labels).map((k) => <LabelPane key={k.label} k={k} />)}
       </div>
       <Pane title="一覧"><ScorecardTable card={card} /></Pane>
+    </>
+  );
+  return (
+    <div className="stack">
+      {accuracy}
+      <FactorPane />
     </div>
+  );
+}
+
+const ic = (x: number | null) => (x === null ? "—" : `${x >= 0 ? "+" : ""}${x.toFixed(3)}`);
+const tone = (f: FactorStats) => (f.meanIC === null || f.t === null ? "faint" : f.t >= 2 && f.meanIC > 0 ? "up" : f.t <= -2 ? "down" : f.meanIC > 0 ? "" : "dim");
+
+function FactorRow({ f, weight, suggested }: { f: FactorStats; weight?: number | undefined; suggested?: number | undefined }) {
+  return (
+    <tr>
+      <td title={f.note}>{f.label} <span className="faint">{f.factor.startsWith("__") ? "" : f.factor}</span></td>
+      <td className={`num ${tone(f)}`}>{ic(f.meanIC)}</td>
+      <td className={`num ${tone(f)}`}>{f.t === null ? "—" : f.t.toFixed(1)}</td>
+      <td className="num">{pct(f.hitRate, 0)}</td>
+      <td className="num">{signedPct(f.spread, 2)}</td>
+      <td className="num dim">{ic(f.ic5)} / {ic(f.ic60)}</td>
+      <td className="num dim">{Math.round(f.coverage)}</td>
+      {weight !== undefined || suggested !== undefined ? (
+        <>
+          <td className="num">{weight === undefined ? "—" : weight.toFixed(2)}</td>
+          <td className="num accent">{suggested === undefined ? "0" : suggested.toFixed(2)}</td>
+        </>
+      ) : <><td /><td /></>}
+    </tr>
+  );
+}
+
+/** How well each scoring factor predicted, measured on past dates (factor-research workflow). */
+function FactorPane() {
+  const { data, error } = useApi<{ report: FactorReport; runId: string; workflow: string } | null>("/api/factors");
+  if (error) return null;
+  if (!data) {
+    return (
+      <Pane title="因子の検証">
+        <Empty>まだ検証していません。</Empty>
+        <p className="dim">「7 フロー」の factor-research を実行すると、検証用の大型株 約110銘柄で、スコアの各因子が過去に翌月の超過リターンをどれだけ当てたかを測ります（AI は使いません。初回は株価と財務データの取得に時間がかかります）。</p>
+      </Pane>
+    );
+  }
+  const r = data.report;
+  return (
+    <Pane title="因子の検証" aux={`${r.from ?? "—"}〜${r.to ?? "—"} · ${r.universe} 銘柄 · ${r.horizon} 営業日先`}>
+      <table className="t">
+        <thead>
+          <tr>
+            <th>因子</th>
+            <th className="num" title="因子の順位とその後の超過リターンの順位の相関（日ごとの平均）。実際に効く因子でも 0.02〜0.05 程度">平均 IC</th>
+            <th className="num" title="重ならない日付での t 値。2 以上なら偶然ではなさそう">t</th>
+            <th className="num" title="IC がプラスだった日の割合">IC＞0</th>
+            <th className="num" title="因子の上位 1/5 と下位 1/5 の超過リターンの差（平均）">上位−下位</th>
+            <th className="num" title="5 営業日先 / 60 営業日先の平均 IC（効き目の続き方）">5日 / 60日</th>
+            <th className="num" title="値のあった銘柄数（平均）">銘柄</th>
+            <th className="num">今の重み</th>
+            <th className="num" title="測った IC に比例させ、日付が少ないうちは今の重みに寄せた値。自動では変わりません">提案</th>
+          </tr>
+        </thead>
+        <tbody>
+          {r.factors.map((f) => <FactorRow key={f.factor} f={f} weight={r.weights[f.factor]} suggested={r.suggested[f.factor]} />)}
+          {r.composite.map((f) => <FactorRow key={f.factor} f={f} />)}
+        </tbody>
+      </table>
+      <p className="dim">
+        <span className="up">■</span> プラスで t ≥ 2（効いていそう）、<span className="down">■</span> マイナスで t ≤ −2（逆に効いている）。
+        提案は、測った IC に比例させた重みを、日付が少ないうちは今の重みに寄せた値です（今の重みと同じ目盛り）。
+        提案の重みを使うときは、「7 フロー」で該当ワークフローの signal.score ノードの weights に入れてください（自動では変わりません）。
+      </p>
+      <div className="btn-row">
+        <button className="btn" type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(r.suggested))}>提案の重みをコピー</button>
+        <a className="faint" href={`#/runs/${data.runId}`}>実行 {data.runId} ↗</a>
+      </div>
+      {r.notes.map((n) => <p key={n} className="faint">· {n}</p>)}
+    </Pane>
   );
 }

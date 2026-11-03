@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { buildScorecard } from "../eval/scorecard.ts";
+import { SECTOR_ETFS } from "../data/market.ts";
+import { researchFactors } from "../strategy/factorResearch.ts";
 import { defineNode } from "../workflow/registry.ts";
+import { researchUniverse } from "./data.ts";
 
 export const recordPredictions = defineNode({
   type: "eval.record",
@@ -47,5 +50,50 @@ export const scorecardNode = defineNode({
     return {
       scorecard: buildScorecard(preds, i.prices, ctx.asOf, p.horizonDays, { minNEff: p.minNEff, minWilsonLow: p.minWilsonLow, baselineLabel: p.baselineLabel }, ctx.services.config.market.benchmark),
     };
+  },
+});
+
+export const factorResearchNode = defineNode({
+  type: "eval.factors",
+  title: "Factor research",
+  category: "eval",
+  description:
+    "Measures how well each scoring factor predicted the next weeks' excess return on past dates (point in time: prices up to each date, financials filed by it): rank IC, t-statistic on non-overlapping dates, top-minus-bottom fifth, decay at 5 / 60 days, and the composite with the current weights (plain, sector-neutral, rank). Suggests weights; changes nothing by itself. No LLM.",
+  version: 1,
+  cache: "daily",
+  params: z.object({
+    /** Trading days ahead. */
+    horizon: z.number().int().min(5).max(60).default(20),
+    /** Measure every n trading days. */
+    step: z.number().int().min(1).max(20).default(5),
+    lookbackDays: z.number().int().min(180).max(3650).default(730),
+    minStocks: z.number().int().min(5).default(15),
+    /** Weights of the composite to evaluate (default: the score node's defaults). */
+    weights: z.record(z.string(), z.number()).optional(),
+    /** research: the factor-research stocks · watchlist: the stocks you trade (few stocks → noisy). */
+    universe: z.enum(["research", "watchlist"]).default("research"),
+  }),
+  inputs: {
+    prices: { type: "Prices" },
+    /** Only as a signal that financials were downloaded; their history is read from the local store. */
+    fundamentals: { type: "Fundamentals", optional: true },
+  },
+  outputs: { report: { type: "FactorReport" } },
+  async run(ctx, p, i) {
+    const s = ctx.services;
+    const universe = p.universe === "research"
+      ? researchUniverse(ctx)
+      : Object.fromEntries(s.watchlist.tickers.map((t) => [t, s.watchlist.sector(t)]));
+    const facts = i.fundamentals && Object.keys(i.fundamentals).length
+      ? Object.fromEntries(Object.keys(universe).map((t) => [t, s.fundamentals.facts(t, ctx.asOf)]))
+      : undefined;
+    const report = researchFactors({
+      asOf: ctx.asOf, prices: i.prices, universe, benchmark: s.config.market.benchmark, sectorEtfs: SECTOR_ETFS, facts,
+      ...(p.weights ? { weights: p.weights } : {}), horizon: p.horizon, step: p.step, lookbackDays: p.lookbackDays, minStocks: p.minStocks,
+    });
+    ctx.metric("dates", report.factors[0]?.dates ?? 0);
+    ctx.metric("stocks", report.universe);
+    for (const f of report.factors) if (f.meanIC !== null) ctx.metric(`ic_${f.factor}`, Math.round(f.meanIC * 1000) / 1000);
+    return { report };
   },
 });

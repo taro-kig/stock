@@ -19,18 +19,61 @@ export function zscores(values: Record<string, number | null | undefined>, clip 
   return out;
 }
 
+/** Ranks (1..n, ties averaged) for the finite values; others stay null. Robust to outliers. */
+export function ranks(values: Record<string, number | null | undefined>): Record<string, number | null> {
+  const xs = Object.entries(values).filter((e): e is [string, number] => typeof e[1] === "number" && Number.isFinite(e[1])).sort((a, b) => a[1] - b[1]);
+  const out: Record<string, number | null> = Object.fromEntries(Object.keys(values).map((k) => [k, null]));
+  for (let i = 0; i < xs.length; ) {
+    let j = i;
+    while (j + 1 < xs.length && xs[j + 1]![1] === xs[i]![1]) j++;
+    for (let k = i; k <= j; k++) out[xs[k]![0]] = (i + j) / 2 + 1;
+    i = j + 1;
+  }
+  return out;
+}
+
+export interface NormalizeOptions {
+  /** z: clipped z-scores of the values · rank: z-scores of the ranks (outliers cannot dominate). */
+  method?: "z" | "rank";
+  /** Ticker → sector: compare within the sector (sectors with fewer than minGroup values use the whole set). */
+  sectorOf?: Record<string, string> | undefined;
+  minGroup?: number;
+}
+
+/** One factor column → comparable scores (0 = average / missing). */
+export function normalize(values: Record<string, number | null | undefined>, o: NormalizeOptions = {}): Record<string, number> {
+  const base = o.method === "rank" ? ranks(values) : values;
+  const global = zscores(base);
+  if (!o.sectorOf) return global;
+  const out = { ...global };
+  const groups = new Map<string, string[]>();
+  for (const t of Object.keys(values)) {
+    const v = base[t];
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    const g = o.sectorOf[t] ?? "unknown";
+    groups.set(g, [...(groups.get(g) ?? []), t]);
+  }
+  for (const members of groups.values()) {
+    if (members.length < (o.minGroup ?? 3)) continue;
+    const z = zscores(Object.fromEntries(members.map((t) => [t, base[t]])));
+    for (const t of members) out[t] = z[t]!;
+  }
+  return out;
+}
+
 /** factors: factorName -> (ticker -> value). Returns ticker -> score, weights renormalized to the factors present. */
 export function compositeScore(
   factors: Record<string, Record<string, number | null | undefined>>,
   tickers: readonly string[],
   weights: Record<string, number> = DEFAULT_WEIGHTS,
+  opts: NormalizeOptions = {},
 ): Record<string, number> {
   const total: Record<string, number> = Object.fromEntries(tickers.map((t) => [t, 0]));
   let used = 0;
   for (const [name, w] of Object.entries(weights)) {
     const col = factors[name];
-    if (!col) continue;
-    const z = zscores(Object.fromEntries(tickers.map((t) => [t, col[t]])));
+    if (!col || w === 0) continue;
+    const z = normalize(Object.fromEntries(tickers.map((t) => [t, col[t]])), opts);
     for (const t of tickers) total[t]! += w * z[t]!;
     used += w;
   }

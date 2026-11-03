@@ -64,6 +64,10 @@ export const AppConfig = z.strictObject({
       baseUrl: z.string().default("http://127.0.0.1:4317"),
     })
     .prefault({}),
+  /** Factor research (eval.factors): stocks used only for measuring, ticker → sector. Default: ~S&P 100 (strategy/researchUniverse.ts). */
+  research: z
+    .strictObject({ universe: z.record(z.string().regex(/^[A-Z0-9][A-Z0-9.-]{0,9}$/), z.string()).optional() })
+    .prefault({}),
   /** Daily copy of the database (the forward record of judgments cannot be recreated). */
   backup: z
     .strictObject({

@@ -40,3 +40,6 @@ export { checkNumbers } from "./harness/grounding.ts";
 export { fundamentalLines, fundamentalsAt, FundamentalsStore, parseCompanyFacts, valuation, type Fundamentals, type FundamentalsMap } from "./data/fundamentals.ts";
 export { estimateLines, EstimateStore, parseEarningsEstimates, revisionScore, type EstimatesMap, type Revision } from "./data/estimates.ts";
 export { computeMarket, marketLines, MacroStore, parseFredObservations, SECTOR_ETFS, type MarketContext, type RiskLevel } from "./data/market.ts";
+export { FACTOR_INFO, factorColumns } from "./strategy/factorLib.ts";
+export { researchFactors, spearman, type FactorReport, type FactorStats } from "./strategy/factorResearch.ts";
+export { RESEARCH_UNIVERSE_US } from "./strategy/researchUniverse.ts";
