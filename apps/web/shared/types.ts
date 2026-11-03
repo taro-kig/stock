@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { EarningsReaction, EarningsResult, Fundamentals, InsiderSummary, NextEarnings, Revision, ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
+import type { MarketContext, EarningsReaction, EarningsResult, Fundamentals, InsiderSummary, NextEarnings, Revision, ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -261,4 +261,13 @@ export interface StockView {
   insider: InsiderSummary | null;
   sectorRead: { etf: string; rank: number | null; of: number; rel60: number | null } | null;
   events: Array<{ learnedAt: string; title: string; url: string; source: string; eventType: string; direction: number; materiality: number; evidence: string[] }>;
+}
+
+/** The overview's market pane. */
+export interface TodayView {
+  market: MarketContext | null;
+  /** Held stocks reporting within 14 days. */
+  earnings: Array<{ ticker: string; reportDate: string; daysAway: number; time: string | null }>;
+  /** Last download per data source (age in days; stale when older than usual). */
+  freshness: Array<{ label: string; day: string | null; age: number | null; stale: boolean; hint: string }>;
 }

@@ -5,7 +5,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { addDays, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
-import { stockView } from "./stock.ts";
+import { stockView, todayView } from "./stock.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
@@ -582,6 +582,7 @@ export function createApp(o: AppOptions): App {
       return send(res, 202, { ok: true });
     }
     if (req.method === "GET" && path === "/api/factors") return send(res, 200, latestFactorReport(s));
+    if (req.method === "GET" && path === "/api/today") return send(res, 200, todayView(s, clock()));
     if (req.method === "GET" && (g = m(/^\/api\/stocks\/([A-Z0-9][A-Z0-9.-]{0,9})$/))) return send(res, 200, stockView(s, registry, g[1]!, clock()));
     if (req.method === "GET" && path === "/api/models") {
       return send(res, 200, {

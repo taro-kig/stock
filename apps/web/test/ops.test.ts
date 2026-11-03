@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { ModelsView, PromptsView, StockView, WatchlistView } from "../shared/types.ts";
+import type { ModelsView, PromptsView, StockView, TodayView, WatchlistView } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -358,5 +358,19 @@ describe("stock page API", () => {
     const sum = Object.values(v.score!.contributions).reduce((a, b) => a + b, 0);
     expect(sum).toBeCloseTo(v.score!.total, 6); // contributions add up to the composite
     expect((await call("GET", "/api/stocks/bad%20ticker")).status).toBe(404);
+  });
+});
+
+describe("today API", () => {
+  it("reports market context (none yet), earnings of holdings and data freshness", async () => {
+    const { call, services } = await start();
+    services.macro.save("VIXCLS", "2026-10-20", [{ date: "2026-10-19", value: 18 }]);
+    const v = (await call<TodayView>("GET", "/api/today")).body;
+    expect(v.market).toBeNull();
+    expect(v.freshness).toHaveLength(8);
+    const fred = v.freshness.find((f) => f.label.includes("FRED"))!;
+    expect(fred.day).toBe("2026-10-20");
+    expect(fred.stale).toBe(true); // more than 4 days old
+    expect(v.freshness.find((f) => f.label === "株価")!.day).toBeNull();
   });
 });

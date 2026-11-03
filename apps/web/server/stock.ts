@@ -2,7 +2,7 @@ import {
   atr, earningsReactions, factorColumns, forwardExcess, periodReturn, resolveRef, scoreContributions, stopPrice, summarizeInsider, valuation,
   WorkflowSpec, type Bar, type EstimatesMap, type FactorTable, type FundamentalsMap, type InsiderMap, type MarketContext, type NodeRegistry, type Prices, type Services,
 } from "@stockai/core";
-import type { StockView } from "../shared/types.ts";
+import type { StockView, TodayView } from "../shared/types.ts";
 
 const SOURCES = ["twelvedata", "jquants", "stooq"];
 const OK = new Set(["ok", "cached", "fallback"]);
@@ -160,5 +160,41 @@ export function stockView(s: Services, registry: NodeRegistry, ticker: string, n
     insider: insiderTrades.length ? summarizeInsider(ticker, insiderTrades, 180) : null,
     sectorRead: sec ? { etf: sec.etf, rank: sec.rank, of: Object.values(market!.sectors).filter((x) => x.rank !== null).length, rel60: sec.rel60 } : null,
     events,
+  };
+}
+
+/** Day of the newest row of a table column (null when the table does not exist or is empty). */
+function latestDay(s: Services, table: string, column: string): string | null {
+  try {
+    const r = s.db.prepare(`SELECT MAX(${column}) AS d FROM ${table}`).get() as { d: string | null } | undefined;
+    return r?.d ? String(r.d).slice(0, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The overview's "today in the market": risk level, sectors, gauges, earnings of holdings, and how fresh each data source is. */
+export function todayView(s: Services, now: Date): TodayView {
+  const today = now.toISOString().slice(0, 10);
+  const held = Object.keys(s.heldTickers());
+  const next = s.earnings.nextFor(held, today);
+  const daysOld = (d: string | null) => (d ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${d}T00:00:00Z`)) / 86_400_000) : null);
+  const src = (label: string, day: string | null, maxDays: number, hint: string): TodayView["freshness"][number] => {
+    const age = daysOld(day);
+    return { label, day, age, stale: age !== null && age > maxDays, hint };
+  };
+  return {
+    market: latestMarket(s),
+    earnings: Object.values(next).filter((e) => e.daysAway <= 14).sort((a, b) => a.daysAway - b.daysAway).map((e) => ({ ticker: e.ticker, reportDate: e.reportDate, daysAway: e.daysAway, time: e.time })),
+    freshness: [
+      src("株価", latestDay(s, "price_fetches", "fetched_at"), 4, "株価ノードを含むワークフローの実行"),
+      src("決算予定（Alpha Vantage）", s.earnings.lastFetch()?.day ?? null, 4, "data.earnings"),
+      src("決算実績", latestDay(s, "earnings_result_fetches", "day"), 30, "data.earningsResults（決算後だけ取得）"),
+      src("予想の記録", latestDay(s, "calendar_estimates", "day"), 4, "data.earnings（毎日の予想を記録）"),
+      src("財務データ（SEC）", latestDay(s, "fundamental_fetches", "day"), 10, "data.fundamentals"),
+      src("インサイダー（SEC）", latestDay(s, "insider_filings", "filed_at"), 10, "data.insider"),
+      src("相場の指標（FRED）", latestDay(s, "macro_fetches", "day"), 4, "data.market と FRED_API_KEY"),
+      src("検証用の銘柄", latestDay(s, "research_universe", "built"), 40, "factor-research"),
+    ],
   };
 }

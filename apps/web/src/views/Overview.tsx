@@ -1,4 +1,6 @@
-import type { Overview as OverviewData } from "../../shared/types.ts";
+import type { Overview as OverviewData, TodayView } from "../../shared/types.ts";
+import { useApi } from "../api.ts";
+import { TickerLink } from "./StockPage.tsx";
 import { Empty, Kbd, Meter, Pane, Spark, Status } from "../components/ui.tsx";
 import { ago, money, moneyOrDash, pct, runDuration, signedPct, time, until, usd } from "../format.ts";
 import { navigate, tabKey } from "../router.ts";
@@ -84,6 +86,7 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
       </div>
 
       <div className="stack">
+        <TodayPane />
         <Pane title="口座" aux={data.equity.length ? `${data.equity.length}` : undefined}>
           {data.equity.length === 0 ? (
             <Empty>口座の記録はまだありません。</Empty>
@@ -157,5 +160,68 @@ export function Overview({ data }: { data: OverviewData | undefined }) {
         </Pane>
       </div>
     </div>
+  );
+}
+
+const RISK: Record<string, { text: string; cls: string; note: string }> = {
+  normal: { text: "平常", cls: "ok", note: "" },
+  caution: { text: "警戒", cls: "warn", note: "新規の買いは半分の大きさ" },
+  stress: { text: "緊張", cls: "fail", note: "新規の買いは止める" },
+};
+const SECTOR_JA: Record<string, string> = {
+  tech: "テック", semis: "半導体", communication: "通信", consumer: "一般消費財", staples: "生活必需品", healthcare: "ヘルスケア",
+  financials: "金融", energy: "エネルギー", industrials: "資本財", materials: "素材", utilities: "公益", real_estate: "不動産",
+};
+
+/** Market risk level, sector strength, gauges, earnings of holdings, data freshness. */
+function TodayPane() {
+  const { data } = useApi<TodayView>("/api/today");
+  if (!data) return null;
+  const m = data.market;
+  const r = m ? RISK[m.risk] ?? RISK["normal"]! : null;
+  const sectors = m ? Object.values(m.sectors).filter((x) => x.rank !== null).sort((a, b) => a.rank! - b.rank!) : [];
+  const stale = data.freshness.filter((f) => f.stale);
+  const missing = data.freshness.filter((f) => f.day === null).length;
+  return (
+    <Pane title="今日の相場" aux={m ? `${m.asOf} 時点` : undefined} className={m?.risk === "stress" ? "alert" : ""}>
+      {!m ? <p className="dim">相場のデータがまだありません（data.market を含むワークフローを実行すると出ます）。</p> : (
+        <dl className="kv">
+          <dt>警戒度</dt>
+          <dd><b className={r!.cls}>{r!.text}</b>{r!.note && <span className="dim"> · {r!.note}</span>}{m.reasons.length > 0 && <div className="faint">{m.reasons.join("、")}</div>}</dd>
+          {m.benchmark && <><dt>市場（{m.benchmark.ticker}）</dt><dd>20日 <span className={(m.benchmark.ret20 ?? 0) >= 0 ? "up" : "down"}>{signedPct(m.benchmark.ret20)}</span> · 60日 <span className={(m.benchmark.ret60 ?? 0) >= 0 ? "up" : "down"}>{signedPct(m.benchmark.ret60)}</span></dd></>}
+          {sectors.length > 0 && (
+            <>
+              <dt>強い業種</dt><dd>{sectors.slice(0, 3).map((x) => <span key={x.sector} className="nowrap">{SECTOR_JA[x.sector] ?? x.sector} <span className="up">{signedPct(x.rel60)}</span>　</span>)}</dd>
+              <dt>弱い業種</dt><dd>{sectors.slice(-3).reverse().map((x) => <span key={x.sector} className="nowrap">{SECTOR_JA[x.sector] ?? x.sector} <span className="down">{signedPct(x.rel60)}</span>　</span>)}</dd>
+            </>
+          )}
+          {m.macro.map((x) => (
+            <div key={x.id} style={{ display: "contents" }}>
+              <dt>{x.label}</dt>
+              <dd>{x.value.toFixed(2)}{x.unit} {x.change20 !== null && <span className="faint">（約1か月で {x.change20 >= 0 ? "+" : ""}{x.change20.toFixed(2)}）</span>}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {data.earnings.length > 0 && (
+        <p>保有株の決算: {data.earnings.map((e) => <span key={e.ticker} className="nowrap"><TickerLink t={e.ticker} /> {e.reportDate}（{e.daysAway === 0 ? "今日" : `${e.daysAway}日後`}）　</span>)}</p>
+      )}
+      <details>
+        <summary className={stale.length ? "warn" : "dim"}>
+          データの鮮度: {[stale.length ? `古いもの ${stale.length} 件` : "", missing ? `未取得 ${missing} 件` : "", !stale.length && !missing ? "問題なし" : ""].filter(Boolean).join("・")}
+        </summary>
+        <table className="t">
+          <tbody>
+            {data.freshness.map((f) => (
+              <tr key={f.label}>
+                <td>{f.label}</td>
+                <td className={f.day === null ? "faint" : f.stale ? "warn" : "dim"}>{f.day === null ? "未取得" : `${f.day}（${f.age === 0 ? "今日" : `${f.age} 日前`}）`}</td>
+                <td className="faint">{f.day === null || f.stale ? f.hint : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </Pane>
   );
 }
