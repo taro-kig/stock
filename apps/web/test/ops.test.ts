@@ -408,3 +408,32 @@ describe("journal API", () => {
     expect(acc.trades.reduce((n, t) => n + (t.open ? t.openShares : 0), 0)).toBe(services.paperBook.openPositions().filter((p) => p.account === acc.account).reduce((n, p) => n + p.shares, 0));
   });
 });
+
+describe("watch notifications", () => {
+  it("stale data, a holding reporting tomorrow, a holding at its stop — each sent once", async () => {
+    const { app: a, services, posts } = await start({ webhook: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    // stale: FRED last fetched long ago
+    services.macro.save("VIXCLS", "2026-01-05", [{ date: "2026-01-02", value: 18 }]);
+    // a holding: 7203 bought at 3000, now 2500 (well below any stop)
+    services.paperBook.ensure("demo-ai", 1_000_000, "JPY");
+    services.db.prepare("INSERT INTO paper_positions VALUES (?,?,?,?,?,?,?)").run("demo-ai", "7203", 100, 3000, 3000, "auto", "2026-01-05");
+    const days: string[] = [];
+    for (let d = new Date(Date.now() - 60 * 86_400_000); d.toISOString().slice(0, 10) <= today; d = new Date(d.getTime() + 86_400_000)) {
+      if (d.getUTCDay() % 6) days.push(d.toISOString().slice(0, 10));
+    }
+    services.priceStore.upsert("twelvedata", "7203", days.map((date, i) => {
+      const close = i === days.length - 1 ? 2500 : 3000 + (i % 2 ? 10 : -10);
+      return { date, open: close, high: close, low: close, close, volume: 1e6 };
+    }));
+    services.earnings.save(today, [{ ticker: "7203", reportDate: tomorrow, fiscalDateEnding: null, estimate: 55.5, time: "post-market" }]);
+    const sent = await a.notifier.watch();
+    expect(sent.sort()).toEqual(["earnings", "stale", "stops"]);
+    const titles = posts.map((p) => p.embeds[0]!.title);
+    expect(titles).toContain("📅 保有株の決算が明日: 7203");
+    expect(titles).toContain("✕ 損切りラインに到達: 7203");
+    expect(titles.some((t) => t.startsWith("⚠ データが古くなっています"))).toBe(true);
+    expect(await a.notifier.watch()).toEqual([]); // nothing twice
+  });
+});

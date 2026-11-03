@@ -93,7 +93,9 @@ webull:
 # events: approval (waiting for approval) · failure (failed / partly failed run) · orders (broker orders)
 #         fills (paper fills) · success (every successful run) · backup (backup failed)
 notify:
-  events: [approval, failure, orders, backup]
+  # also: fills (paper fills), success (every run). market: risk level changed · stops: a holding at / near its stop ·
+  # earnings: a holding reports today or tomorrow · stale: a data source not updated for longer than usual
+  events: [approval, failure, orders, backup, market, stops, earnings, stale]
   baseUrl: "http://127.0.0.1:4317"   # links in notifications
 
 # Daily database backup while the web server is up (the record of judgments cannot be recreated).

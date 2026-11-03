@@ -6,7 +6,7 @@ import { WebullConfig } from "./execution/webull.ts";
 import { ModelsConfig } from "./llm/roles.ts";
 import { RiskConfig } from "./strategy/risk.ts";
 
-export const NOTIFY_EVENTS = ["approval", "failure", "orders", "fills", "success", "backup"] as const;
+export const NOTIFY_EVENTS = ["approval", "failure", "orders", "fills", "success", "backup", "market", "stops", "earnings", "stale"] as const;
 
 export const AppConfig = z.strictObject({
   /** User prompt versions created from the UI (prompts/<family>/<version>.md). */
@@ -58,8 +58,10 @@ export const AppConfig = z.strictObject({
     .strictObject({
       webhookEnv: z.string().default("DISCORD_WEBHOOK_URL"),
       /** approval: waiting for approval · failure: failed / partly failed run · orders: orders sent to (or previewed by) a broker ·
-       *  fills: paper fills · success: every successful run · backup: backup failed */
-      events: z.array(z.enum(NOTIFY_EVENTS)).default(["approval", "failure", "orders", "backup"]),
+       *  fills: paper fills · success: every successful run · backup: backup failed · market: the market risk level changed ·
+       *  stops: a holding reached (or is within 3% of) its stop · earnings: a holding reports today or tomorrow ·
+       *  stale: a data source has not been updated for longer than usual */
+      events: z.array(z.enum(NOTIFY_EVENTS)).default(["approval", "failure", "orders", "backup", "market", "stops", "earnings", "stale"]),
       /** Where links in notifications point. */
       baseUrl: z.string().default("http://127.0.0.1:4317"),
     })

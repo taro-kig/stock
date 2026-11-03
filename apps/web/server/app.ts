@@ -148,7 +148,7 @@ export function createApp(o: AppOptions): App {
     void queue
       .enqueue(`${spec.name} ${asOf ?? "today"}`, () => engine.run(spec, { runId, ...(asOf ? { asOf } : {}) }))
       .catch(() => undefined)
-      .then(() => notifier.runSettled(runId));
+      .then(async () => { await notifier.runSettled(runId); await notifier.watch(); });
     return runId;
   }
 
@@ -182,7 +182,7 @@ export function createApp(o: AppOptions): App {
       void queue
         .enqueue(`timeout check ${r.runId}`, () => engine.resume(r.runId))
         .catch(() => undefined)
-        .then(() => notifier.runSettled(r.runId))
+        .then(async () => { await notifier.runSettled(r.runId); await notifier.watch(); })
         .finally(() => resuming.delete(r.runId));
     }
     return due.map((r) => r.runId);
@@ -600,7 +600,7 @@ export function createApp(o: AppOptions): App {
       void queue
         .enqueue(`resume ${runId}`, () => engine.resume(runId))
         .catch(() => undefined)
-        .then(() => notifier.runSettled(runId));
+        .then(async () => { await notifier.runSettled(runId); await notifier.watch(); });
       return send(res, 202, { ok: true });
     }
     if (req.method === "GET" && path === "/api/factors") return send(res, 200, latestFactorReport(s));

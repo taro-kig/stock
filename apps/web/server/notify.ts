@@ -1,4 +1,5 @@
-import { sendDiscord, type Notice, type NotifyEvent, type NodeRegistry, type Services } from "@stockai/core";
+import { atr, sendDiscord, stopPrice, type Notice, type NotifyEvent, type NodeRegistry, type Services } from "@stockai/core";
+import { barsFor, latestMarket, todayView } from "./stock.ts";
 import type { RunDetail } from "../shared/types.ts";
 import { runDetail } from "./views.ts";
 
@@ -147,6 +148,92 @@ export class RunNotifier {
       const j = d.highlights.judgments?.items ?? [];
       const n: Notice = { title: `● 完了: ${head}`, tone: "ok", description: j.length ? `判断 ${j.length} 件` : "" };
       if (await this.#once(runId, "success", n)) sent.push("success");
+    }
+    return sent;
+  }
+
+  /**
+   * Checks that are not about one run: the market risk level, holdings near their stop, holdings
+   * reporting soon, stale data. Called after every run; each notice is sent once (per day / level / report).
+   */
+  async watch(): Promise<string[]> {
+    if (!this.webhook) return [];
+    const s = this.#s;
+    const now = this.#clock();
+    const today = now.toISOString().slice(0, 10);
+    const sent: string[] = [];
+    s.db.exec("CREATE TABLE IF NOT EXISTS notify_state (key TEXT PRIMARY KEY, value TEXT)");
+    const state = (k: string) => (s.db.prepare("SELECT value FROM notify_state WHERE key = ?").get(k) as { value: string } | undefined)?.value ?? null;
+    const setState = (k: string, v: string) => s.db.prepare("INSERT OR REPLACE INTO notify_state VALUES (?,?)").run(k, v);
+    const link = (p: string) => this.#link(p);
+    const RISK: Record<string, string> = { normal: "平常", caution: "警戒（新規の買いは半分の大きさ）", stress: "緊張（新規の買いは止める）" };
+
+    if (this.#wants("market")) {
+      const m = latestMarket(s);
+      const prev = state("risk");
+      if (m && m.risk !== prev) {
+        setState("risk", m.risk);
+        if (prev !== null || m.risk !== "normal") {
+          const n: Notice = {
+            title: `${m.risk === "normal" ? "●" : m.risk === "caution" ? "⚠" : "✕"} 相場の警戒度: ${prev ? `${RISK[prev]?.split("（")[0] ?? prev} → ` : ""}${RISK[m.risk] ?? m.risk}`,
+            description: m.reasons.length ? m.reasons.join("\n") : "指標が落ち着いた",
+            tone: m.risk === "normal" ? "ok" : m.risk === "caution" ? "warn" : "fail",
+          };
+          const url = link("overview");
+          if (url) n.url = url;
+          if (await this.#once(`market:${m.asOf}:${m.risk}`, "market", n)) sent.push("market");
+        }
+      }
+    }
+
+    if (this.#wants("stops")) {
+      for (const p of s.paperBook.openPositions()) {
+        const bars = barsFor(s, this.#registry, p.ticker);
+        const last = bars.at(-1);
+        if (!last || bars.length < 21) continue;
+        const a = atr(bars);
+        if (!Number.isFinite(a)) continue;
+        const stop = stopPrice(p.entryPrice, Math.max(p.highestClose, last.close), a, s.risk);
+        const level = last.close <= stop ? "hit" : last.close <= stop * 1.03 ? "near" : null;
+        if (!level) continue;
+        const n: Notice = {
+          title: `${level === "hit" ? "✕ 損切りラインに到達" : "⚠ 損切りラインまで 3% 以内"}: ${p.ticker}`,
+          description: `${p.account}: 終値 ${last.close.toFixed(2)}（${last.date}）/ 損切り ${stop.toFixed(2)} / 取得 ${p.entryPrice.toFixed(2)}（${p.entryDate}）`,
+          tone: level === "hit" ? "fail" : "warn",
+        };
+        const url = link(`stock/${encodeURIComponent(p.ticker)}`);
+        if (url) n.url = url;
+        if (await this.#once(`stop:${p.account}:${p.ticker}:${last.date}:${level}`, "stops", n)) sent.push("stops");
+      }
+    }
+
+    if (this.#wants("earnings")) {
+      const held = Object.keys(s.heldTickers());
+      for (const e of Object.values(s.earnings.nextFor(held, today))) {
+        if (e.daysAway > 1) continue;
+        const n: Notice = {
+          title: `📅 保有株の決算が${e.daysAway === 0 ? "今日" : "明日"}: ${e.ticker}`,
+          description: `${e.reportDate}${e.time === "pre-market" ? "（寄り前）" : e.time === "post-market" ? "（引け後）" : ""}${e.estimate !== null ? ` · EPS 予想 ${e.estimate}` : ""}`,
+          tone: "info",
+        };
+        const url = link(`stock/${encodeURIComponent(e.ticker)}`);
+        if (url) n.url = url;
+        if (await this.#once(`earnings:${e.ticker}:${e.reportDate}`, "earnings", n)) sent.push("earnings");
+      }
+    }
+
+    if (this.#wants("stale")) {
+      const stale = todayView(s, now).freshness.filter((f) => f.stale);
+      if (stale.length) {
+        const n: Notice = {
+          title: `⚠ データが古くなっています（${stale.length} 件）`,
+          description: stale.map((f) => `${f.label}: ${f.day}（${f.age} 日前）→ ${f.hint}`).join("\n"),
+          tone: "warn",
+        };
+        const url = link("overview");
+        if (url) n.url = url;
+        if (await this.#once(`stale:${today}:${stale.map((f) => f.label).join(",")}`, "stale", n)) sent.push("stale");
+      }
     }
     return sent;
   }
