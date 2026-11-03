@@ -5,7 +5,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { addDays, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, WeightTargets, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
-import { stockView, todayView } from "./stock.ts";
+import { journalView, stockView, todayView } from "./stock.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpServer } from "./mcp.ts";
 import { RunQueue } from "./queue.ts";
@@ -605,6 +605,7 @@ export function createApp(o: AppOptions): App {
     }
     if (req.method === "GET" && path === "/api/factors") return send(res, 200, latestFactorReport(s));
     if (req.method === "GET" && path === "/api/today") return send(res, 200, todayView(s, clock()));
+    if (req.method === "GET" && path === "/api/journal") return send(res, 200, journalView(s, registry, clock()));
     if (req.method === "GET" && path === "/api/factors/targets") return send(res, 200, weightTargets());
     if (req.method === "POST" && path === "/api/factors/apply") {
       const body = await readJson(req);

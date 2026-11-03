@@ -14,11 +14,12 @@ import { Prompts } from "./views/Prompts.tsx";
 import { Runs } from "./views/Runs.tsx";
 import { Scorecard } from "./views/Scorecard.tsx";
 import { StockPage } from "./views/StockPage.tsx";
+import { Journal } from "./views/Journal.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Watchlist } from "./views/Watchlist.tsx";
 import { Workflows } from "./views/Workflows.tsx";
 
-const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", prompts: "プロンプト", calendar: "カレンダー", watchlist: "銘柄", editor: "編集", stock: "銘柄" };
+const LABELS: Record<View, string> = { overview: "概要", runs: "実行", approvals: "承認", scorecard: "確度", workflows: "フロー", nodes: "ノード", settings: "設定", prompts: "プロンプト", calendar: "カレンダー", watchlist: "銘柄", editor: "編集", stock: "銘柄", journal: "日誌" };
 
 interface Toast {
   id: number;
@@ -105,6 +106,7 @@ function Shell({ connected, lastEvent }: { connected: boolean; lastEvent: string
         {route.view === "watchlist" && <Watchlist toast={toast} />}
         {route.view === "prompts" && <Prompts param={route.param} toast={toast} />}
         {route.view === "calendar" && <Calendar />}
+        {route.view === "journal" && <Journal />}
         {route.view === "stock" && route.param && <StockPage key={route.param} ticker={route.param} />}
         {route.view === "editor" && <Editor key={route.param ?? "new"} name={route.param} toast={toast} />}
       </main>

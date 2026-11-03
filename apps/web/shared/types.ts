@@ -1,5 +1,5 @@
 /** JSON shapes exchanged between the web server and the UI. */
-import type { MarketContext, EarningsReaction, EarningsResult, Fundamentals, InsiderSummary, NextEarnings, Revision, ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
+import type { JournalSummary, Trade, MarketContext, EarningsReaction, EarningsResult, Fundamentals, InsiderSummary, NextEarnings, Revision, ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
 export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
@@ -276,4 +276,9 @@ export interface TodayView {
 export interface WeightTargets {
   targets: Array<{ workflow: string; file: string; node: string; weights: Record<string, number>; explicit: boolean }>;
   history: Array<{ at: string; workflow: string; node: string; from: Record<string, number>; to: Record<string, number>; source: string }>;
+}
+
+/** Paper trades per account (the trade journal). */
+export interface JournalView {
+  accounts: Array<{ account: string; currency: string; summary: JournalSummary; trades: Trade[] }>;
 }

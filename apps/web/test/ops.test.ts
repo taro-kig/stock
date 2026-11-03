@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinRegistry, loadConfig, Services } from "@stockai/core";
-import type { ModelsView, PromptsView, StockView, TodayView, WatchlistView, WeightTargets } from "../shared/types.ts";
+import type { JournalView, ModelsView, PromptsView, StockView, TodayView, WatchlistView, WeightTargets } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
 
@@ -390,5 +390,21 @@ describe("applying factor weights", () => {
     const after = (await call<WeightTargets>("GET", "/api/factors/targets")).body;
     expect(after.targets.find((x) => x.workflow === "demo-ai")!.weights).toEqual({ momentum: 0.5, high52: 0.25 });
     expect(after.history[0]).toMatchObject({ workflow: "demo-ai", node: "score", to: { momentum: 0.5, high52: 0.25 }, source: "ui" });
+  });
+});
+
+describe("journal API", () => {
+  it("groups paper fills into trades per account", async () => {
+    const { call, settle, services } = await start();
+    for (const d of ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"]) {
+      await call("POST", "/api/workflows/demo-ai/run", { asOf: d });
+      await settle();
+    }
+    const j = (await call<JournalView>("GET", "/api/journal")).body;
+    const fills = services.paperBook.allFills();
+    if (!fills.length) return expect(j.accounts).toEqual([]);
+    const acc = j.accounts[0]!;
+    expect(acc.trades.length).toBeGreaterThan(0);
+    expect(acc.trades.reduce((n, t) => n + (t.open ? t.openShares : 0), 0)).toBe(services.paperBook.openPositions().filter((p) => p.account === acc.account).reduce((n, p) => n + p.shares, 0));
   });
 });

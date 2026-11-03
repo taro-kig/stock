@@ -110,6 +110,7 @@ export const FACTOR_JA: Record<string, string> = {
 export function big(x: number | null | undefined, currency?: string | null): string {
   if (!isNum(x)) return "—";
   const a = Math.abs(x);
-  if (currency === "JPY") return a >= 1e12 ? `¥${(x / 1e12).toFixed(1)}兆` : a >= 1e8 ? `¥${(x / 1e8).toFixed(0)}億` : `¥${Math.round(x).toLocaleString()}`;
-  return a >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : a >= 1e6 ? `$${(x / 1e6).toFixed(0)}M` : `$${Math.round(x).toLocaleString()}`;
+  const sign = x < 0 ? "-" : "";
+  if (currency === "JPY") return sign + (a >= 1e12 ? `¥${(a / 1e12).toFixed(1)}兆` : a >= 1e8 ? `¥${(a / 1e8).toFixed(0)}億` : `¥${Math.round(a).toLocaleString()}`);
+  return sign + (a >= 1e9 ? `$${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `$${(a / 1e6).toFixed(0)}M` : `$${Math.round(a).toLocaleString()}`);
 }

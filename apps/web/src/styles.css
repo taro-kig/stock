@@ -597,3 +597,4 @@ select.input { padding-right: 0.5ch; }
 .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .sources blockquote { margin: 2px 0 2px 1ch; padding-left: 1ch; border-left: 2px solid var(--line-2); color: var(--fg-2); }
 .sources a { color: var(--info); text-decoration: none; }
+.journal-stats { display: flex; gap: 4ch; flex-wrap: wrap; align-items: end; margin-bottom: calc(var(--lh) * 0.5); }

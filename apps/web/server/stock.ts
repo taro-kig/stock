@@ -1,8 +1,8 @@
 import {
-  atr, earningsReactions, factorColumns, forwardExcess, periodReturn, resolveRef, scoreContributions, stopPrice, summarizeInsider, valuation,
+  atr, buildTrades, summarizeTrades, earningsReactions, factorColumns, forwardExcess, periodReturn, resolveRef, scoreContributions, stopPrice, summarizeInsider, valuation,
   WorkflowSpec, type Bar, type EstimatesMap, type FactorTable, type FundamentalsMap, type InsiderMap, type MarketContext, type NodeRegistry, type Prices, type Services,
 } from "@stockai/core";
-import type { StockView, TodayView } from "../shared/types.ts";
+import type { JournalView, StockView, TodayView } from "../shared/types.ts";
 
 const SOURCES = ["twelvedata", "jquants", "stooq"];
 const OK = new Set(["ok", "cached", "fallback"]);
@@ -196,5 +196,25 @@ export function todayView(s: Services, now: Date): TodayView {
       src("相場の指標（FRED）", latestDay(s, "macro_fetches", "day"), 4, "data.market と FRED_API_KEY"),
       src("検証用の銘柄", latestDay(s, "research_universe", "built"), 40, "factor-research"),
     ],
+  };
+}
+
+/** Paper trades per account, with the judgment behind each entry. */
+export function journalView(s: Services, registry: NodeRegistry, now: Date): JournalView {
+  const today = now.toISOString().slice(0, 10);
+  const closes = new Map<string, { close: number; date: string } | null>();
+  const lastClose = (t: string) => {
+    if (!closes.has(t)) {
+      const b = barsFor(s, registry, t).at(-1);
+      closes.set(t, b ? { close: b.close, date: b.date } : null);
+    }
+    return closes.get(t)!;
+  };
+  const trades = buildTrades(s.paperBook.allFills(), s.predictions.all(), { lastClose, today });
+  return {
+    accounts: s.paperBook.accounts().map((a) => {
+      const ts = trades.filter((t) => t.account === a.account);
+      return { account: a.account, currency: a.currency, summary: summarizeTrades(ts), trades: ts };
+    }).filter((a) => a.trades.length),
   };
 }

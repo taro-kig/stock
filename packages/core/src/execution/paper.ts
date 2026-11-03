@@ -128,6 +128,11 @@ export class PaperBook {
     return [...out.values()];
   }
 
+  /** Paper accounts and their currencies. */
+  accounts(): Array<{ account: string; currency: "JPY" | "USD" }> {
+    return this.#db.prepare("SELECT account, currency FROM paper_accounts ORDER BY account").all() as Array<{ account: string; currency: "JPY" | "USD" }>;
+  }
+
   /** Every fill (optionally of one ticker), oldest first, in each account's currency. */
   allFills(ticker?: string): Fill[] {
     const rows = (ticker
