@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AppConfig, loadConfig } from "../src/config.ts";
-import { listModels, modelSlug, PoolInput, vendorOf } from "../src/llm/catalog.ts";
+import { listModels, missingStarterModels, modelSlug, PoolInput, vendorOf } from "../src/llm/catalog.ts";
 import { describeUse, explicitModelNames, ModelsConfig, modelsFor, resolveUse, usedModelNames } from "../src/llm/roles.ts";
 import { SettingsStore } from "../src/util/settings.ts";
 import { Services } from "../src/services.ts";
@@ -242,5 +242,15 @@ describe("saving models", () => {
     s.updateModels(r2.config.models, r2.config.pricing);
     expect(s.budget.costOf("gemini-2.5-flash", 1_000_000, 0)).toBe(0.5);
     expect(s.configHash).not.toBe(hash);
+  });
+});
+
+describe("starter models for a key without models", () => {
+  it("only for vendors with a key and nothing registered; names do not collide", () => {
+    const pool = [{ provider: "openai_compat" as const, name: "gemini-lite", model: "x", baseUrl: "https://example.com/v1", apiKeyEnv: "X_KEY" }];
+    const m = missingStarterModels(pool, { GEMINI_API_KEY: "g", OPENROUTER_API_KEY: "" });
+    expect(m.map((x) => x.vendor)).toEqual(["gemini"]);
+    expect(m[0]!.add.map((x) => [x.name, x.model])).toEqual([["gemini-lite-2", "gemini-2.5-flash-lite"], ["gemini-flash", "gemini-2.5-flash"]]);
+    expect(missingStarterModels([{ provider: "gemini", name: "g", model: "gemini-2.5-pro", apiKeyEnv: "GEMINI_API_KEY" }], { GEMINI_API_KEY: "g" })).toEqual([]);
   });
 });

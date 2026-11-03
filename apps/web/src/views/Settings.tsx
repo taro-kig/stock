@@ -35,9 +35,9 @@ function Row({ item, onSaved, toast }: { item: SettingStatus; onSaved: () => voi
     if (!value.trim() || busy) return;
     setBusy(true);
     try {
-      await put(`/api/settings/${item.name}`, { value });
+      const r = await put<{ addedModels?: string[] }>(`/api/settings/${item.name}`, { value });
       setValue("");
-      toast(`${item.label} を保存しました`);
+      toast(`${item.label} を保存しました${r.addedModels?.length ? `。モデルを登録しました（${r.addedModels.join(" · ")}）` : ""}`);
       onSaved();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), true);

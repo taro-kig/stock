@@ -221,3 +221,34 @@ export const PoolInput = z
     }
   });
 export type PoolInput = z.input<typeof PoolInput>;
+
+/** The models registered when a vendor's key is set but none of its models are (cheapest first: it votes, the next one settles disagreements). */
+const STARTERS: Partial<Record<VendorId, Array<{ name: string; model: string }>>> = {
+  gemini: [{ name: "gemini-lite", model: "gemini-2.5-flash-lite" }, { name: "gemini-flash", model: "gemini-2.5-flash" }],
+  deepseek: [{ name: "deepseek", model: "deepseek-chat" }],
+  openai: [{ name: "gpt-nano", model: "gpt-4.1-nano" }],
+  openrouter: [{ name: "qwen", model: "qwen/qwen-2.5-72b-instruct" }],
+};
+
+/**
+ * Vendors whose API key is set but that have no model in the pool, with the models to add for
+ * them. Without this, setting a key alone changes nothing: only registered models are offered.
+ */
+export function missingStarterModels(pool: readonly ModelSpec[], env: NodeJS.ProcessEnv): Array<{ vendor: VendorId; label: string; add: ModelSpec[] }> {
+  const names = new Set(pool.map((p) => p.name));
+  const out: Array<{ vendor: VendorId; label: string; add: ModelSpec[] }> = [];
+  for (const [id, starters] of Object.entries(STARTERS) as Array<[VendorId, Array<{ name: string; model: string }>]>) {
+    const v = VENDORS[id];
+    if (!env[v.apiKeyEnv] || pool.some((p) => vendorOf(p) === id)) continue;
+    const add = starters.map((st) => {
+      let name = st.name;
+      for (let i = 2; names.has(name); i++) name = `${st.name}-${i}`;
+      names.add(name);
+      return v.provider === "gemini"
+        ? { provider: "gemini" as const, name, model: st.model, apiKeyEnv: v.apiKeyEnv }
+        : { provider: "openai_compat" as const, name, model: st.model, baseUrl: v.baseUrl!, apiKeyEnv: v.apiKeyEnv };
+    });
+    out.push({ vendor: id, label: v.label, add });
+  }
+  return out;
+}

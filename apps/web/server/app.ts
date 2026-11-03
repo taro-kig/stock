@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, knownPrice, missingStarterModels, FACTOR_INFO, setWorkflowParam, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, WeightTargets, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { journalView, stockView, todayView } from "./stock.ts";
@@ -113,6 +113,35 @@ export function createApp(o: AppOptions): App {
   const modelLists = new Map<string, { until: number; list: ModelList }>();
   s.promptStore.failStale(clock());
   const notifier = new RunNotifier(s, registry, clock);
+  registerStarterModels();
+
+  /**
+   * A vendor whose key is set but that has no registered model gets its standard models added to
+   * config.yaml (at start and when a key is saved), so setting a key is enough for the model
+   * pickers and おまかせ to use it. Returns what was added.
+   */
+  function registerStarterModels(): string[] {
+    if (!o.configPath || s.fake) return [];
+    const pool = s.config.models?.pool ?? [];
+    const missing = missingStarterModels(pool, s.env);
+    if (!missing.length) return [];
+    const add = missing.flatMap((x) => x.add);
+    const pricing = Object.fromEntries(add.flatMap((m) => {
+      const p = s.config.pricing[m.model] ? undefined : knownPrice(m.model);
+      return p ? [[m.model, [p[0], p[1]] as [number, number]]] : [];
+    }));
+    try {
+      const r = saveModelPool(o.configPath, { pool: [...pool, ...add], pricing });
+      s.updateModels(r.config.models, r.config.pricing);
+      broadcast({ type: "config_changed" });
+      const labels = missing.map((x) => `${x.label}: ${x.add.map((m) => m.name).join(", ")}`);
+      console.log(`models: registered ${labels.join(" · ")} (key set, no model registered) → ${r.file}`);
+      return labels;
+    } catch (e) {
+      console.error(`models: could not register starter models: ${e instanceof Error ? e.message : String(e)}`);
+      return [];
+    }
+  }
 
   function backupNow(): BackupFile {
     return runBackup(s.config, s.db, s.settings, clock());
@@ -719,9 +748,10 @@ export function createApp(o: AppOptions): App {
         if (e instanceof HttpError) throw e;
         throw new HttpError(400, e instanceof Error ? e.message : String(e));
       }
+      const addedModels = req.method === "PUT" ? registerStarterModels() : [];
       const item = st.status(settingDefs(s.config)).find((x) => x.name === name);
       broadcast({ type: "config_changed" }); // e.g. the model screen shows which keys are set
-      return send(res, 200, { ok: true, item: item ?? null });
+      return send(res, 200, { ok: true, item: item ?? null, addedModels });
     }
     if (req.method === "POST" && path === "/api/doctor") {
       await readJson(req);

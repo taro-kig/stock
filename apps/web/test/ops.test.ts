@@ -454,3 +454,27 @@ describe("broker order outcome notifications", () => {
     expect(await a.notifier.watch()).not.toContain("orders");
   });
 });
+
+describe("models registered for a key that has none", () => {
+  it("adds Gemini's standard models when its key is set but only DeepSeek models are registered", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "stockai-starter-"));
+    const cfgPath = join(dir, "config.yaml");
+    const src = readFileSync(join(ROOT, "config/config.example.yaml"), "utf8").replace(
+      /  pool:\n(?:    .*\n|    # .*\n)+/,
+      '  pool:\n    - { name: deepseek, provider: openai_compat, baseUrl: "https://api.deepseek.com/v1", model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }\n    - { name: deepseek-red, provider: openai_compat, baseUrl: "https://api.deepseek.com/v1", model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }\n',
+    );
+    writeFileSync(cfgPath, src);
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(join(dir, "wf"));
+    const services = new Services(loadConfig(cfgPath), { dbPath: ":memory:", env: { GEMINI_API_KEY: "g", DEEPSEEK_API_KEY: "d" }, fetchImpl: async () => { throw new Error("no network"); } });
+    expect(services.config.models!.pool.map((p) => p.name)).toEqual(["deepseek", "deepseek-red"]);
+    app = createApp({ services, registry: builtinRegistry(), workflowsDir: join(dir, "wf"), configPath: cfgPath });
+    expect(services.config.models!.pool.map((p) => p.name)).toEqual(["deepseek", "deepseek-red", "gemini-lite", "gemini-flash"]);
+    const saved = loadConfig(cfgPath);
+    expect(saved.models!.pool.map((p) => p.name)).toEqual(["deepseek", "deepseek-red", "gemini-lite", "gemini-flash"]);
+    expect(saved.models!.use.event).toBe("auto");
+    expect(readFileSync(cfgPath, "utf8")).toContain("# Which model does what"); // comments kept
+    // おまかせ now votes across vendors
+    expect(services.resolvedModels().event.vote).toEqual(expect.arrayContaining(["gemini-lite", "deepseek"]));
+  });
+});
