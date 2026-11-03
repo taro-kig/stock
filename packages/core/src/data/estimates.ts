@@ -1,6 +1,6 @@
 import { addDays, type IsoDate } from "../util/dates.ts";
 import type { Db } from "../util/db.ts";
-import { AlphaVantageLimit } from "./earningsResults.ts";
+import { AlphaVantageLimit, alphaVantage, isBurstAnswer } from "./earningsResults.ts";
 
 /**
  * Analyst estimate revisions: is the consensus EPS going up or down? Among the best-known
@@ -64,8 +64,12 @@ function rowsOf(body: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-/** Parses EARNINGS_ESTIMATES leniently. Throws AlphaVantageLimit on rate limits / premium-only answers. */
-export function parseEarningsEstimates(body: unknown): EstimateSnapshot[] {
+/**
+ * Parses EARNINGS_ESTIMATES leniently. Throws AlphaVantageLimit on rate limits / premium-only answers.
+ * The live API labels every quarter "fiscal quarter", past ones too (back to 2017), so with `asOf`
+ * periods that ended before it are dropped and the next one to report is kept.
+ */
+export function parseEarningsEstimates(body: unknown, asOf?: string): EstimateSnapshot[] {
   const o = (body ?? {}) as Record<string, unknown>;
   const msg = o["Error Message"] ?? o["Information"] ?? o["Note"];
   if (typeof msg === "string") throw new AlphaVantageLimit(`Alpha Vantage: ${msg.slice(0, 200)}`);
@@ -76,7 +80,7 @@ export function parseEarningsEstimates(body: unknown): EstimateSnapshot[] {
     if (/histor/.test(h)) continue;
     const horizon: EstimateHorizon | null = /quarter|qtr|q\b/.test(h) ? "quarter" : /year|annual|fy/.test(h) ? "year" : null;
     const period = [r["date"], r["fiscalDateEnding"], r["fiscal_date_ending"], r["period_end"]].find(isDate);
-    if (!horizon || !period) continue;
+    if (!horizon || !period || (asOf && period < asOf)) continue;
     const ago: EstimateSnapshot["ago"] = {};
     let average: number | null = null;
     let up7: number | null = null;
@@ -108,19 +112,23 @@ export function parseEarningsEstimates(body: unknown): EstimateSnapshot[] {
   return (["quarter", "year"] as const).flatMap((hz) => out.filter((x) => x.horizon === hz).sort((a, b) => a.period.localeCompare(b.period)).slice(0, 1));
 }
 
-export async function fetchEarningsEstimates(apiKey: string, ticker: string, fetchImpl: typeof fetch): Promise<EstimateSnapshot[]> {
+/** `asOf`: the day of the download (periods that ended before it are past quarters, not estimates). */
+export async function fetchEarningsEstimates(apiKey: string, ticker: string, asOf: string, fetchImpl: typeof fetch, sleep?: (ms: number) => Promise<void>): Promise<EstimateSnapshot[]> {
   const url = `https://www.alphavantage.co/query?function=EARNINGS_ESTIMATES&symbol=${encodeURIComponent(ticker.replace(/\./g, "-"))}&apikey=${encodeURIComponent(apiKey)}`;
-  let res: Response;
-  try {
-    res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-  } catch (e) {
-    throw new Error(`cannot reach www.alphavantage.co: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  if (!res.ok) throw new Error(`Alpha Vantage answered HTTP ${res.status}`);
-  return parseEarningsEstimates(await res.json());
+  return alphaVantage(async () => {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+    } catch (e) {
+      throw new Error(`cannot reach www.alphavantage.co: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!res.ok) throw new Error(`Alpha Vantage answered HTTP ${res.status}`);
+    return parseEarningsEstimates(await res.json(), asOf);
+  }, sleep);
 }
 
-export const isPremiumAnswer = (e: unknown) => e instanceof AlphaVantageLimit && /premium/i.test(e.message);
+/** This key cannot use the function. The per-second refusal also mentions the premium plans: that one is not it. */
+export const isPremiumAnswer = (e: unknown) => e instanceof AlphaVantageLimit && /premium/i.test(e.message) && !isBurstAnswer(e);
 
 const change = (now: number, base: number | null | undefined) => (base === null || base === undefined || Math.abs(base) < 0.005 ? null : (now - base) / Math.abs(base));
 

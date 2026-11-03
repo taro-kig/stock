@@ -30,6 +30,20 @@ describe("analyst estimate revisions", () => {
     expect(parseEarningsEstimates({ unexpected: true })).toEqual([]);
   });
 
+  it("skips quarters that already ended (the live API lists them all as \"fiscal quarter\")", () => {
+    const live = {
+      symbol: "ETN",
+      estimates: [
+        { date: "2017-06-30", horizon: "fiscal quarter", eps_estimate_average: "1.16" },
+        { date: "2026-09-30", horizon: "fiscal quarter", eps_estimate_average: "3.54" },
+        { date: "2026-12-31", horizon: "fiscal quarter", eps_estimate_average: "3.80" },
+        { date: "2026-12-31", horizon: "fiscal year", eps_estimate_average: "13.60" },
+        { date: "2027-12-31", horizon: "fiscal year", eps_estimate_average: "15.10" },
+      ],
+    };
+    expect(parseEarningsEstimates(live, "2026-11-04").map((x) => [x.horizon, x.period, x.average])).toEqual([["quarter", "2026-12-31", 3.8], ["year", "2026-12-31", 13.6]]);
+  });
+
   it("computes revisions from the API snapshot, or from our own daily calendar record", () => {
     const st = new EstimateStore(openDb(":memory:"));
     st.save("AAPL", "2026-11-01", parseEarningsEstimates(AV));

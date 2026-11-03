@@ -366,7 +366,7 @@ export const earningsCalendar = defineNode({
         return { earnings: {} };
       }
       try {
-        const entries = await fetchEarningsCalendar(key, s.fetch);
+        const entries = await fetchEarningsCalendar(key, s.fetch, "3month", s.sleep);
         s.earnings.save(today, entries, ctx.wallNow());
         // keep today's consensus for our companies: the record that estimate revisions are computed from
         // research stocks too: revision history accumulates for later measurement
@@ -425,7 +425,7 @@ export const earningsResultsNode = defineNode({
       let failed = 0;
       for (const t of due.slice(0, p.maxFetches)) {
         try {
-          s.earningsResults.save(t, today, await fetchEarningsResults(key, t, s.fetch));
+          s.earningsResults.save(t, today, await fetchEarningsResults(key, t, s.fetch, s.sleep));
           fetched++;
         } catch (e) {
           failed++;
@@ -478,7 +478,7 @@ export const estimatesNode = defineNode({
       let failed = 0;
       for (const t of due.slice(0, p.maxFetches)) {
         try {
-          s.estimates.save(t, today, await fetchEarningsEstimates(key, t, s.fetch));
+          s.estimates.save(t, today, await fetchEarningsEstimates(key, t, today, s.fetch, s.sleep));
           fetched++;
         } catch (e) {
           if (isPremiumAnswer(e)) {

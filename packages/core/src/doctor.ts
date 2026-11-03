@@ -203,7 +203,7 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
         const last = s.earnings.lastFetch();
         return { status: "ok", detail: `今日は取得済み（${last?.rows ?? 0} 件）` };
       }
-      const entries = await fetchEarningsCalendar(key, s.fetch);
+      const entries = await fetchEarningsCalendar(key, s.fetch, "3month", s.sleep);
       s.earnings.save(today, entries, now); // counts as today's download
       const mine = entries.filter((e) => e.ticker in c.watchlist).sort((a, b) => a.reportDate.localeCompare(b.reportDate));
       s.estimates.saveCalendar(today, mine); // and as today's consensus record
@@ -225,7 +225,7 @@ export async function runDoctor(s: Services, o: DoctorOptions = {}): Promise<Che
       const t = s.watchlistFor("us").tickers.find((x) => x !== s.market("us").benchmark);
       if (!t) return { status: "skip", detail: "ウォッチリストが空" };
       try {
-        const snaps = await fetchEarningsEstimates(key, t, s.fetch);
+        const snaps = await fetchEarningsEstimates(key, t, toIsoDate(now), s.fetch, s.sleep);
         s.estimates.save(t, toIsoDate(now), snaps);
         if (!snaps.length) return { status: "warn", detail: `${t}: 応答は来たが予想の行を読み取れない`, hint: "データの形式が想定と違う可能性。自前の記録（決算予定の予想値）だけで動きます" };
         const parts = snaps.map((x) => `${x.horizon === "quarter" ? "四半期" : "通期"} ${x.period}: ${x.average} · 過去値 ${Object.keys(x.ago).join("/") || "なし"} 日前 · 修正件数 ${x.up === null && x.down === null ? "なし" : `${x.up ?? 0}↑ ${x.down ?? 0}↓`}`);

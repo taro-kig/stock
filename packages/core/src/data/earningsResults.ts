@@ -79,17 +79,50 @@ export class AlphaVantageLimit extends Error {
   override name = "AlphaVantageLimit";
 }
 
-/** One request per ticker. The key is part of the URL (Alpha Vantage requires it), so URLs are never logged. */
-export async function fetchEarningsResults(apiKey: string, ticker: string, fetchImpl: typeof fetch): Promise<EarningsResult[]> {
-  const url = `https://www.alphavantage.co/query?function=EARNINGS&symbol=${encodeURIComponent(ticker.replace(/\./g, "-"))}&apikey=${encodeURIComponent(apiKey)}`;
-  let res: Response;
-  try {
-    res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-  } catch (e) {
-    throw new Error(`cannot reach www.alphavantage.co: ${e instanceof Error ? e.message : String(e)}`);
+/**
+ * "Please consider spreading out your free API requests more sparingly (1 request per second)":
+ * the request came a moment too soon. Not the daily limit, and not a premium-only function,
+ * although the message mentions the premium plans.
+ */
+export const isBurstAnswer = (e: unknown) => e instanceof AlphaVantageLimit && /per second|spreading out/i.test(e.message);
+
+const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Free keys allow one request a second. Shared by every Alpha Vantage request in this process (calendar, results, estimates). */
+const SPACING_MS = 1_200;
+let nextAt = 0;
+
+/**
+ * Runs one Alpha Vantage request (`attempt` fetches and parses): keeps requests over a second
+ * apart, and after a per-second refusal waits and asks once more.
+ */
+export async function alphaVantage<T>(attempt: () => Promise<T>, sleep: (ms: number) => Promise<void> = realSleep): Promise<T> {
+  for (let retried = false; ; retried = true) {
+    const now = Date.now();
+    const wait = nextAt - now;
+    nextAt = Math.max(now, nextAt) + SPACING_MS; // reserve the slot before waiting
+    if (wait > 0) await sleep(wait);
+    try {
+      return await attempt();
+    } catch (e) {
+      if (retried || !isBurstAnswer(e)) throw e;
+      await sleep(SPACING_MS);
+    }
   }
-  if (!res.ok) throw new Error(`Alpha Vantage answered HTTP ${res.status}`);
-  return parseEarningsResults(await res.json(), ticker);
+}
+
+/** One request per ticker. The key is part of the URL (Alpha Vantage requires it), so URLs are never logged. */
+export async function fetchEarningsResults(apiKey: string, ticker: string, fetchImpl: typeof fetch, sleep?: (ms: number) => Promise<void>): Promise<EarningsResult[]> {
+  const url = `https://www.alphavantage.co/query?function=EARNINGS&symbol=${encodeURIComponent(ticker.replace(/\./g, "-"))}&apikey=${encodeURIComponent(apiKey)}`;
+  return alphaVantage(async () => {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+    } catch (e) {
+      throw new Error(`cannot reach www.alphavantage.co: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!res.ok) throw new Error(`Alpha Vantage answered HTTP ${res.status}`);
+    return parseEarningsResults(await res.json(), ticker);
+  }, sleep);
 }
 
 export class EarningsResultStore {

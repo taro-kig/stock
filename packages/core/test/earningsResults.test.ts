@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildDossier, validateJudgment, type TradeJudgment } from "../src/ai/judge.ts";
 import { AppConfig } from "../src/config.ts";
-import { contradictsResults, needsResults, parseEarningsResults, resultLines, verdictOf, type EarningsResult } from "../src/data/earningsResults.ts";
+import { AlphaVantageLimit, alphaVantage, contradictsResults, fetchEarningsResults, isBurstAnswer, needsResults, parseEarningsResults, resultLines, verdictOf, type EarningsResult } from "../src/data/earningsResults.ts";
+import { isPremiumAnswer } from "../src/data/estimates.ts";
 import { checkEventsNode } from "../src/nodes/filters.ts";
 import { builtinRegistry } from "../src/nodes/index.ts";
 import { Services } from "../src/services.ts";
@@ -20,6 +21,35 @@ const AV = {
   ],
 };
 const r = (o: Partial<EarningsResult>): EarningsResult => ({ ticker: "AAPL", fiscalDateEnding: "2026-09-30", reportedDate: "2026-10-30", reportTime: null, reportedEPS: 1.52, estimatedEPS: 1.6, surprisePct: -5, ...o });
+
+const BURST = "Thank you for using Alpha Vantage! Please consider spreading out your free API requests more sparingly (1 request per second). You may subscribe to any of the premium plans at https://www.alphavantage.co/premium/ to lift the free key rate limit.";
+
+describe("Alpha Vantage requests", () => {
+  it("tells the per-second refusal apart from the daily limit and premium-only functions", () => {
+    expect(isBurstAnswer(new AlphaVantageLimit(`Alpha Vantage: ${BURST}`))).toBe(true);
+    expect(isPremiumAnswer(new AlphaVantageLimit(`Alpha Vantage: ${BURST}`))).toBe(false);
+    expect(isPremiumAnswer(new AlphaVantageLimit("Alpha Vantage: This is a premium endpoint. Please subscribe to any of the premium plans"))).toBe(true);
+    expect(isBurstAnswer(new AlphaVantageLimit("Alpha Vantage: We have detected your API key and our standard API rate limit is 25 requests per day."))).toBe(false);
+  });
+
+  it("keeps requests over a second apart", async () => {
+    const slept: number[] = [];
+    const sleep = async (ms: number) => void slept.push(ms);
+    await alphaVantage(async () => 1, sleep);
+    await alphaVantage(async () => 2, sleep);
+    expect(slept.length).toBeGreaterThan(0);
+    expect(Math.max(...slept)).toBeGreaterThan(1000);
+  });
+
+  it("waits and asks once more after a per-second refusal, then gives up", async () => {
+    const answers = [{ Information: BURST }, AV];
+    const fetchImpl = (async () => new Response(JSON.stringify(answers.shift()))) as unknown as typeof fetch;
+    const rs = await fetchEarningsResults("k", "AAPL", fetchImpl, async () => undefined);
+    expect(rs).toHaveLength(4);
+    const always = (async () => new Response(JSON.stringify({ Information: BURST }))) as unknown as typeof fetch;
+    await expect(fetchEarningsResults("k", "AAPL", always, async () => undefined)).rejects.toThrow(/per second/);
+  });
+});
 
 describe("reported earnings", () => {
   it("parses Alpha Vantage EARNINGS and computes the surprise itself", () => {
@@ -76,7 +106,7 @@ describe("reported earnings", () => {
     const calls: string[] = [];
     let limited = false;
     const s = new Services(AppConfig.parse({ market: { currency: "USD", benchmark: "SPY" }, watchlist: { AAPL: { name: "Apple" }, MSFT: { name: "Microsoft" }, NVDA: { name: "NVIDIA" } } }), {
-      dbPath: ":memory:", env: { ALPHAVANTAGE_API_KEY: "k" },
+      dbPath: ":memory:", env: { ALPHAVANTAGE_API_KEY: "k" }, sleep: async () => undefined,
       fetchImpl: async (u) => {
         const sym = new URL(String(u)).searchParams.get("symbol")!;
         calls.push(sym);

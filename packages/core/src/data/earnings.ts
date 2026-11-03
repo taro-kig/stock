@@ -1,5 +1,6 @@
 import type { Db } from "../util/db.ts";
 import { addDays, type IsoDate } from "../util/dates.ts";
+import { AlphaVantageLimit, alphaVantage } from "./earningsResults.ts";
 
 /**
  * Upcoming earnings dates. Source: Alpha Vantage EARNINGS_CALENDAR (free key, one request
@@ -39,7 +40,7 @@ export function parseEarningsCsv(text: string): EarningsEntry[] {
     } catch {
       // keep the raw start
     }
-    throw new Error(`Alpha Vantage: ${msg}`);
+    throw new AlphaVantageLimit(`Alpha Vantage: ${msg}`);
   }
   const [head, ...lines] = t.split(/\r?\n/);
   const cols = (head ?? "").split(",").map((c) => c.trim());
@@ -148,15 +149,19 @@ export class EarningsStore {
 }
 
 /** Downloads the calendar. The key is part of the URL (Alpha Vantage requires it), so URLs are never logged. */
-export async function fetchEarningsCalendar(apiKey: string, fetchImpl: typeof fetch, horizon: "3month" | "6month" | "12month" = "3month"): Promise<EarningsEntry[]> {
+export async function fetchEarningsCalendar(
+  apiKey: string, fetchImpl: typeof fetch, horizon: "3month" | "6month" | "12month" = "3month", sleep?: (ms: number) => Promise<void>,
+): Promise<EarningsEntry[]> {
   const url = `https://www.alphavantage.co/query?function=EARNINGS_CALENDAR&horizon=${horizon}&apikey=${encodeURIComponent(apiKey)}`;
-  let res: Response;
-  try {
-    res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-  } catch (e) {
-    const cause = e instanceof Error && e.cause instanceof Error ? `: ${e.cause.message}` : "";
-    throw new Error(`cannot reach www.alphavantage.co: ${e instanceof Error ? e.message : String(e)}${cause}`);
-  }
-  if (!res.ok) throw new Error(`Alpha Vantage answered HTTP ${res.status}`);
-  return parseEarningsCsv(await res.text());
+  return alphaVantage(async () => {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+    } catch (e) {
+      const cause = e instanceof Error && e.cause instanceof Error ? `: ${e.cause.message}` : "";
+      throw new Error(`cannot reach www.alphavantage.co: ${e instanceof Error ? e.message : String(e)}${cause}`);
+    }
+    if (!res.ok) throw new Error(`Alpha Vantage answered HTTP ${res.status}`);
+    return parseEarningsCsv(await res.text());
+  }, sleep);
 }
