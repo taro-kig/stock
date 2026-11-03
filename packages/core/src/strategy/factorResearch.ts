@@ -275,3 +275,35 @@ export function researchFactors(r: ResearchInput): FactorReport {
     factors, composite, weights, suggested, notes,
   };
 }
+
+/** The newest report written by an eval.factors node in any workflow run. */
+export function latestFactorReport(s: {
+  runStore: {
+    listRuns(n: number): Array<{ runId: string; workflow: string; specJson: string }>;
+    nodeRuns(runId: string): Array<{ nodeId: string; status: string; outputs: Record<string, string> }>;
+    getArtifact(hash: string): unknown;
+  };
+}): { report: FactorReport; runId: string; workflow: string } | null {
+  for (const run of s.runStore.listRuns(300)) {
+    let nodes: Record<string, { use?: string }>;
+    try {
+      nodes = (JSON.parse(run.specJson) as { nodes?: Record<string, { use?: string }> }).nodes ?? {};
+    } catch {
+      continue;
+    }
+    const ids = Object.entries(nodes).filter(([, c]) => c.use === "eval.factors").map(([id]) => id);
+    if (!ids.length) continue;
+    const rows = s.runStore.nodeRuns(run.runId);
+    for (const id of ids) {
+      const row = rows.find((r) => r.nodeId === id);
+      const h = row?.outputs["report"];
+      if (!h || !row || !["ok", "cached", "fallback"].includes(row.status)) continue;
+      try {
+        return { report: s.runStore.getArtifact(h) as FactorReport, runId: run.runId, workflow: run.workflow };
+      } catch {
+        // artifact pruned
+      }
+    }
+  }
+  return null;
+}

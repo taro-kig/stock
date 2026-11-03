@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { addDays, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
+import { addDays, ScreenRequest, screenStocks, vendorOf, AUTO, describeUse, explicitModelNames, type ResolvedUse, FALLBACK_PRICE_PER_M, listModels, MODEL_USES, ModelSpecInput, NO_MODEL, saveModelPool, saveModelUse, testModel, type ModelUse, type ModelUseValue, VENDOR_IDS, VENDORS, type ModelList, type ModelTest, type VendorId, runDoctor, watchlistHistory, backupDue, backupStatus, defaultGoldenSet, US_HOLIDAY_JA, usHoliday, usHolidaysBetween, editableConfigPath, Engine, EVALUABLE, FAMILY_LABELS, logWatchlistChange, PROMPT_FAMILIES, runPromptEval, saveConfigValue, type PromptFamily, SuggestRequest, suggestTickers, parseWorkflow, runBackup, saveWatchlist, settingDefs, type BackupFile, type BackupStatus, stringifyWorkflow, toGraph, validateWorkflow, WorkflowError, WorkflowSpec, type NodeRegistry, type RunEvent, type Services } from "@stockai/core";
 import type { CalendarView, ImportResult, ModelsView, Overview, PromptFamilyView, PromptsView, RunDetail, SettingsView, StreamEvent, WatchlistView } from "../shared/types.ts";
 import { RunNotifier } from "./notify.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -108,6 +108,7 @@ export function createApp(o: AppOptions): App {
   });
   const queue = new RunQueue();
   let doctorRunning = false;
+  let screening = false;
   const modelLists = new Map<string, { until: number; list: ModelList }>();
   s.promptStore.failStale(clock());
   const notifier = new RunNotifier(s, registry, clock);
@@ -697,6 +698,20 @@ export function createApp(o: AppOptions): App {
         return send(res, 200, { ok: true, file: backupNow(), status: backupStatus(s.config, clock()) });
       } catch (e) {
         throw new HttpError(500, `バックアップに失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (req.method === "POST" && path === "/api/universe/screen") {
+      if (s.config.market.currency !== "USD") throw new HttpError(400, "データでの銘柄探しは米国株の設定（market.currency: USD）でのみ使えます");
+      if (screening) throw new HttpError(409, "別の銘柄探しを実行中です");
+      const parsed = ScreenRequest.safeParse(await readJson(req));
+      if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      screening = true;
+      try {
+        return send(res, 200, await screenStocks(s, parsed.data, { now: clock(), report: latestFactorReport(s)?.report ?? null }));
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : String(e));
+      } finally {
+        screening = false;
       }
     }
     if (req.method === "POST" && path === "/api/universe/suggest") {

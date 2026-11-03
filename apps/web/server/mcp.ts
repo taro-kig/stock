@@ -4,7 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   additionDates, applyWatchlistPatch, parseWorkflow, SECTORS, SecClient, secListings, validateWorkflow, verify, watchlistHistory, WorkflowError,
-  type NodeRegistry, type Services,
+  latestFactorReport, screenStocks, type NodeRegistry, type Services,
 } from "@stockai/core";
 import type { App } from "./app.ts";
 import { latestScorecard, runDetail, summary, workflowInfo } from "./views.ts";
@@ -209,6 +209,27 @@ export function buildMcpServer(o: McpOptions): McpServer {
         const v = verify({ ticker: c.ticker, name: c.name, aliases: [], sector: "tech", reason: "" }, listings, new Set());
         return { ticker: v.ticker, ok: v.status === "ok", problem: v.problem, official: v.listing, inWatchlist: v.ticker in s.config.watchlist };
       });
+    }),
+  );
+
+  server.registerTool(
+    "screen_stocks",
+    {
+      title: "Screen stocks from data (SEC + prices)",
+      description:
+        "Finds NYSE/Nasdaq stocks from data rather than memory, any size including small caps: public float size, last year's revenue growth and operating margin for every SEC filer, then sector, filings and prices for a short list; liquidity and price checks; ranked with the scoring factors (weights from the latest factor research when available). Returns candidates with the numbers behind each. Takes a few minutes (price downloads are rate-limited). Use update_watchlist only after the user picked.",
+      inputSchema: {
+        sizes: z.array(z.enum(["large", "mid", "small"])).min(1).optional().describe("default mid + small"),
+        sectors: z.array(z.string()).optional().describe("tech, semis, communication, consumer, staples, healthcare, financials, energy, industrials, materials, utilities, real_estate; empty = all"),
+        count: z.number().int().min(1).max(25).optional(),
+        minRevenueGrowth: z.number().optional().describe("fraction, 0.1 = +10%"),
+        minOperatingMargin: z.number().optional().describe("fraction"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    },
+    guard(async (args: Record<string, unknown>) => {
+      const r = await screenStocks(s, Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) as never, { report: latestFactorReport(s)?.report ?? null });
+      return { funnel: r.funnel, weightsFrom: r.weightsFrom, notes: r.notes, candidates: r.candidates.map((c) => ({ ticker: c.ticker, name: c.name, sector: c.sector, size: c.bucket, reason: c.reason, inWatchlist: c.ticker in s.config.watchlist })) };
     }),
   );
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Candidate, SuggestResult } from "@stockai/core";
 import { post } from "../api.ts";
+import { ScreenBox } from "./ScreenBox.tsx";
 
 type Toast = (m: string, err?: boolean) => void;
 
@@ -33,7 +34,21 @@ export interface NewRow {
   sector: string;
 }
 
+/** Two ways to find stocks: from the data (any size) or by asking the AI for a theme. */
 export function SuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast: Toast }) {
+  const [mode, setMode] = useState<"data" | "ai">("data");
+  return (
+    <>
+      <div className="seg" role="radiogroup" aria-label="探し方" style={{ marginTop: "calc(var(--lh) * 0.75)" }}>
+        <button type="button" role="radio" aria-checked={mode === "data"} className={mode === "data" ? "on" : ""} onClick={() => setMode("data")}>データで探す</button>
+        <button type="button" role="radio" aria-checked={mode === "ai"} className={mode === "ai" ? "on" : ""} onClick={() => setMode("ai")}>テーマで AI に聞く</button>
+      </div>
+      {mode === "data" ? <ScreenBox onAdd={onAdd} toast={toast} /> : <AiSuggestBox onAdd={onAdd} toast={toast} />}
+    </>
+  );
+}
+
+function AiSuggestBox({ onAdd, toast }: { onAdd: (rows: NewRow[]) => void; toast: Toast }) {
   const [theme, setTheme] = useState("");
   const [count, setCount] = useState(10);
   const [size, setSize] = useState("any");

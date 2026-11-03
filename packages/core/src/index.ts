@@ -41,5 +41,7 @@ export { fundamentalLines, fundamentalsAt, FundamentalsStore, parseCompanyFacts,
 export { estimateLines, EstimateStore, parseEarningsEstimates, revisionScore, type EstimatesMap, type Revision } from "./data/estimates.ts";
 export { computeMarket, marketLines, MacroStore, parseFredObservations, SECTOR_ETFS, type MarketContext, type RiskLevel } from "./data/market.ts";
 export { FACTOR_INFO, factorColumns } from "./strategy/factorLib.ts";
-export { researchFactors, spearman, type FactorReport, type FactorStats } from "./strategy/factorResearch.ts";
+export { latestFactorReport, researchFactors, spearman, type FactorReport, type FactorStats } from "./strategy/factorResearch.ts";
 export { RESEARCH_UNIVERSE_US } from "./strategy/researchUniverse.ts";
+export { ScreenRequest, screenStocks, type ScreenCandidate, type ScreenResult } from "./universe/screen.ts";
+export { BUCKET_JA, SIZE_BUCKETS, type SizeBucket } from "./universe/companies.ts";

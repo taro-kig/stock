@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { TwelveDataClient } from "../data/twelveData.ts";
 import type { Bar, Prices } from "../signals/technical.ts";
+import { latestFactorReport } from "../strategy/factorResearch.ts";
+import { ScreenRequest, screenStocks } from "../universe/screen.ts";
 import { SIZES, suggestTickers } from "../universe/suggest.ts";
 import { additionDates, applyWatchlistPatch, type UniverseAdd, type UniverseChanges, type UniverseRemove } from "../universe/watchlist.ts";
 import { addDays } from "../util/dates.ts";
@@ -27,7 +29,7 @@ export const universeReview = defineNode({
   category: "universe",
   description:
     "Proposes watchlist changes (US stocks): additions from the AI for the given themes, verified against the SEC list and checked for liquidity; removals for low liquidity or missing data, or for two soft signs (no news and an always-neutral AI). Runs at most once per minDaysBetween; live runs only.",
-  version: 1,
+  version: 2, // v2: additions can come from the data screen
   cache: "none",
   params: z.object({
     themes: z.array(z.string()).default([]).describe("empty: diversify the current watchlist"),
@@ -47,6 +49,10 @@ export const universeReview = defineNode({
     promptVersion: z.string().optional(),
     /** Model for this workflow (default: models.use.universe). */
     model: z.string().optional(),
+    /** Where additions come from: ai (themes → model → SEC check), screen (SEC + price data, any size), or both. */
+    source: z.enum(["ai", "screen", "both"]).default("ai"),
+    /** Screen settings (source screen / both): sizes, sectors, minRevenueGrowth, minOperatingMargin, ... */
+    screen: ScreenRequest.partial().default({}),
   }),
   inputs: { prices: { type: "Prices" } },
   outputs: { changes: { type: "UniverseChanges" } },
@@ -111,9 +117,27 @@ export const universeReview = defineNode({
 
     // ── additions ────────────────────────────────────────────
     const add: UniverseAdd[] = [];
-    if (p.addCount > 0) {
+    if (p.addCount > 0 && p.source !== "ai") {
+      try {
+        const r = await screenStocks(s, { ...p.screen, count: p.addCount }, { now: ctx.wallNow(), report: latestFactorReport(s)?.report ?? null, log: ctx.log });
+        ctx.metric("screened", r.candidates.length);
+        notes.push(`データで探した候補: ${r.funnel.map((f) => `${f.step} ${f.count}`).join(" → ")}（重み: ${r.weightsFrom === "factor-research" ? "因子の検証の提案" : "既定"}）`);
+        for (const c of r.candidates) {
+          if (add.length >= p.addCount) break;
+          add.push({
+            ticker: c.ticker, name: c.name, aliases: [], sector: c.sector, reason: `データ: ${c.reason}`,
+            listing: { name: c.name, exchange: c.exchange, cik: c.cik }, avgDollarVolume: c.tradedValue,
+          });
+        }
+      } catch (e) {
+        notes.push(`データでの銘柄探しができなかった: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (p.addCount > add.length && p.source !== "screen") {
       const theme = p.themes.length ? p.themes.join(" / ") : "今のウォッチリストのセクターの偏りを補う、流動性の高い米国株";
       const r = await suggestTickers(s, { theme, count: Math.min(25, p.addCount + 3), size: p.size }, ctx.wallNow(), p.promptVersion, p.model);
+      const already = new Set(add.map((a) => a.ticker));
+      r.candidates = r.candidates.filter((c) => !already.has(c.ticker));
       ctx.metric("suggested", r.candidates.length);
       if (r.verificationError) notes.push(`追加候補は確認できなかったため出していない: ${r.verificationError}`);
       const rejected = r.candidates.filter((c) => c.status === "rejected");
