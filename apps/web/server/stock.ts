@@ -216,5 +216,6 @@ export function journalView(s: Services, registry: NodeRegistry, now: Date): Jou
       const ts = trades.filter((t) => t.account === a.account);
       return { account: a.account, currency: a.currency, summary: summarizeTrades(ts), trades: ts };
     }).filter((a) => a.trades.length),
+    brokerOrders: s.brokerLedger.recentOrders(50),
   };
 }

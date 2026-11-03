@@ -50,6 +50,8 @@ export interface BrokerClient {
   previewLimitOrder?(req: OrderRequest, accountId: string): Promise<string>;
   /** Returns the broker's order id. */
   placeLimitOrder(req: OrderRequest, accountId: string): Promise<string>;
+  /** Exact state and fills of our orders, when the broker can report them (otherwise inferred from positions). */
+  orderUpdates?(orders: Array<{ ref: string; brokerOrderId: string | null }>, accountId: string): Promise<Array<{ ref: string; state: "working" | "filled" | "partial" | "unfilled"; filledShares: number; fillPrice: number | null; note: string }>>;
   close(): Promise<void>;
 }
 

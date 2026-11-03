@@ -437,3 +437,20 @@ describe("watch notifications", () => {
     expect(await a.notifier.watch()).toEqual([]); // nothing twice
   });
 });
+
+describe("broker order outcome notifications", () => {
+  it("sends filled / unfilled outcomes once", async () => {
+    const { app: a, services, posts } = await start({ webhook: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const base = { asOf: today, account: "DU1", limitPrice: 100, tif: "DAY" as const, status: "submitted" as const, brokerOrderId: "1", message: "" };
+    services.brokerLedger.recordSubmitted({ ...base, ref: "r-a", ticker: "AAA", side: "buy", shares: 10 }, "run1", { shares: 0, avgCost: null });
+    services.brokerLedger.recordSubmitted({ ...base, ref: "r-b", ticker: "BBB", side: "buy", shares: 5 }, "run1", { shares: 0, avgCost: null });
+    services.brokerLedger.updateOrder("r-a", { state: "filled", filledShares: 10, fillPrice: 99.8, note: "約定（保有の変化から推定）", estimated: true }, new Date());
+    services.brokerLedger.updateOrder("r-b", { state: "unfilled", filledShares: 0, fillPrice: null, note: "約定せず", estimated: true }, new Date());
+    expect(await a.notifier.watch()).toContain("orders");
+    const n = posts.find((p) => p.embeds[0]!.title.startsWith("📬"))!;
+    expect(n.embeds[0]!.title).toBe("📬 ブローカー注文の結果 2 件");
+    expect(JSON.stringify(n)).toContain("BUY AAA · 約定");
+    expect(await a.notifier.watch()).not.toContain("orders");
+  });
+});

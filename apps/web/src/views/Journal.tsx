@@ -1,8 +1,9 @@
 import { useState } from "react";
+import type { TrackedOrder } from "@stockai/core";
 import type { JournalView } from "../../shared/types.ts";
 import { useApi } from "../api.ts";
 import { Empty, ErrorLine, Pane, Stance } from "../components/ui.tsx";
-import { big, num, pct, price, signedPct } from "../format.ts";
+import { big, dateTime, num, pct, price, signedPct } from "../format.ts";
 import { TickerLink } from "./StockPage.tsx";
 
 /** Paper trades: what was bought, why, how it ended. */
@@ -11,7 +12,7 @@ export function Journal() {
   const [filter, setFilter] = useState<"all" | "open" | "closed">("all");
   if (error) return <ErrorLine error={error} />;
   if (!data) return <Empty>読み込み中</Empty>;
-  if (!data.accounts.length) {
+  if (!data.accounts.length && !data.brokerOrders.length) {
     return (
       <Pane title="売買日誌">
         <Empty>まだ取引がありません。</Empty>
@@ -64,7 +65,47 @@ export function Journal() {
           </Pane>
         );
       })}
+      {data.brokerOrders.length > 0 && <BrokerOrders orders={data.brokerOrders} />}
       <p className="faint">取引 = 最初の買いから株数が 0 に戻るまで。損益は手数料込み、保有中は最新の終値での評価。買った理由はその日の AI の判断（同じワークフローの記録）。</p>
     </div>
+  );
+}
+
+const STATE: Record<string, { label: string; cls: string }> = {
+  working: { label: "注文中", cls: "dim" },
+  filled: { label: "約定", cls: "up" },
+  partial: { label: "一部約定", cls: "warn" },
+  unfilled: { label: "約定せず", cls: "dim" },
+};
+
+/** Orders sent to IBKR / Webull and their outcome (checked at the start of the next run). */
+function BrokerOrders({ orders }: { orders: TrackedOrder[] }) {
+  return (
+    <Pane title="ブローカーの注文" aux={`直近 ${orders.length} 件`}>
+      <table className="t">
+        <thead>
+          <tr><th>送信</th><th>口座</th><th>銘柄</th><th>売買</th><th className="num">株数</th><th className="num">指値</th><th>結果</th><th className="num">約定</th><th>メモ</th></tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => {
+            const st = o.state ? STATE[o.state] : null;
+            return (
+              <tr key={o.ref}>
+                <td className="nowrap dim">{o.asOf}</td>
+                <td className="nowrap faint">{o.account}</td>
+                <td className="nowrap"><TickerLink t={o.ticker} /></td>
+                <td className={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買い" : "売り"}</td>
+                <td className="num">{o.shares.toLocaleString()}</td>
+                <td className="num">{price(o.limitPrice)}</td>
+                <td className={`nowrap ${st?.cls ?? "faint"}`}>{st?.label ?? "—"}{o.estimated && o.state !== "working" && <span className="faint" title="ブローカーの約定報告ではなく、保有株数の変化から推定"> 推定</span>}</td>
+                <td className="num nowrap">{o.filledShares !== null ? `${o.filledShares.toLocaleString()}/${o.shares.toLocaleString()}` : "—"}{o.fillPrice !== null && <div className="faint">約 {price(o.fillPrice)}</div>}</td>
+                <td className="wrap faint">{o.note ?? ""}{o.checkedAt && <div>確認 {dateTime(o.checkedAt)}</div>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="faint">結果は次の実行の最初に確認します（注文一覧に残っていれば注文中、消えていれば保有株数の変化から約定・一部約定・約定せずを判断）。同じ銘柄を手やアプリで売買すると推定がずれます。正確な約定はブローカーの画面で確認してください。</p>
+    </Pane>
   );
 }

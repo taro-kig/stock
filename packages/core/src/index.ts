@@ -55,3 +55,5 @@ export { resolveRef } from "./workflow/spec.ts";
 export type { FactorRow, FactorTable } from "./strategy/factors.ts";
 export { setWorkflowParam } from "./workflow/editFile.ts";
 export { buildTrades, summarize as summarizeTrades, type JournalSummary, type Trade } from "./eval/journal.ts";
+export { trackOrders, type OrderState, type OrderUpdate } from "./execution/tracking.ts";
+export type { TrackedOrder } from "./execution/ledger.ts";

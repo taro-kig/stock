@@ -222,6 +222,31 @@ export class RunNotifier {
       }
     }
 
+    if (this.#wants("orders")) {
+      // what became of orders sent to a real broker (checked by the broker account node at the start of each run)
+      const since = new Date(now.getTime() - 3 * 86_400_000).toISOString();
+      const done = s.brokerLedger.recentOrders(100).filter((o) => o.state && o.state !== "working" && o.checkedAt && o.checkedAt >= since);
+      const fresh = done.filter((o) => !s.db.prepare("SELECT 1 FROM notify_log WHERE run_id = ? AND kind = 'brokerfill' AND error IS NULL").get(`${o.ref}:${o.state}`));
+      if (fresh.length) {
+        const label = { filled: "約定", partial: "一部約定", unfilled: "約定せず" } as const;
+        const n: Notice = {
+          title: `📬 ブローカー注文の結果 ${fresh.length} 件`,
+          tone: fresh.some((o) => o.state !== "filled") ? "warn" : "ok",
+          fields: fresh.slice(0, 20).map((o) => ({
+            name: `${o.side === "buy" ? "BUY" : "SELL"} ${o.ticker} · ${label[o.state as keyof typeof label]}`,
+            value: `${o.filledShares ?? 0}/${o.shares} 株${o.fillPrice ? ` · 約 ${o.fillPrice.toFixed(2)}` : ""} · ${o.account}\n${o.note ?? ""}`,
+          })),
+        };
+        const url = link("journal");
+        if (url) n.url = url;
+        // one notice for the batch; each order is marked so it is never sent again
+        if (await this.#once(`brokerfill:${fresh.map((o) => o.ref).join(",")}`, "brokerfill-batch", n)) {
+          for (const o of fresh) s.db.prepare("INSERT OR REPLACE INTO notify_log VALUES (?,?,?,NULL)").run(`${o.ref}:${o.state}`, "brokerfill", now.toISOString());
+          sent.push("orders");
+        }
+      }
+    }
+
     if (this.#wants("stale")) {
       const stale = todayView(s, now).freshness.filter((f) => f.stale);
       if (stale.length) {

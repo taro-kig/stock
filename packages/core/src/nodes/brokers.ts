@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { BrokerClient, OrderTicket } from "../execution/broker.ts";
 import { checkAccountMode, checkLiveInterlock, checkOrder, limitPrice, orderRef } from "../execution/guards.ts";
+import { trackOrders } from "../execution/tracking.ts";
 import { lastClose, type AccountState } from "../execution/paper.ts";
 import type { BrokerKind } from "../services.ts";
 import { tradingMode } from "../strategy/risk.ts";
@@ -60,6 +61,16 @@ function accountNode(type: string, kind: BrokerKind, title: string, description:
         const bad = prof.accountGuard(a.accountId);
         if (bad) throw new Error(bad);
         if (a.currency !== "JPY" && a.currency !== "USD") throw new Error(`unsupported base currency ${a.currency}`);
+        // what became of the orders sent earlier (filled / partly / not), before anything new is decided
+        if (ctx.live) {
+          try {
+            const updates = await trackOrders(s.brokerLedger, b, a, ctx.wallNow());
+            for (const u of updates) if (u.state !== "working") ctx.log(`${u.side} ${u.ticker} ${u.shares}: ${u.note}${u.fillPrice ? ` @ ${u.fillPrice.toFixed(2)}` : ""}`);
+            for (const st of ["working", "filled", "partial", "unfilled"] as const) ctx.metric(`orders_${st}`, updates.filter((u) => u.state === st).length);
+          } catch (e) {
+            ctx.log(`order tracking failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
         const positions = s.brokerLedger.reconcile(a.accountId, ctx.asOf, a.positions, (t) => lastClose(i.prices, t, ctx.asOf), (t) => s.watchlist.sector(t));
         const peakEquity = s.brokerLedger.recordEquity(a.accountId, ctx.asOf, a.netLiquidation);
         const account: AccountState = {
@@ -129,8 +140,9 @@ function orderNode(type: string, kind: BrokerKind, title: string, description: s
             continue;
           }
           try {
+            const before = a.positions.find((x) => x.ticker === base.ticker);
             const t = { ...base, brokerOrderId: await b.placeLimitOrder(base, a.accountId) };
-            s.brokerLedger.recordSubmitted(t, ctx.runId);
+            s.brokerLedger.recordSubmitted(t, ctx.runId, { shares: before?.shares ?? 0, avgCost: before?.avgCost ?? null });
             orders.push(t);
             sent++;
           } catch (e) {
