@@ -4,6 +4,7 @@ import { contradictsResults } from "../data/earningsResults.ts";
 import { EventExtractor } from "../signals/extractor.ts";
 import { docHash, type EventRecord } from "../signals/models.ts";
 import { defineNode } from "../workflow/registry.ts";
+import { VoteProblems } from "./problems.ts";
 
 export const extractEvents = defineNode({
   type: "llm.extractEvents",
@@ -32,6 +33,7 @@ export const extractEvents = defineNode({
     const version = prompt.version;
     const extractor = new EventExtractor(s.caller, s.voters("event", p.models), { quorum: p.quorum ?? s.config.harness.quorum, escalation: s.escalation("event", p.escalation), prompt });
     const events: EventRecord[] = [];
+    const problems = new VoteProblems(ctx);
     for (const { doc, candidates } of i.matches) {
       s.docStore.saveDocument(doc);
       let res = s.docStore.getExtraction(doc, version);
@@ -43,6 +45,7 @@ export const extractEvents = defineNode({
           s.docStore.saveExtraction(doc, version, r);
           ctx.metric(`status_${r.status}`, 1);
           ctx.metric("rejectedVotes", r.votes.filter((v) => v.rejected).length);
+          problems.note(r.votes);
           res = { status: r.status, agreement: r.agreement, value: r.value };
         } catch (e) {
           if (!(e instanceof BudgetExceeded)) throw e;
@@ -58,6 +61,7 @@ export const extractEvents = defineNode({
         });
       }
     }
+    problems.finish();
     ctx.metric("events", events.length);
     return { events };
   },

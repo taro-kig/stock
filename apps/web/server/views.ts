@@ -79,6 +79,11 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
   const graph = toGraph(spec, registry);
   const rows = Object.fromEntries(s.runStore.nodeRuns(run.runId).map((n) => [n.nodeId, n]));
   const layer = layers(spec);
+  const logs: Record<string, string[]> = {};
+  for (const e of s.runStore.events(run.runId)) {
+    if (e.type !== "log" || !("node" in e) || typeof e.node !== "string") continue;
+    (logs[e.node] ??= []).push(String((e as { message?: unknown }).message ?? ""));
+  }
   const nodes: NodeView[] = graph.nodes.map((n) => {
     const r = rows[n.id];
     return {
@@ -88,6 +93,7 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
       layer: layer[n.id] ?? 0, params: n.params, onError: n.onError,
       inputs: n.inputs.map((i) => ({ ...i, from: graph.edges.find((e) => e.to.node === n.id && e.to.port === i.name)?.from ?? null })),
       outputs: n.outputs,
+      logs: (logs[n.id] ?? []).slice(-40),
     };
   });
 

@@ -59,6 +59,7 @@ describe("web server", () => {
     const d = await api<RunDetail>(`/api/runs/${body.runId}`);
     expect(d.body.run.status).toBe("succeeded");
     expect(d.body.nodes).toHaveLength(16);
+    expect(d.body.nodes.every((n) => Array.isArray(n.logs))).toBe(true);
     expect(d.body.nodes.find((n) => n.id === "news")?.layer).toBe(0);
     expect(d.body.nodes.find((n) => n.id === "decide")!.layer).toBeGreaterThan(d.body.nodes.find((n) => n.id === "score")!.layer);
     expect(d.body.highlights.judgments?.source).toBe("ai");

@@ -1,3 +1,4 @@
+import { groupFailures } from "./problems.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -103,6 +104,7 @@ export const stooqPrices = defineNode({
   outputs: { prices: { type: "Prices" } },
   async run(ctx, p) {
     const prices: Prices = {};
+    const failures: string[] = [];
     for (const t of universe(ctx)) {
       const sym = p.symbols[t] ?? `${t.toLowerCase()}.${p.market}`;
       try {
@@ -110,10 +112,12 @@ export const stooqPrices = defineNode({
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         prices[t] = barsUntil(parsePriceCsv(await res.text()), ctx.asOf);
       } catch (e) {
+        failures.push(`${sym}: ${e instanceof Error ? e.message : String(e)}`);
         ctx.log(`stooq ${sym} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (!Object.keys(prices).length) throw new Error("no price data from stooq");
+    ctx.metric("failed", failures.length);
+    if (!Object.keys(prices).length) throw noPricesError("stooq", failures);
     return { prices };
   },
 });
@@ -209,6 +213,7 @@ export const jquantsPrices = defineNode({
     if (!apiKey) throw new Error("JQUANTS_API_KEY is not set (settings screen or .env)");
     const client = jquantsClient({ apiKey, requestsPerMinute: p.requestsPerMinute });
     const prices: Prices = {};
+    const failures: string[] = [];
     let stale = 0;
     for (const t of universe(ctx)) {
       try {
@@ -222,11 +227,14 @@ export const jquantsPrices = defineNode({
         prices[t] = bars;
       } catch (e) {
         if (e instanceof JQuantsAuthError) throw e;
+        failures.push(`${t}: ${e instanceof Error ? e.message : String(e)}`);
         ctx.log(`jquants ${t} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    ctx.metric("failed", failures.length);
+    if (stale) ctx.metric("stale", stale);
     if (!Object.keys(prices).length) {
-      throw new Error(stale ? `J-Quants prices are older than ${p.maxStaleDays} days (the Free plan omits the latest 12 weeks)` : "no price data from J-Quants");
+      throw stale && !failures.length ? new Error(`J-Quants prices are older than ${p.maxStaleDays} days (the Free plan omits the latest 12 weeks)`) : noPricesError("J-Quants", failures);
     }
     return { prices };
   },
@@ -237,7 +245,7 @@ export async function loadTwelveData(
   ctx: NodeContext,
   tickers: readonly string[],
   p: { apiKeyEnv: string; symbols: Record<string, string>; historyBars: number; perMinute: number; maxStaleDays: number },
-): Promise<{ prices: Prices; counts: Record<"cached" | "update" | "full" | "stale" | "failed", number> }> {
+): Promise<{ prices: Prices; counts: Record<"cached" | "update" | "full" | "stale" | "failed", number>; failures: string[] }> {
   const s = ctx.services;
   const store = s.priceStore;
   const SRC = "twelvedata";
@@ -250,6 +258,11 @@ export async function loadTwelveData(
   };
   const prices: Prices = {};
   const counts = { cached: 0, update: 0, full: 0, stale: 0, failed: 0 };
+  const failures: string[] = [];
+  // Unreachable 3 times in a row before any success: the network is down, so stop waiting on every
+  // remaining symbol (8/min) and use local copies for the rest.
+  let unreachable = 0;
+  let offline: string | null = null;
   for (const t of tickers) {
     const sym = p.symbols[t] ?? t;
     let bars: Bar[];
@@ -258,12 +271,18 @@ export async function loadTwelveData(
       counts.cached++;
     } else {
       try {
+        if (offline) throw new Error(offline);
         const r = await syncBars(store, api(), SRC, t, sym, ctx.wallNow(), { historyBars: p.historyBars });
         bars = r.bars;
         counts[r.fetch === "full" ? "full" : "update"]++;
+        unreachable = -Infinity;
       } catch (e) {
         if (e instanceof TwelveDataAuthError) throw e; // every other ticker would fail the same way
         const msg = e instanceof Error ? e.message : String(e);
+        if (!offline && msg.startsWith("cannot reach") && ++unreachable >= 3) {
+          offline = `${msg} (not retried: 3 symbols in a row could not reach the server)`;
+          ctx.log(`network looks down; skipping downloads for the remaining symbols`);
+        }
         bars = store.bars(SRC, t).filter((b) => b.date <= ctx.asOf);
         const last = bars.at(-1)?.date;
         if (last && last >= addDays(ctx.asOf, -p.maxStaleDays)) {
@@ -271,6 +290,7 @@ export async function loadTwelveData(
           ctx.log(`${sym}: download failed, using local copy through ${last}: ${msg}`);
         } else {
           counts.failed++;
+          failures.push(msg.startsWith(`${sym}:`) ? msg : `${sym}: ${msg}`);
           ctx.log(`${sym}: download failed and no recent local copy: ${msg}`);
           continue;
         }
@@ -279,7 +299,13 @@ export async function loadTwelveData(
     const until = barsUntil(bars, ctx.asOf);
     if (until.length) prices[t] = until;
   }
-  return { prices, counts };
+  return { prices, counts, failures };
+}
+
+/** The node's error when nothing could be loaded: the distinct reasons, so the cause is visible without the logs. */
+export function noPricesError(source: string, failures: readonly string[]): Error {
+  if (!failures.length) return new Error(`no price data from ${source}`);
+  return new Error(`no price data from ${source} (${failures.length} failed) — ${groupFailures(failures)}`);
 }
 
 export const twelveDataPrices = defineNode({
@@ -304,9 +330,9 @@ export const twelveDataPrices = defineNode({
   inputs: {},
   outputs: { prices: { type: "Prices" } },
   async run(ctx, p) {
-    const { prices, counts } = await loadTwelveData(ctx, p.universe === "research" ? researchTickers(ctx) : universe(ctx), p);
+    const { prices, counts, failures } = await loadTwelveData(ctx, p.universe === "research" ? researchTickers(ctx) : universe(ctx), p);
     for (const [k, v] of Object.entries(counts)) ctx.metric(k, v);
-    if (!Object.keys(prices).length) throw new Error("no price data from Twelve Data");
+    if (!Object.keys(prices).length) throw noPricesError("Twelve Data", failures);
     return { prices };
   },
 });
@@ -389,16 +415,22 @@ export const earningsResultsNode = defineNode({
         recentReportDates: s.earnings.reportDates(t, addDays(today, -p.lookbackDays), today), today,
       }));
       let fetched = 0;
+      let failed = 0;
       for (const t of due.slice(0, p.maxFetches)) {
         try {
           s.earningsResults.save(t, today, await fetchEarningsResults(key, t, s.fetch));
           fetched++;
         } catch (e) {
+          failed++;
           ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
-          if (e instanceof AlphaVantageLimit) break; // rate limit / bad key: try again tomorrow
+          if (e instanceof AlphaVantageLimit) {
+            ctx.metric("limited", 1); // rate limit / bad key: try again tomorrow
+            break;
+          }
         }
       }
       ctx.metric("fetched", fetched);
+      if (failed) ctx.metric("failed", failed);
       if (due.length > p.maxFetches) ctx.metric("deferred", due.length - p.maxFetches);
     }
     const results = s.earningsResults.recent(tickers, ctx.asOf);
@@ -435,6 +467,7 @@ export const estimatesNode = defineNode({
         return !last || last <= addDays(today, -p.refreshDays);
       });
       let fetched = 0;
+      let failed = 0;
       for (const t of due.slice(0, p.maxFetches)) {
         try {
           s.estimates.save(t, today, await fetchEarningsEstimates(key, t, s.fetch));
@@ -445,11 +478,16 @@ export const estimatesNode = defineNode({
             ctx.metric("apiUnavailable", 1);
             break;
           }
+          failed++;
           ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
-          if (e instanceof AlphaVantageLimit) break;
+          if (e instanceof AlphaVantageLimit) {
+            ctx.metric("limited", 1);
+            break;
+          }
         }
       }
       ctx.metric("fetched", fetched);
+      if (failed) ctx.metric("failed", failed);
     }
     const estimates = s.estimates.at(tickers, ctx.asOf);
     ctx.metric("tickers", Object.keys(estimates).length);
@@ -488,10 +526,14 @@ export const marketNode = defineNode({
     const benchmark = s.config.market.benchmark;
     let prices: Prices = {};
     try {
-      prices = (await loadTwelveData(ctx, [...new Set([...Object.values(etfs), ...(benchmark ? [benchmark] : [])])], { ...p, symbols: {} })).prices;
+      const r = await loadTwelveData(ctx, [...new Set([...Object.values(etfs), ...(benchmark ? [benchmark] : [])])], { ...p, symbols: {} });
+      prices = r.prices;
+      if (r.counts.failed) ctx.metric("pricesFailed", r.counts.failed);
+      if (r.counts.stale) ctx.metric("pricesStale", r.counts.stale);
     } catch (e) {
       if (!(e instanceof TwelveDataAuthError)) throw e;
       ctx.log(`${e.message}: no sector data`);
+      ctx.metric("pricesFailed", 1);
     }
     const today = toIsoDate(ctx.wallNow());
     const fredKey = s.env[p.fredKeyEnv];
@@ -503,6 +545,7 @@ export const marketNode = defineNode({
           s.macro.save(id, today, await fetchFredSeries(fredKey, id, last ? addDays(last, -10) : macroSince(today), s.fetch));
         } catch (e) {
           ctx.log(`${id}: ${e instanceof Error ? e.message : String(e)}`);
+          ctx.metric("macroFailed", 1);
         }
       }
     } else if (ctx.live) {
@@ -557,6 +600,7 @@ export const researchUniverseNode = defineNode({
         } else ctx.log(`only ${fresh.length} companies found: keeping the previous list`);
       } catch (e) {
         ctx.log(`could not build the research universe: ${e instanceof Error ? e.message : String(e)} (keeping the previous list)`);
+        ctx.metric("buildFailed", 1);
       }
     } else if (ctx.live && !ua) ctx.log(`${p.userAgentEnv} is not set: using the built-in large caps`);
     const n = Object.keys(researchUniverse(ctx)).length;

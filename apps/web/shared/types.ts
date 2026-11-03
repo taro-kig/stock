@@ -34,6 +34,8 @@ export interface NodeView {
   onError: string;
   inputs: Array<{ name: string; type: string; optional: boolean; from: PortRef | null }>;
   outputs: Array<{ name: string; type: string }>;
+  /** What the node wrote while running (per-ticker failures and the like), last 40 lines. */
+  logs: string[];
 }
 
 export interface EdgeView {

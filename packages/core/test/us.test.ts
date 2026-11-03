@@ -164,6 +164,13 @@ describe("data.pricesTwelveData node", () => {
     expect(r.status).toBe("succeeded");
     expect(r.output<Record<string, Bar[]>>("prices", "prices")["MSFT"]!.at(-1)!.date).toBe("2026-10-29");
   });
+
+  it("says why when nothing could be downloaded", async () => {
+    const { engine } = setup({ TWELVEDATA_API_KEY: "k" }, new Set(["AAPL", "MSFT", "SPY"]));
+    const r = await engine("2026-10-30T22:30:00Z").run(spec, {});
+    expect(r.status).toBe("failed");
+    expect(r.nodes["prices"]!.error).toBe("no price data from Twelve Data (3 failed) — AAPL, MSFT, SPY: cannot reach api.twelvedata.com: fetch failed");
+  });
 });
 
 describe("SEC EDGAR", () => {

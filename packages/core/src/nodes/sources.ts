@@ -1,3 +1,4 @@
+import { groupFailures } from "./problems.ts";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { DocumentSchema, type Document } from "../signals/models.ts";
@@ -29,18 +30,20 @@ export const rssSource = defineNode({
     const feeds = (p.feeds ?? ctx.services.config.sources).map((f) => ({ ...f, url: f.url.replaceAll("{tickers}", tickers) }));
     const docs: Document[] = [];
     let failed = 0;
+    const failures: string[] = [];
     for (const f of feeds) {
       try {
         const got = await fetchFeed(f.url, f.name, { weight: f.weight, fetchImpl: ctx.services.fetch });
         docs.push(...got.map((d) => ({ ...d, fetchedAt: ctx.now.toISOString() })));
       } catch (e) {
         failed++;
+        failures.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
         ctx.log(`feed ${f.name} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     ctx.metric("feedsFailed", failed);
     ctx.metric("docs", docs.length);
-    if (feeds.length > 0 && failed === feeds.length) throw new Error("all feeds failed");
+    if (feeds.length > 0 && failed === feeds.length) throw new Error(`all feeds failed — ${groupFailures(failures)}`);
     return { docs };
   },
 });
@@ -101,6 +104,7 @@ export const secFilings = defineNode({
     const forms = new Set(p.forms.map((f) => f.toUpperCase()));
     const docs: Document[] = [];
     let failed = 0;
+    const failures: string[] = [];
     for (const t of tickers) {
       const cik = p.ciks[t] ?? map[t.toUpperCase()];
       if (cik === undefined) {
@@ -120,6 +124,7 @@ export const secFilings = defineNode({
               text = await sec.filingText(f, p.maxChars);
             } catch (e) {
               ctx.log(`${t} ${f.accession}: text unavailable: ${e instanceof Error ? e.message : String(e)}`);
+              ctx.metric("textUnavailable", 1);
             }
           }
           docs.push({
@@ -135,12 +140,13 @@ export const secFilings = defineNode({
         }
       } catch (e) {
         failed++;
+        failures.push(`${t}: ${e instanceof Error ? e.message : String(e)}`);
         ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     ctx.metric("docs", docs.length);
     ctx.metric("failed", failed);
-    if (tickers.length > 0 && failed === tickers.length) throw new Error("all SEC requests failed");
+    if (tickers.length > 0 && failed === tickers.length) throw new Error(`all SEC requests failed — ${groupFailures(failures)}`);
     return { docs };
   },
 });
@@ -252,20 +258,24 @@ export const fundamentalsNode = defineNode({
         const sec = new SecClient({ userAgent: ua, fetchImpl: s.fetch, sleep: s.sleep });
         const map = await sec.tickerMap();
         let fetched = 0;
+        let failed = 0;
         for (const t of due.slice(0, p.maxFetches)) {
           const cik = map[t.toUpperCase()];
           if (cik === undefined) {
             ctx.log(`${t}: not in the SEC ticker list (not a US filer?)`);
+            ctx.metric("notInSec", 1);
             continue;
           }
           try {
             s.fundamentals.save(t, today, parseCompanyFacts(await sec.json(`https://data.sec.gov/api/xbrl/companyfacts/CIK${String(cik).padStart(10, "0")}.json`)));
             fetched++;
           } catch (e) {
+            failed++;
             ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
         ctx.metric("downloaded", fetched);
+        if (failed) ctx.metric("failed", failed);
         if (due.length > p.maxFetches) ctx.metric("deferred", due.length - p.maxFetches);
       }
     }

@@ -4,6 +4,7 @@ import { BudgetExceeded } from "../harness/budget.ts";
 import { earningsReactions, previousJudgment } from "../strategy/history.ts";
 import { rankTickers } from "../strategy/scoring.ts";
 import { addDays } from "../util/dates.ts";
+import { VoteProblems } from "./problems.ts";
 import { defineNode } from "../workflow/registry.ts";
 
 export const rulesDecide = defineNode({
@@ -96,6 +97,7 @@ export const aiDecide = defineNode({
       const prev = s.predictions.previous(label, t, ctx.asOf);
       return prev && prev.asOf >= addDays(ctx.asOf, -p.previousMaxDays) ? prev : null;
     };
+    const problems = new VoteProblems(ctx);
     for (const t of candidates) {
       const events = (i.events ?? []).filter((e) => e.event.tickers.includes(t)).slice(-5);
       const dossier = buildDossier({
@@ -123,6 +125,8 @@ export const aiDecide = defineNode({
           })),
         };
         ctx.metric(`stance_${judgments[t].stance}`, 1);
+        problems.note(judgments[t].votes);
+        if (judgments[t].vetoReason?.startsWith("red team unavailable")) problems.note([{ provider: "red team", rejected: judgments[t].vetoReason!.replace(/^red team unavailable \((.*)\)$/, "$1") }]);
         if (judgments[t].status === "vetoed") ctx.metric("vetoed", 1);
       } catch (e) {
         if (!(e instanceof BudgetExceeded)) throw e;
@@ -131,6 +135,7 @@ export const aiDecide = defineNode({
         break;
       }
     }
+    problems.finish();
     return { judgments };
   },
 });

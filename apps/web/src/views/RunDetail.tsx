@@ -123,6 +123,12 @@ export function OrdersTable({ items, names, currency }: { items: Proposal[]; nam
   );
 }
 
+/** Metrics that mean part of the node's work failed (it still finished). */
+const PROBLEM_METRICS = /^(failed|pricesFailed|macroFailed|feedsFailed|buildFailed|trackingFailed|llmErrors|invalidOutputs|limited|budgetStopped|textUnavailable)$/;
+function problemCount(m: Record<string, number>): number {
+  return Object.entries(m).filter(([k, v]) => PROBLEM_METRICS.test(k) && v > 0).length;
+}
+
 function NodeInspector({ n }: { n: NodeView }) {
   return (
     <dl className="kv">
@@ -133,6 +139,7 @@ function NodeInspector({ n }: { n: NodeView }) {
       <dt>設定</dt><dd className="fg2">{Object.keys(n.params).length ? JSON.stringify(n.params) : "—"} <span className="faint">onError={n.onError}</span></dd>
       <dt>計測</dt><dd className="fg2">{metricsText(n.metrics) || "—"} <span className="faint">{duration(n.durationMs)}</span></dd>
       {n.error && (<><dt>エラー</dt><dd className={n.status === "waiting" ? "wait" : "fail"}>{n.error}</dd></>)}
+      {n.logs.length > 0 && (<><dt>ログ</dt><dd className="fg2 node-logs">{n.logs.map((l, i) => <div key={i}>{l}</div>)}</dd></>)}
     </dl>
   );
 }
@@ -226,7 +233,11 @@ export function RunDetailView({ d }: { d: Detail }) {
                   <td className="dim">{n.type}</td>
                   <td className="num dim">{Math.round(n.durationMs)}</td>
                   <td className="dim">{outputSummary(n.summary)}</td>
-                  <td className={n.error ? (n.status === "waiting" ? "wait" : "fail") : "faint"}>{n.error ?? metricsText(n.metrics)}</td>
+                  <td className={n.error ? (n.status === "waiting" ? "wait" : "fail") : "faint"}>
+                    {n.error ?? metricsText(n.metrics)}
+                    {!n.error && problemCount(n.metrics) > 0 && <span className="warn" title="一部が失敗。ノードを選ぶとログに理由"> ⚠ 一部失敗</span>}
+                    {n.logs.length > 0 && <span className="faint" title="ノードを選ぶと表示"> · ログ {n.logs.length}</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

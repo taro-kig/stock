@@ -69,6 +69,7 @@ function accountNode(type: string, kind: BrokerKind, title: string, description:
             for (const st of ["working", "filled", "partial", "unfilled"] as const) ctx.metric(`orders_${st}`, updates.filter((u) => u.state === st).length);
           } catch (e) {
             ctx.log(`order tracking failed: ${e instanceof Error ? e.message : String(e)}`);
+            ctx.metric("trackingFailed", 1);
           }
         }
         const positions = s.brokerLedger.reconcile(a.accountId, ctx.asOf, a.positions, (t) => lastClose(i.prices, t, ctx.asOf), (t) => s.watchlist.sector(t));
