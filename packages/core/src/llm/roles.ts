@@ -148,6 +148,24 @@ export function autoAssign(pool: readonly ModelSpec[], ctx: ResolveContext): { v
   };
 }
 
+/**
+ * The vote only protects against a model's mistakes when the voters are different models:
+ * with quorum 1 one answer decides, and two pool entries of the same model (e.g. deepseek and
+ * deepseek-red, both deepseek-chat) answer identically (same prompt, temperature 0, shared cache).
+ */
+function independenceNotes(m: ModelsConfig, uses: Record<"event" | "judge", VoteUse>, quorum: number): string[] {
+  const notes: string[] = [];
+  if (quorum < 2) notes.push("harness.quorum が 1 なので、1つのモデルの答えだけで決めています（多数決なし）。2 にすると、別のモデルと答えが一致したものだけを使います");
+  const JA = { event: "イベント抽出", judge: "判断" } as const;
+  for (const f of ["event", "judge"] as const) {
+    const core = uses[f].vote.slice(0, Math.max(quorum, 2));
+    const models = core.map((n) => m.pool.find((p) => p.name === n)?.model ?? n);
+    const dup = models.find((x, i) => models.indexOf(x) !== i);
+    if (dup) notes.push(`${JA[f]}の ${core.filter((_, i) => models[i] === dup).join(" と ")} は同じモデル（${dup}）なので、同じ答えが返り多数決になりません。別の会社のモデルを選ぶか、おまかせに`);
+  }
+  return notes;
+}
+
 /** Decides every "auto" family. */
 export function resolveUse(m: ModelsConfig, ctx: ResolveContext): ResolvedUse {
   const a = autoAssign(m.pool, ctx);
@@ -163,7 +181,7 @@ export function resolveUse(m: ModelsConfig, ctx: ResolveContext): ResolvedUse {
   return {
     event, judge, redteam: single("redteam"), universe: single("universe"),
     auto: { event: m.use.event === AUTO, judge: m.use.judge === AUTO, redteam: m.use.redteam === AUTO, universe: m.use.universe === AUTO },
-    notes: anyAuto ? a.notes : [],
+    notes: [...(anyAuto ? a.notes : []), ...independenceNotes(m, { event, judge }, ctx.quorum)],
   };
 }
 

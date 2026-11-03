@@ -126,6 +126,8 @@ export const aiDecide = defineNode({
           })),
         };
         ctx.metric(`stance_${judgments[t].stance}`, 1);
+        // decided by one answer only (quorum 1): not the cross-check the vote is meant to be
+        if (judgments[t].status === "consensus" && judgments[t].votes.filter((v) => !v.rejected).length < 2) ctx.metric("singleModel", 1);
         problems.note(judgments[t].votes);
         if (judgments[t].vetoReason?.startsWith("red team unavailable")) problems.note([{ provider: "red team", rejected: judgments[t].vetoReason!.replace(/^red team unavailable \((.*)\)$/, "$1") }]);
         if (judgments[t].status === "vetoed") ctx.metric("vetoed", 1);

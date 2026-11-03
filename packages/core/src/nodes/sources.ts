@@ -15,11 +15,13 @@ export const rssSource = defineNode({
   type: "source.rss",
   title: "RSS",
   category: "source",
-  description: "Fetches RSS/Atom feeds (defaults to config.sources; {tickers} in a URL becomes the watchlist). Live runs only: a feed cannot show the past.",
-  version: 1,
+  description: "Fetches RSS/Atom feeds (defaults to config.sources; {tickers} in a URL becomes the watchlist). Live runs only: a feed cannot show the past. Items published more than maxAgeDays ago are dropped: search feeds (Google News) also return months-old articles, which would otherwise count as today's news.",
+  version: 2, // v2: old items dropped (maxAgeDays)
   cache: "daily",
   params: z.object({
     feeds: z.array(z.object({ name: z.string(), url: z.url(), weight: z.number().min(0).default(1) })).optional(),
+    /** Items published longer ago than this are not news any more (weekends included in the default). */
+    maxAgeDays: z.number().positive().default(4),
   }),
   inputs: {},
   outputs: { docs: { type: "Documents" } },
@@ -36,7 +38,13 @@ export const rssSource = defineNode({
     for (const f of feeds) {
       try {
         const got = await fetchFeed(f.url, f.name, { weight: f.weight, fetchImpl: ctx.services.fetch });
-        docs.push(...got.map((d) => ({ ...d, fetchedAt: ctx.now.toISOString() })));
+        const oldest = ctx.now.getTime() - p.maxAgeDays * 86_400_000;
+        const fresh = got.filter((d) => !d.publishedAt || Date.parse(d.publishedAt) >= oldest);
+        if (fresh.length < got.length) {
+          ctx.metric("tooOld", got.length - fresh.length);
+          ctx.log(`feed ${f.name}: ${got.length - fresh.length} of ${got.length} items published more than ${p.maxAgeDays} days ago were dropped`);
+        }
+        docs.push(...fresh.map((d) => ({ ...d, fetchedAt: ctx.now.toISOString() })));
       } catch (e) {
         failed++;
         failures.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);

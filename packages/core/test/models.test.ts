@@ -254,3 +254,18 @@ describe("starter models for a key without models", () => {
     expect(missingStarterModels([{ provider: "gemini", name: "g", model: "gemini-2.5-pro", apiKeyEnv: "GEMINI_API_KEY" }], { GEMINI_API_KEY: "g" })).toEqual([]);
   });
 });
+
+describe("one model deciding alone", () => {
+  const d = { name: "deepseek", provider: "openai_compat", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", apiKeyEnv: "DEEPSEEK_API_KEY" };
+  const d2 = { ...d, name: "deepseek-red" };
+  const g = { name: "g", provider: "gemini", model: "gemini-2.5-flash-lite", apiKeyEnv: "GEMINI_API_KEY" };
+  const ctx = (quorum: number) => ({ hasKey: () => true, pricing: {}, quorum });
+
+  it("warns about quorum 1 and about voters that are the same model", () => {
+    const same = ModelsConfig.parse({ pool: [d, d2, g], use: { event: { vote: ["deepseek", "deepseek-red"] }, judge: { vote: ["deepseek", "deepseek-red"] } } });
+    const notes = resolveUse(same, ctx(2)).notes;
+    expect(notes.some((n) => n.includes("判断の deepseek と deepseek-red は同じモデル（deepseek-chat）"))).toBe(true);
+    expect(resolveUse(ModelsConfig.parse({ pool: [d, g] }), ctx(1)).notes.some((n) => n.includes("harness.quorum が 1"))).toBe(true);
+    expect(resolveUse(ModelsConfig.parse({ pool: [d, g] }), ctx(2)).notes).toEqual([]);
+  });
+});

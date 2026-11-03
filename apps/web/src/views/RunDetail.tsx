@@ -84,7 +84,7 @@ export function JudgmentsTable({ items, names, compact = false }: { items: Judgm
               <td className="nowrap"><span className="faint">{isOpen ? "▾" : "▸"}</span> <TickerLink t={j.ticker} /> <span className="dim">{names[j.ticker] ?? ""}</span></td>
               <td><Stance s={j.stance} /></td>
               <td className="num">{num(j.conviction)}</td>
-              <td className="nowrap"><Status s={j.status === "consensus" || j.status === "rules" ? "ok" : j.status === "escalated" ? "cached" : j.status === "vetoed" ? "fallback" : "skipped"} label={false} />{j.status}</td>
+              <td className="nowrap"><Status s={j.status === "consensus" || j.status === "rules" ? "ok" : j.status === "escalated" ? "cached" : j.status === "vetoed" ? "fallback" : "skipped"} label={false} />{j.status}{j.status === "consensus" && j.votes.length > 0 && j.votes.filter((v) => !v.rejected).length < 2 && <span className="warn" title="1つのモデルの答えだけで決まった（harness.quorum が 1）。別のモデルとの照合はしていない"> 1モデル</span>}</td>
               {!compact && <td className="num">{pct(j.agreement, 0)}</td>}
               <td className="wrap">
                 {j.vetoReason ? <span className="warn">拒否: {j.vetoReason}</span> : <span className="fg2">{j.thesis}</span>}

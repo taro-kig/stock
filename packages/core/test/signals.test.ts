@@ -78,3 +78,25 @@ describe("technical", () => {
     expect(a).toBeLessThanOrEqual(2.5);
   });
 });
+
+describe("RSS source drops old items", () => {
+  it("keeps recent news and items without a date, drops ones published long ago", async () => {
+    const { rssSource } = await import("../src/nodes/sources.ts");
+    const { AppConfig } = await import("../src/config.ts");
+    const { Services } = await import("../src/services.ts");
+    const xml = `<?xml version="1.0"?><rss><channel>
+<item><title>GE Vernova raises 2026 guidance</title><link>https://x/old</link><description>q1</description><pubDate>Wed, 22 Apr 2026 10:00:00 GMT</pubDate></item>
+<item><title>GE Vernova beats estimates</title><link>https://x/new</link><description>q3</description><pubDate>Mon, 02 Nov 2026 10:00:00 GMT</pubDate></item>
+<item><title>Undated item</title><link>https://x/nodate</link><description>?</description></item>
+</channel></rss>`;
+    const s = new Services(AppConfig.parse({ market: { currency: "USD" }, watchlist: { GEV: { name: "GE Vernova", sector: "grid" } }, sources: [{ name: "n", url: "https://news.example/rss" }] }), {
+      fake: true, dbPath: ":memory:", fetchImpl: async () => new Response(xml),
+    });
+    const metrics: Record<string, number> = {};
+    const now = new Date("2026-11-03T06:00:00Z");
+    const ctx = { live: true, now, services: s, log: () => {}, metric: (k: string, v: number) => (metrics[k] = (metrics[k] ?? 0) + v) } as never;
+    const out = await rssSource.run(ctx, { maxAgeDays: 4 } as never, {} as never);
+    expect(out.docs.map((d: { url: string }) => d.url).sort()).toEqual(["https://x/new", "https://x/nodate"]);
+    expect(metrics["tooOld"]).toBe(1);
+  });
+});
