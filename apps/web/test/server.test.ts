@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { request } from "node:http";
-import { builtinRegistry, loadConfig, Services, SettingsStore } from "@stockai/core";
+import { builtinRegistry, loadConfig, loadWorkflow, Services, SettingsStore } from "@stockai/core";
 import type { ImportResult, Overview, RunDetail, SettingsView, StreamEvent, WorkflowInfo } from "../shared/types.ts";
 import { createApp, type App } from "../server/app.ts";
 import { Scheduler } from "../server/scheduler.ts";
@@ -44,7 +44,7 @@ async function start(opts: { gate?: "auto" | "manual"; token?: string; clock?: (
     return { status: res.status, body: (await res.json()) as T };
   };
   const post = <T>(path: string, body: unknown) => api<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  return { app, base, api, post };
+  return { app, base, api, post, services };
 }
 
 describe("web server", () => {
@@ -65,6 +65,24 @@ describe("web server", () => {
     expect(d.body.highlights.judgments?.source).toBe("ai");
     expect(d.body.highlights.scorecard).toBeDefined();
     expect((await api<Overview>("/api/overview")).body.equity.map((e) => e.account)).toEqual(["demo-ai"]);
+  });
+
+  it("shows which node a running run is on, with its progress", async () => {
+    const { api, services } = await start();
+    const spec = loadWorkflow(join(lastDir, "demo-rules.yaml"));
+    const store = services.runStore;
+    store.createRun("r1", spec.name, "2026-07-21", JSON.stringify(spec), new Date());
+    store.addEvent("r1", { type: "node_started", node: "news" });
+    store.addEvent("r1", { type: "node_finished", node: "news", status: "ok" });
+    store.saveNodeRun("r1", { nodeId: "news", type: "source.fixture", status: "ok", startedAt: null, durationMs: 5, outputs: {}, error: null, metrics: {}, summary: {} });
+    store.addEvent("r1", { type: "node_started", node: "dedup" });
+    store.addEvent("r1", { type: "node_progress", node: "dedup", done: 120, total: 375 });
+    const d = await api<RunDetail>("/api/runs/r1");
+    const node = (id: string) => d.body.nodes.find((n) => n.id === id)!;
+    expect(node("news").status).toBe("ok");
+    expect(node("dedup")).toMatchObject({ status: "running", progress: { done: 120, total: 375 } });
+    expect(node("dedup").startedAt).not.toBeNull();
+    expect(node("decide")).toMatchObject({ status: "queued", startedAt: null, progress: null });
   });
 
   it("validates input", async () => {

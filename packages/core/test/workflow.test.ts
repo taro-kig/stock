@@ -56,7 +56,17 @@ const docsNode = defineNode({
   },
 });
 
-const registry = () => new NodeRegistry().register(constNode, addNode, failNode, gateNode, docsNode);
+const progressNode = defineNode({
+  type: "t.progress", title: "Progress", category: "data", description: "reports progress in a tight loop", version: 1, cache: "none",
+  params: z.object({}), inputs: {}, outputs: { n: { type: "Count" } },
+  async run(ctx) {
+    for (let i = 0; i < 5; i++) ctx.progress?.(i, 5);
+    ctx.progress?.(5, 5);
+    return { n: 5 };
+  },
+});
+
+const registry = () => new NodeRegistry().register(constNode, addNode, failNode, gateNode, docsNode, progressNode);
 
 let services: Services;
 let engine: Engine;
@@ -130,7 +140,16 @@ describe("workflow engine", () => {
     const r = await engine.run(wf(SUM), { asOf: "2026-10-30" });
     expect(r.status).toBe("succeeded");
     expect(r.output("s", "n")).toBe(5);
-    expect(services.runStore.events(r.runId).map((e) => e.type)).toEqual(["run_started", "node_finished", "node_finished", "node_finished", "run_finished"]);
+    expect(services.runStore.events(r.runId).map((e) => e.type)).toEqual([
+      "run_started", "node_started", "node_finished", "node_started", "node_finished", "node_started", "node_finished", "run_finished",
+    ]);
+  });
+
+  it("reports when a node starts and, at most once a second, how far it is", async () => {
+    const r = await engine.run(wf("name: p\nnodes:\n  p: { use: t.progress }\n"));
+    const events = services.runStore.events(r.runId);
+    expect(events.map((e) => e.type)).toEqual(["run_started", "node_started", "node_progress", "node_progress", "node_finished", "run_finished"]);
+    expect(events.filter((e) => e.type === "node_progress").map((e) => [e["done"], e["total"]])).toEqual([[0, 5], [5, 5]]);
   });
 
   it("reuses cached node outputs across runs and workflows", async () => {

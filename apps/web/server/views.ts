@@ -97,15 +97,27 @@ export function runDetail(s: Services, registry: NodeRegistry, run: RunRow): Run
   const rows = Object.fromEntries(s.runStore.nodeRuns(run.runId).map((n) => [n.nodeId, n]));
   const layer = layers(spec);
   const logs: Record<string, string[]> = {};
+  // The latest attempt of each node (a resumed run starts nodes again): started after it last finished = running now.
+  const started: Record<string, { seq: number; ts: string }> = {};
+  const finished: Record<string, number> = {};
+  const progress: Record<string, { seq: number; done: number; total: number }> = {};
   for (const e of s.runStore.events(run.runId)) {
-    if (e.type !== "log" || !("node" in e) || typeof e.node !== "string") continue;
-    (logs[e.node] ??= []).push(String((e as { message?: unknown }).message ?? ""));
+    if (!("node" in e) || typeof e.node !== "string") continue;
+    if (e.type === "log") (logs[e.node] ??= []).push(String((e as { message?: unknown }).message ?? ""));
+    else if (e.type === "node_started") started[e.node] = { seq: e.seq, ts: e.ts };
+    else if (e.type === "node_finished") finished[e.node] = e.seq;
+    else if (e.type === "node_progress") progress[e.node] = { seq: e.seq, done: Number(e["done"]), total: Number(e["total"]) };
   }
   const nodes: NodeView[] = graph.nodes.map((n) => {
     const r = rows[n.id];
+    const st = started[n.id];
+    const running = run.status === "running" && st !== undefined && st.seq > (finished[n.id] ?? -1);
+    const pr = progress[n.id];
     return {
       id: n.id, type: n.type, title: n.title, category: n.category,
-      status: r?.status ?? (run.status === "running" ? "queued" : "pending"),
+      status: running ? "running" : r?.status ?? (run.status === "running" ? "queued" : "pending"),
+      startedAt: running ? st.ts : null,
+      progress: running && pr && pr.seq > st.seq ? { done: pr.done, total: pr.total } : null,
       durationMs: r?.durationMs ?? 0, error: r?.error ?? null, metrics: r?.metrics ?? {}, summary: r?.summary ?? {},
       layer: layer[n.id] ?? 0, params: n.params, onError: n.onError,
       inputs: n.inputs.map((i) => ({ ...i, from: graph.edges.find((e) => e.to.node === n.id && e.to.port === i.name)?.from ?? null })),

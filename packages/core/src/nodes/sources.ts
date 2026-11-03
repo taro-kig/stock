@@ -194,7 +194,8 @@ export const insiderTrades = defineNode({
       const since = ctx.now.getTime() - (p.windowDays + 7) * 86_400_000;
       let fetched = 0;
       let failed = 0;
-      for (const t of tickers) {
+      for (const [i, t] of tickers.entries()) {
+        ctx.progress?.(i, tickers.length);
         const cik = map[t.toUpperCase()];
         if (cik === undefined) continue;
         let filings: Filing[];
@@ -221,6 +222,7 @@ export const insiderTrades = defineNode({
           }
         }
       }
+      ctx.progress?.(tickers.length, tickers.length);
       ctx.metric("downloaded", fetched);
       ctx.metric("failed", failed);
     }
@@ -272,7 +274,9 @@ export const fundamentalsNode = defineNode({
         const map = await sec.tickerMap();
         let fetched = 0;
         let failed = 0;
-        for (const t of due.slice(0, p.maxFetches)) {
+        const batch = due.slice(0, p.maxFetches);
+        for (const [i, t] of batch.entries()) {
+          ctx.progress?.(i, batch.length);
           const cik = map[t.toUpperCase()];
           if (cik === undefined) {
             ctx.log(`${t}: not in the SEC ticker list (not a US filer?)`);
@@ -287,6 +291,7 @@ export const fundamentalsNode = defineNode({
             ctx.log(`${t}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
+        ctx.progress?.(batch.length, batch.length);
         ctx.metric("downloaded", fetched);
         if (failed) ctx.metric("failed", failed);
         if (due.length > p.maxFetches) ctx.metric("deferred", due.length - p.maxFetches);

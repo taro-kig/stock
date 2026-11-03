@@ -179,6 +179,7 @@ export function Editor({ name, toast }: { name: string | null; toast: (m: string
     return onStream((e: StreamEvent) => {
       if (e.type !== "run_event" || e.runId !== run.runId) return;
       const ev = e.event as { type?: string; node?: string; status?: string };
+      if (ev.type === "node_started" && ev.node) setRun((r) => (r ? { ...r, nodes: { ...r.nodes, [ev.node!]: "running" } } : r));
       if (ev.type === "node_finished" && ev.node) setRun((r) => (r ? { ...r, nodes: { ...r.nodes, [ev.node!]: ev.status ?? "ok" } } : r));
       if (ev.type === "run_started") setRun((r) => (r ? { ...r, status: "running" } : r));
       if (ev.type === "run_finished") {

@@ -31,7 +31,7 @@ export interface NodeRunRow {
 export interface RunEvent {
   seq: number;
   ts: string;
-  type: "run_started" | "node_finished" | "run_finished" | "log";
+  type: "run_started" | "node_started" | "node_progress" | "node_finished" | "run_finished" | "log";
   [k: string]: unknown;
 }
 

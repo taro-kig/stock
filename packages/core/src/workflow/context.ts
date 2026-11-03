@@ -39,5 +39,7 @@ export interface NodeContext {
   log(message: string, data?: unknown): void;
   /** Additive per-node metric, shown in run views (e.g. llm calls, docs skipped). */
   metric(name: string, value: number): void;
+  /** How far a long node is (e.g. 120 of 375 symbols), shown live in run views. Ad-hoc contexts may omit it. */
+  progress?(done: number, total: number): void;
   approval(): Approval | undefined;
 }

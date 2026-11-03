@@ -6,6 +6,8 @@ export interface DagNode {
   type: string;
   category: string;
   status?: string;
+  /** Shown instead of the type while set (e.g. progress of a running node). */
+  note?: string;
   layer?: number;
   inputs: Array<{ name: string; type: string }>;
   outputs: Array<{ name: string; type: string }>;
@@ -158,7 +160,7 @@ export function Dag(props: { nodes: DagNode[]; edges: DagEdge[]; selected?: stri
                 {n.status && <span className={`st-${st}`}>{GLYPH[st] ?? "·"} </span>}
                 {n.id}
               </span>
-              <span className="n-type">{n.type}</span>
+              <span className={n.note ? "n-type n-note" : "n-type"}>{n.note ?? n.type}</span>
             </div>
           );
         })}

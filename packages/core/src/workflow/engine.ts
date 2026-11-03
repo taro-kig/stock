@@ -151,12 +151,20 @@ export class Engine {
         continue;
       }
 
+      this.#emit(runId, { type: "node_started", node: id });
       const metrics: Record<string, number> = {};
+      let lastProgress = 0;
       const ctx: NodeContext = {
         runId, workflow: spec.name, nodeId: id, asOf, now, live, runCreatedAt, services, market, wallNow: this.#clock,
         log: (message, data) => this.#emit(runId, { type: "log", node: id, message, data }),
         metric: (name, v) => {
           metrics[name] = (metrics[name] ?? 0) + v;
+        },
+        progress: (done, total) => {
+          // cached items race through a loop: at most one event a second, plus the last one
+          if (done < total && Date.now() - lastProgress < 1000) return;
+          lastProgress = Date.now();
+          this.#emit(runId, { type: "node_progress", node: id, done, total });
         },
         approval: () => store.getApproval(runId, id),
       };

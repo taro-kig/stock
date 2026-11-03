@@ -325,6 +325,8 @@ kbd.cap { display: inline-block; min-width: 2.4ch; padding: 0 0.6ch; text-align:
 .dag-node.s-failed { border-color: color-mix(in srgb, var(--fail) 60%, var(--line)); }
 .dag-node.s-waiting { border-color: color-mix(in srgb, var(--wait) 70%, var(--line)); }
 .dag-node.s-skipped, .dag-node.s-pending, .dag-node.s-queued { border-style: dashed; }
+.dag-node.s-running { border-color: var(--info); box-shadow: 0 0 0 1px color-mix(in srgb, var(--info) 40%, transparent); }
+.dag-node .n-note { color: var(--info); }
 .dag-node.s-skipped .n-id, .dag-node.s-pending .n-id { color: var(--dim); }
 .port { position: absolute; width: 6px; height: 6px; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg-1); }
 .cat { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; }
@@ -353,6 +355,8 @@ kbd.cap { display: inline-block; min-width: 2.4ch; padding: 0 0.6ch; text-align:
 .callout { border-left: 2px solid var(--line-2); padding-left: 1.5ch; color: var(--fg-2); }
 .callout.warn { border-left-color: var(--warn); }
 .callout.fail { border-left-color: var(--fail); }
+.callout.info { border-left-color: var(--info); }
+.running-note { color: var(--info); white-space: nowrap; }
 pre.json { margin: 0; white-space: pre-wrap; word-break: break-all; color: var(--fg-2); font-size: 12px; }
 
 /* ── node editor ───────────────────────────────────────────────────────── */

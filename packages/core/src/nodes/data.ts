@@ -265,7 +265,8 @@ export async function loadTwelveData(
   // remaining symbol (8/min) and use local copies for the rest.
   let unreachable = 0;
   let offline: string | null = null;
-  for (const t of tickers) {
+  for (const [i, t] of tickers.entries()) {
+    ctx.progress?.(i, tickers.length);
     const sym = p.symbols[t] ?? t;
     let bars: Bar[];
     if (isCovered(store, SRC, t, ctx.asOf)) {
@@ -301,6 +302,7 @@ export async function loadTwelveData(
     const until = barsUntil(bars, ctx.asOf);
     if (until.length) prices[t] = until;
   }
+  ctx.progress?.(tickers.length, tickers.length);
   return { prices, counts, failures };
 }
 

@@ -1,7 +1,7 @@
 /** JSON shapes exchanged between the web server and the UI. */
 import type { JournalSummary, Trade, TrackedOrder, MarketContext, EarningsReaction, EarningsResult, Fundamentals, InsiderSummary, NextEarnings, Revision, ModelSpec, Vendor, WatchlistChangeRow, AccountState, EvalJob, Fill, Judgment, NodeDescription, OrderTicket, PromptFamily, PromptInfo, PromptSwitch, Proposal, Scorecard, SettingStatus, UniverseChanges } from "@stockai/core";
 
-export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued";
+export type NodeStatus = "pending" | "ok" | "cached" | "fallback" | "failed" | "skipped" | "waiting" | "queued" | "running";
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "waiting" | "queued";
 
 export interface RunSummary {
@@ -36,6 +36,9 @@ export interface NodeView {
   outputs: Array<{ name: string; type: string }>;
   /** What the node wrote while running (per-ticker failures and the like), last 40 lines. */
   logs: string[];
+  /** While the node runs: when it started, and how far it is when it reports that (e.g. symbols downloaded). */
+  startedAt: string | null;
+  progress: { done: number; total: number } | null;
 }
 
 export interface EdgeView {

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Judgment, Proposal } from "@stockai/core";
 import type { NodeView, RunDetail as Detail } from "../../shared/types.ts";
 import { Dag } from "../components/Dag.tsx";
-import { Empty, Pane, PortType, Stance, Status } from "../components/ui.tsx";
+import { Empty, Meter, Pane, PortType, Stance, Status } from "../components/ui.tsx";
 import { dateTime, duration, metricsText, MODE_JA, money, num, outputSummary, pct, price, runDuration, EVENT_JA } from "../format.ts";
 import { navigate } from "../router.ts";
 import { ScorecardTable } from "./Scorecard.tsx";
@@ -129,10 +129,36 @@ function problemCount(m: Record<string, number>): number {
   return Object.entries(m).filter(([k, v]) => PROBLEM_METRICS.test(k) && v > 0).length;
 }
 
-function NodeInspector({ n }: { n: NodeView }) {
+/** Re-renders every second while `on`, so elapsed times keep counting between server updates. */
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!on) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [on]);
+  return now;
+}
+
+const elapsed = (since: string | null, now: number) => (since ? duration(Math.max(0, now - new Date(since).getTime())) : "—");
+const progressText = (p: NodeView["progress"]) => (p ? `${p.done.toLocaleString()} / ${p.total.toLocaleString()}` : "");
+
+/** A running node: how long it has been at it and, when it reports that, how far it is. */
+function Running({ n, now }: { n: NodeView; now: number }) {
+  const p = n.progress;
+  return (
+    <span className="running-note">
+      {p && p.total > 0 && <><Meter value={p.done / p.total} width={12} tone="accent" /> {progressText(p)} ({pct(p.done / p.total, 0)}) · </>}
+      経過 {elapsed(n.startedAt, now)}
+    </span>
+  );
+}
+
+function NodeInspector({ n, now }: { n: NodeView; now: number }) {
   return (
     <dl className="kv">
       <dt>node</dt><dd><Status s={n.status} /> <b>{n.id}</b> <span className="dim">{n.type}</span></dd>
+      {n.status === "running" && (<><dt>進み具合</dt><dd><Running n={n} now={now} /></dd></>)}
       <dt>入力</dt>
       <dd>{n.inputs.length ? n.inputs.map((i) => <div key={i.name}>{i.name}{i.optional ? "?" : ""} <PortType t={i.type} /> <span className="faint">← {i.from ? `${i.from.node}.${i.from.port}` : "未接続"}</span></div>) : <span className="faint">—</span>}</dd>
       <dt>出力</dt><dd>{n.outputs.map((o) => <span key={o.name}>{o.name} <PortType t={o.type} />  </span>)} <span className="dim">{outputSummary(n.summary)}</span></dd>
@@ -165,6 +191,9 @@ export function RunDetailView({ d }: { d: Detail }) {
   }, [d.run.runId]); // eslint-disable-line
   const selected = d.nodes.find((n) => n.id === node);
   const failed = d.nodes.filter((n) => n.status === "failed");
+  const active = d.nodes.find((n) => n.status === "running");
+  const now = useNow(d.run.status === "running");
+  const dagNodes = d.nodes.map((n) => (n.status === "running" ? { ...n, note: n.progress ? `${progressText(n.progress)} · ${elapsed(n.startedAt, now)}` : `経過 ${elapsed(n.startedAt, now)}` } : n));
 
   return (
     <div className="stack">
@@ -173,13 +202,19 @@ export function RunDetailView({ d }: { d: Detail }) {
           <span className="h1">{d.run.workflow}</span>
           <Status s={d.run.status} />
           <span className="dim">基準日 {d.run.asOf}</span>
-          <span className="faint">{dateTime(d.run.createdAt)} · {runDuration(d.run)}</span>
+          <span className="faint">{dateTime(d.run.createdAt)} · {d.run.status === "running" ? `経過 ${elapsed(d.run.createdAt, now)}` : runDuration(d.run)}</span>
           {d.waiting.length > 0 && <button className="btn primary" onClick={() => navigate("approvals", d.run.runId)}>承認へ →</button>}
         </div>
         <div className="dim">{d.description}</div>
         <div className="faint">{d.run.runId}</div>
       </div>
 
+      {active && (
+        <div className="callout info">
+          <Status s="running" label={false} /> <b>{active.id}</b> <span className="dim">{active.type}</span> を実行中 — <Running n={active} now={now} />
+          {!active.progress && <div className="faint">このノードは進み具合を報告しません。終わるとノードの表に結果が出ます。</div>}
+        </div>
+      )}
       {failed.length > 0 && <div className="callout fail">{failed.map((n) => <div key={n.id}>✕ {n.id}: {n.error}</div>)}</div>}
 
       <Pane title="結果">
@@ -231,10 +266,10 @@ export function RunDetailView({ d }: { d: Detail }) {
                   <td><Status s={n.status} label={false} /></td>
                   <td>{n.id}</td>
                   <td className="dim">{n.type}</td>
-                  <td className="num dim">{Math.round(n.durationMs)}</td>
+                  <td className="num dim">{n.status === "running" ? elapsed(n.startedAt, now) : Math.round(n.durationMs)}</td>
                   <td className="dim">{outputSummary(n.summary)}</td>
                   <td className={n.error ? (n.status === "waiting" ? "wait" : "fail") : "faint"}>
-                    {n.error ?? metricsText(n.metrics)}
+                    {n.status === "running" ? <Running n={n} now={now} /> : n.error ?? metricsText(n.metrics)}
                     {!n.error && problemCount(n.metrics) > 0 && <span className="warn" title="一部が失敗。ノードを選ぶとログに理由"> ⚠ 一部失敗</span>}
                     {n.logs.length > 0 && <span className="faint" title="ノードを選ぶと表示"> · ログ {n.logs.length}</span>}
                   </td>
@@ -246,8 +281,8 @@ export function RunDetailView({ d }: { d: Detail }) {
       </Pane>
 
       <Pane title="フロー" aux={`${d.nodes.length} nodes`} actions={node ? <span className="dim" style={{ cursor: "pointer" }} onClick={() => setNode(null)}>Esc 選択解除</span> : <span className="faint">ノードをクリックで詳細</span>}>
-        <Dag nodes={d.nodes} edges={d.edges} selected={node} onSelect={(id) => setNode(id === node ? null : id)} />
-        {selected && (<><hr className="rule" /><NodeInspector n={selected} /></>)}
+        <Dag nodes={dagNodes} edges={d.edges} selected={node} onSelect={(id) => setNode(id === node ? null : id)} />
+        {selected && (<><hr className="rule" /><NodeInspector n={selected} now={now} /></>)}
       </Pane>
 
     </div>
